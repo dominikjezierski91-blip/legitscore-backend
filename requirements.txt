@@ -1,2 +1,3 @@
 google-genai
-reportlab
+Jinja2
+WeasyPrint
