@@ -127,7 +127,7 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
                 report_text = render_report_text(report_data, mode=report_mode)
                 (artifacts_dir / "report.txt").write_text(report_text, encoding="utf-8")
                 pdf_path = str(artifacts_dir / "report.pdf")
-                generate_report_pdf(case_id, report_text, pdf_path)
+                generate_report_pdf(case_id, report_data, pdf_path)
         except Exception as e:
             logger.exception("Generowanie report.txt / report.pdf nie powiodło się (kontynuujemy): %s", e)
 
