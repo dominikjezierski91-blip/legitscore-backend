@@ -15,10 +15,24 @@ from app.models.decision import Decision, Reason, Trace, Recommendation
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-1.5-pro"
+DEFAULT_MODEL = "models/gemini-2.5-flash"
 DEFAULT_PROMPT_VERSION = "a-2.0"
 
-client = genai.Client()
+_client: Optional[genai.Client] = None
+
+
+def _get_api_key() -> Optional[str]:
+    return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+
+def _get_client() -> Optional[genai.Client]:
+    global _client
+    api_key = _get_api_key()
+    if not api_key:
+        return None
+    if _client is None:
+        _client = genai.Client(api_key=api_key)
+    return _client
 
 
 def _utc_now_iso() -> str:
@@ -155,6 +169,19 @@ class GeminiAgentA:
         prompt_version = os.getenv("A_PROMPT_VERSION", DEFAULT_PROMPT_VERSION)
         system_prompt = _load_system_prompt()
 
+        api_key = _get_api_key()
+        if not api_key:
+            logger.error("Gemini API key missing; set GEMINI_API_KEY or GOOGLE_API_KEY")
+            raise HTTPException(status_code=503, detail="Gemini API key missing")
+
+        client = _get_client()
+        if client is None:
+            raise HTTPException(status_code=503, detail="Gemini API key missing")
+
+        logger.info(
+            "Gemini analyze: model=%s key_present=%s", model, True
+        )
+
         parts: List[types.Part] = [
             types.Part(text="Analyze the attached images. Return ONLY the JSON as specified.")
         ]
@@ -191,8 +218,22 @@ class GeminiAgentA:
                 ),
             )
         except Exception as e:
-            logger.exception("Gemini call failed")
-            raise HTTPException(status_code=502, detail=f"Gemini API error: {type(e).__name__}")
+            msg = str(e)
+            logger.exception("Gemini call failed for model=%s: %s", model, msg)
+            lowered = msg.lower()
+            if ("404" in msg or "not found" in lowered) and "model" in lowered:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "detail": "Gemini model not available",
+                        "model": model,
+                        "hint": "Set GEMINI_MODEL to an available model (e.g. models/gemini-2.5-flash)",
+                    },
+                )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Gemini API error: {type(e).__name__}",
+            )
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
 
