@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    /* Base document */
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 11px;
+      color: #0f2a2a;
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+    }
+    .page {
+      padding: 24px;
+      max-width: 760px;
+      margin: 0 auto;
+      background: #ffffff;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #dce7e7;
+      padding-bottom: 8px;
+      position: relative;
+    }
+    .header-left h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #0f2a2a;
+    }
+    .header-left .subtitle {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .header-right {
+      text-align: right;
+      font-size: 9px;
+      color: #64748b;
+    }
+    .header-meta-label {
+      color: #94a3b8;
+    }
+    .header-divider {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      background: #16c784;
+      opacity: 0.75;
+    }
+
+    /* Sections */
+    .section-title {
+      font-weight: 600;
+      font-size: 12px;
+      margin: 16px 0 6px 0;
+      color: #0f2a2a;
+    }
+    .section-card {
+      border-radius: 10px;
+      border: 1px solid #dce7e7;
+      background: #f4f8f8;
+      padding: 10px 12px;
+    }
+
+    /* Identification */
+    .ident-card {
+      border-radius: 10px;
+      border: 1px solid #dce7e7;
+      background: #f4f8f8;
+      padding: 10px 12px;
+    }
+    .ident-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-column-gap: 18px;
+      grid-row-gap: 4px;
+      font-size: 10px;
+    }
+    .ident-label {
+      font-weight: 600;
+      color: #475569;
+    }
+
+    /* Verdict / confidence */
+    .verdict-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-top: 10px;
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #dce7e7;
+      background: #f4f8f8;
+    }
+    .verdict-main {
+      max-width: 70%;
+    }
+    .verdict-main .label {
+      font-weight: 600;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #0f172a;
+    }
+    .verdict-main .summary {
+      font-size: 10px;
+      margin-top: 4px;
+      color: #475569;
+    }
+    .confidence-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 9px;
+      font-weight: 600;
+      border: 1px solid #16c784;
+      background: #e6faf4;
+      color: #0f2a2a;
+      margin-top: 4px;
+    }
+    .verdict-percent {
+      font-weight: 600;
+      font-size: 22px;
+      text-align: right;
+      color: #16c784;
+    }
+    .verdict-percent-label {
+      font-size: 9px;
+      color: #64748b;
+    }
+
+    /* Cards row */
+    .cards-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+    .card {
+      flex: 1;
+      border-radius: 10px;
+      border: 1px solid #dce7e7;
+      background: #f4f8f8;
+      padding: 8px 10px;
+      font-size: 10px;
+    }
+    .card-title {
+      font-weight: 600;
+      font-size: 10px;
+      margin-bottom: 4px;
+      color: #0f172a;
+    }
+
+    /* Probability table */
+    .prob-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+    .prob-table th,
+    .prob-table td {
+      border: 1px solid #dce7e7;
+      padding: 3px 4px;
+    }
+    .prob-table th {
+      background: #f4f8f8;
+      color: #0f2a2a;
+      font-weight: 600;
+    }
+    .prob-bar-bg {
+      background: #dce7e7;
+      height: 6px;
+      width: 100%;
+      border-radius: 3px;
+    }
+    .prob-bar-fill {
+      background: #16c784;
+      height: 6px;
+      border-radius: 3px;
+    }
+
+    /* Lists */
+    ul {
+      margin: 0;
+      padding-left: 14px;
+    }
+    li {
+      margin: 1px 0;
+    }
+    li::marker {
+      color: #16c784;
+    }
+
+    /* Footer */
+    .footer {
+      margin-top: 16px;
+      font-size: 8px;
+      color: #64748b;
+      border-top: 1px solid #dce7e7;
+      padding-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="header-left">
+        <h1>LEGITSCORE</h1>
+        <div class="subtitle">Raport oceny ryzyka · BASIC</div>
+      </div>
+      <div class="header-right">
+        <div><span class="header-meta-label">Case ID:</span> {{ case_id }}</div>
+        <div><span class="header-meta-label">Report ID:</span> {{ data.report_id }}</div>
+        <div><span class="header-meta-label">Data analizy:</span> {{ data.analysis_date }}</div>
+      </div>
+      <div class="header-divider"></div>
+    </div>
+
+    <div class="section-title">Identyfikacja produktu</div>
+    <div class="ident-card">
+      <div class="ident-grid">
+        <div class="ident-label">Klub / reprezentacja:</div>
+        <div>{{ data.subject.club or "nieustalone" }}</div>
+        <div class="ident-label">Sezon:</div>
+        <div>{{ data.subject.season or "nieustalone" }}</div>
+        <div class="ident-label">Model:</div>
+        <div>{{ data.subject.model or "nieustalone" }}</div>
+        <div class="ident-label">Producent:</div>
+        <div>{{ data.subject.brand or "nieustalone" }}</div>
+        <div class="ident-label">Zawodnik:</div>
+        <div>{{ data.subject.player_name or "nieustalone" }} ({{ data.subject.player_number or "?" }})</div>
+      </div>
+    </div>
+
+    {% set vc = (data.verdict.verdict_category or "")|lower %}
+    <div class="verdict-box">
+      <div class="verdict-main">
+        <div class="label">{{ data.verdict.label or "nieustalone" }}</div>
+        <div>Werdykt: {{ data.verdict.verdict_category or "nieustalone" }}</div>
+        <span class="confidence-badge">
+          Poziom pewności: {{ data.verdict.confidence_level or "nieustalone" }}
+        </span>
+        <div class="summary">{{ data.verdict.summary or "brak podsumowania" }}</div>
+      </div>
+      <div class="verdict-percent">
+        {{ data.verdict.confidence_percent or 0 }}%
+        <div class="verdict-percent-label">Pewność łączna</div>
+      </div>
+    </div>
+
+    <div class="cards-row">
+      <div class="card">
+        <div class="card-title">Personalizacja</div>
+        <div>Status: {{ data.personalization_assessment.status or "nieustalone" }}</div>
+        <div>Pewność: {{ data.personalization_assessment.confidence or "nieustalone" }}</div>
+        <div>{{ data.personalization_assessment.notes or "brak danych" }}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Status meczowy</div>
+        <div>Status: {{ data.meczowa_detail.status or "nieustalone" }}</div>
+        <div>Pewność: {{ data.meczowa_detail.confidence or "nieustalone" }}</div>
+        <div>{{ data.meczowa_detail.notes or "Nie dotyczy." }}</div>
+      </div>
+    </div>
+
+    <div class="section-title">Rozkład prawdopodobieństwa</div>
+    <table class="prob-table">
+      <tr>
+        <th>Kategoria</th>
+        <th>Prawdopodobieństwo</th>
+      </tr>
+      {% set p = data.probabilities %}
+      {% set rows = [
+        ("Oryginalna (sklepowa)", p.oryginalna_sklepowa or 0),
+        ("Meczowa", p.meczowa or 0),
+        ("Oficjalna replika", p.oficjalna_replika or 0),
+        ("Podróbka", p.podrobka or 0),
+        ("Edycja limitowana", p.edycja_limitowana or 0),
+        ("Treningowa / custom", p.treningowa_custom or 0),
+      ] %}
+      {% for label, pct in rows %}
+      <tr>
+        <td>{{ label }}</td>
+        <td>
+          <div class="prob-bar-bg">
+            <div class="prob-bar-fill" style="width: {{ pct }}%;"></div>
+          </div>
+          {{ pct }}%
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    <div class="section-title">Kluczowe przesłanki</div>
+    {% if data.key_evidence %}
+      <ul>
+      {% for ev in data.key_evidence %}
+        <li>{{ ev.text or ev }}</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      Brak jednoznacznych przesłanek w danych wejściowych.
+    {% endif %}
+
+    <div class="section-title">Braki danych</div>
+    {% if data.missing_data %}
+      <ul>
+      {% for m in data.missing_data %}
+        <li>{{ m }}</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      Brak krytycznych braków danych.
+    {% endif %}
+
+    <div class="section-title">Rekomendacje</div>
+    {% if data.recommendations %}
+      <ul>
+      {% for r in data.recommendations %}
+        <li>{{ r.code or r }}</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      Brak dodatkowych rekomendacji.
+    {% endif %}
+
+    <div class="footer">
+      Raport LegitScore ma charakter analityczny i pomocniczy. Nie stanowi certyfikatu ani 100% gwarancji.
+    </div>
+  </div>
+</body>
+</html>

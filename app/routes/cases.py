@@ -1,0 +1,198 @@
+import json
+import logging
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
+
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+
+from app.models.decision import Decision
+from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data
+from app.services.storage import (
+    create_case,
+    load_case,
+    save_case,
+    save_assets,
+    save_artifact,
+    get_case_dir,
+    DATA_DIR,
+    CASES_DIR,
+)
+from app.services.report_text_renderer import render_report_text
+from app.services.pdf_report import generate_report_pdf
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+@router.post("/cases")
+async def create_case_endpoint():
+    """Tworzy nowy case i zwraca case_id"""
+    case_data = create_case()
+    return {"case_id": case_data["case_id"]}
+
+
+@router.post("/cases/{case_id}/assets")
+async def upload_assets(case_id: str, files: List[UploadFile] = File(...)):
+    """Przyjmuje multipart/form-data z plikami i zapisuje je do assets"""
+    # Sprawdź czy case istnieje
+    case_data = load_case(case_id)
+
+    # Zapisz pliki
+    saved_assets = await save_assets(case_id, files)
+
+    # Aktualizuj case.json
+    case_data["assets"].extend(saved_assets)
+    if len(case_data["assets"]) >= 1:
+        case_data["status"] = "ASSETS_READY"
+
+    save_case(case_id, case_data)
+
+    return {"assets": saved_assets}
+
+
+@router.post("/cases/{case_id}/decision")
+async def submit_decision(case_id: str, decision: Decision):
+    """Przyjmuje decyzję, zapisuje ją jako artefakt i aktualizuje case."""
+    # 404 jeśli case nie istnieje
+    case_data = load_case(case_id)
+
+    artifact_data = decision.dict()
+    artifact_path = save_artifact(case_id, "decision", artifact_data)
+
+    case_data["status"] = "DECIDED"
+    case_data.setdefault("artifacts", {})
+    case_data["artifacts"]["decision"] = artifact_path
+
+    save_case(case_id, case_data)
+
+    return {"ok": True, "artifact": artifact_path}
+
+
+# Test flow: POST /api/cases → POST /api/cases/{id}/assets (zdjęcia) → POST /api/cases/{id}/run-decision?mode=basic
+# Sprawdź: /cases/{id}/artifacts/report_data.json, /cases/{id}/artifacts/report.txt, /cases/{id}/artifacts/report.pdf
+
+
+@router.post("/cases/{case_id}/run-decision")
+async def run_decision(case_id: str, mode: str = Query("basic", description="basic | expert")):
+    """Uruchamia automatyczną analizę (Gemini), zapisuje decision + report_data.json, generuje report.txt i report.pdf."""
+    case_data = load_case(case_id)
+
+    assets = case_data.get("assets") or []
+    if not assets:
+        raise HTTPException(status_code=400, detail="No assets available for decision")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Missing GEMINI_API_KEY")
+
+    asset_paths: List[str] = []
+    for asset in assets:
+        rel_path = asset.get("path")
+        if not rel_path:
+            continue
+        asset_paths.append(str(DATA_DIR / rel_path))
+
+    decision_dict = await GeminiAgentA().analyze(case_id, asset_paths)
+
+    try:
+        decision_model = Decision.model_validate(decision_dict)
+    except Exception:
+        case_dir = get_case_dir(case_id)
+        artifacts_dir = case_dir / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        raw_path = artifacts_dir / "decision_raw.txt"
+        with open(raw_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(decision_dict, indent=2, ensure_ascii=False))
+        raise HTTPException(status_code=422, detail="Decision validation failed")
+
+    artifact_path = save_artifact(case_id, "decision", decision_model.model_dump())
+
+    case_data["status"] = "DECIDED"
+    case_data.setdefault("artifacts", {})
+    case_data["artifacts"]["decision"] = artifact_path
+    save_case(case_id, case_data)
+
+    # Generuj report.txt i report.pdf z report_data.json (non-fatal)
+    artifacts_dir = CASES_DIR / case_id / "artifacts"
+    report_data_path = artifacts_dir / "report_data.json"
+    if report_data_path.exists():
+        try:
+            with open(report_data_path, "r", encoding="utf-8") as f:
+                wrapper = json.load(f)
+            report_data = wrapper.get("REPORT_DATA") if isinstance(wrapper, dict) else None
+            if isinstance(report_data, dict):
+                # Minimal technical fix: ensure report_id and analysis_date when missing.
+                # Renderer uses saved REPORT_DATA; never invent static dates in templates.
+                _ensure_report_metadata(report_data, case_id)
+                # Debug: pokaż surowe REPORT_DATA z Agenta A przed normalizacją techniczną.
+                try:
+                    logger.debug(
+                        "REPORT_DATA raw (Agent A) for case %s: %s",
+                        case_id,
+                        json.dumps(report_data, ensure_ascii=False),
+                    )
+                except Exception:
+                    logger.exception("Failed to log raw REPORT_DATA for case %s", case_id)
+
+                # Minimalna normalizacja techniczna (skala prawdopodobieństw + spójność verdictu).
+                normalize_report_data(report_data)
+
+                # Debug: pokaż REPORT_DATA po normalizacji (ta wersja jest zapisywana i renderowana).
+                try:
+                    logger.debug(
+                        "REPORT_DATA normalized for case %s: %s",
+                        case_id,
+                        json.dumps(report_data, ensure_ascii=False),
+                    )
+                except Exception:
+                    logger.exception("Failed to log normalized REPORT_DATA for case %s", case_id)
+
+                # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
+                try:
+                    report_data_path.write_text(
+                        json.dumps({"REPORT_DATA": report_data}, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    logger.exception("Failed to overwrite report_data.json for case %s", case_id)
+
+                report_mode = "expert" if mode == "expert" else "basic"
+                report_text = render_report_text(report_data, mode=report_mode)
+                (artifacts_dir / "report.txt").write_text(report_text, encoding="utf-8")
+                pdf_path = str(artifacts_dir / "report.pdf")
+                generate_report_pdf(case_id, report_data, pdf_path, mode=report_mode)
+        except Exception as e:
+            logger.exception("Generowanie report.txt / report.pdf nie powiodło się (kontynuujemy): %s", e)
+
+    return {"ok": True, "artifact": artifact_path}
+
+
+def _ensure_report_metadata(report_data: Dict[str, Any], case_id: str) -> None:
+    """
+    Minimal technical fix: ensure report_id and analysis_date are current.
+    Fills when missing; overwrites when values look like stale samples (e.g. 2023).
+    Renderer must not show old placeholder metadata.
+    """
+    if not isinstance(report_data, dict):
+        return
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%Y-%m-%d")
+    id_prefix = now.strftime("%Y%m%d")
+    rid = report_data.get("report_id")
+    adate = report_data.get("analysis_date")
+    rid_str = (rid or "").strip() if isinstance(rid, str) else ""
+    adate_str = (adate or "").strip() if isinstance(adate, str) else ""
+    if not rid_str or "2023" in rid_str:
+        report_data["report_id"] = f"{id_prefix}-{case_id[:8]}"
+    if not adate_str or adate_str.startswith("2023"):
+        report_data["analysis_date"] = date_str
+
+
+@router.get("/cases/{case_id}")
+async def get_case(case_id: str):
+    """Zwraca cały case.json"""
+    case_data = load_case(case_id)
+    return case_data

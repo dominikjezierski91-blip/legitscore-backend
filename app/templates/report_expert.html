@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    /* Base document */
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 11px;
+      color: #0f2a2a;
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+    }
+    .page {
+      padding: 24px;
+      max-width: 760px;
+      margin: 0 auto;
+      background: #ffffff;
+      page-break-after: always;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #dce7e7;
+      padding-bottom: 8px;
+    }
+    .header-left h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #0f2a2a;
+    }
+    .header-left .subtitle {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .header-right {
+      text-align: right;
+      font-size: 9px;
+      color: #64748b;
+    }
+    .header-meta-label {
+      color: #94a3b8;
+    }
+
+    /* Sections */
+    .section-title {
+      font-weight: 600;
+      font-size: 12px;
+      margin: 16px 0 6px 0;
+      color: #0f172a;
+    }
+    .section-card {
+      border-radius: 10px;
+      border: 1px solid #dce7e7;
+      background: #f4f8f8;
+      padding: 10px 12px;
+    }
+
+    /* Identification */
+    .ident-card {
+      border-radius: 10px;
+      border: 1px solid #dce7e7;
+      background: #f4f8f8;
+      padding: 10px 12px;
+    }
+    .ident-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-column-gap: 18px;
+      grid-row-gap: 4px;
+      font-size: 10px;
+    }
+    .ident-label {
+      font-weight: 600;
+      color: #475569;
+    }
+
+    /* Verdict / confidence */
+    .verdict-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 10px;
+      color: #047857;
+      border: 1px solid #a7f3d0;
+      background: #ecfdf5;
+    }
+    .confidence-text {
+      font-size: 10px;
+      color: #475569;
+      margin-left: 6px;
+    }
+    .verdict-summary-box {
+      border-radius: 10px;
+      border: 1px solid #dce7e7;
+      padding: 8px 10px;
+      background: #f8fafc;
+      font-size: 10px;
+      margin-top: 6px;
+      color: #475569;
+    }
+
+    /* Probability table */
+    .prob-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+    .prob-table th,
+    .prob-table td {
+      border: 1px solid #e2e8f0;
+      padding: 3px 4px;
+    }
+    .prob-table th {
+      background: #f4f8f8;
+      color: #0f2a2a;
+      font-weight: 600;
+    }
+    .prob-bar-bg {
+      background: #dce7e7;
+      height: 6px;
+      width: 100%;
+      border-radius: 3px;
+    }
+    .prob-bar-fill {
+      background: #16c784;
+      height: 6px;
+      border-radius: 3px;
+    }
+
+    /* Decision matrix */
+    .dm-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+    }
+    .dm-table th,
+    .dm-table td {
+      border: 1px solid #dce7e7;
+      padding: 3px 4px;
+    }
+    .dm-table th {
+      background: #f4f8f8;
+      color: #0f2a2a;
+      font-weight: 600;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 8px;
+      color: #ffffff;
+    }
+    .badge-green {
+      background: #16c784;
+    }
+    .badge-amber {
+      background: #facc15;
+      color: #1e293b;
+    }
+    .badge-red {
+      background: #ef4444;
+    }
+    .badge-gray {
+      background: #9ca3af;
+    }
+
+    /* Lists */
+    ul {
+      margin: 0;
+      padding-left: 14px;
+    }
+    li {
+      margin: 1px 0;
+    }
+    li::marker {
+      color: #16c784;
+    }
+
+    /* Footer */
+    .footer {
+      margin-top: 16px;
+      font-size: 8px;
+      color: #64748b;
+      border-top: 1px solid #dce7e7;
+      padding-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  {% set d = data %}
+
+  <div class="page">
+    <div class="header">
+      <div class="header-left">
+        <h1>LEGITSCORE</h1>
+        <div class="subtitle">Raport oceny ryzyka · EXPERT</div>
+      </div>
+      <div class="header-right">
+        <div><span class="header-meta-label">Case ID:</span> {{ case_id }}</div>
+        <div><span class="header-meta-label">Report ID:</span> {{ d.report_id }}</div>
+        <div><span class="header-meta-label">Data analizy:</span> {{ d.analysis_date }}</div>
+      </div>
+    </div>
+
+    <div class="section-title">Identyfikacja produktu</div>
+    <div class="ident-card">
+      <div class="ident-grid">
+        <div class="ident-label">Klub / reprezentacja:</div>
+        <div>{{ d.subject.club or "nieustalone" }}</div>
+        <div class="ident-label">Sezon:</div>
+        <div>{{ d.subject.season or "nieustalone" }}</div>
+        <div class="ident-label">Model:</div>
+        <div>{{ d.subject.model or "nieustalone" }}</div>
+        <div class="ident-label">Producent:</div>
+        <div>{{ d.subject.brand or "nieustalone" }}</div>
+        <div class="ident-label">Zawodnik:</div>
+        <div>{{ d.subject.player_name or "nieustalone" }} ({{ d.subject.player_number or "?" }})</div>
+      </div>
+    </div>
+
+    <div class="section-title">Werdykt</div>
+    <div>
+      <span class="verdict-badge">
+        {{ d.verdict.verdict_category or "nieustalone" }}
+      </span>
+      <span class="confidence-text">
+        Poziom pewności: {{ d.verdict.confidence_level or "nieustalone" }} ({{ d.verdict.confidence_percent or 0 }}%)
+      </span>
+    </div>
+    <div class="verdict-summary-box">
+      {{ d.verdict.summary or "brak podsumowania" }}
+    </div>
+
+    <div class="section-title">Analiza prawdopodobieństwa</div>
+    <table class="prob-table">
+      <tr><th>Kategoria</th><th>Prawdopodobieństwo</th></tr>
+      {% set p = d.probabilities %}
+      {% set rows = [
+        ("Oryginalna (sklepowa)", p.oryginalna_sklepowa or 0),
+        ("Meczowa", p.meczowa or 0),
+        ("Oficjalna replika", p.oficjalna_replika or 0),
+        ("Podróbka", p.podrobka or 0),
+        ("Edycja limitowana", p.edycja_limitowana or 0),
+        ("Treningowa / custom", p.treningowa_custom or 0),
+      ] %}
+      {% for label, pct in rows %}
+      <tr>
+        <td>{{ label }}</td>
+        <td>
+          <div class="prob-bar-bg">
+            <div class="prob-bar-fill" style="width: {{ pct }}%;"></div>
+          </div>
+          {{ pct }}%
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    <div class="section-title">Najważniejsze obserwacje (forensics)</div>
+    {% if d.key_evidence %}
+      <ul>
+      {% for ev in d.key_evidence %}
+        <li>{{ ev.text or ev }}</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      Brak zdefiniowanych kluczowych przesłanek.
+    {% endif %}
+
+    <div class="footer">
+      Raport LegitScore ma charakter analityczny i pomocniczy. Nie stanowi certyfikatu ani 100% gwarancji.
+    </div>
+  </div>
+
+  <div class="page">
+    <div class="section-title">Macierz decyzyjna</div>
+    {% if d.decision_matrix %}
+      <table class="dm-table">
+        <tr>
+          <th>Kryterium</th>
+          <th>Kod</th>
+          <th>Waga</th>
+          <th>Status</th>
+          <th>Obserwacja</th>
+          <th>Wpływ</th>
+        </tr>
+        {% for row in d.decision_matrix %}
+          {% set st = (row.status or "")|upper %}
+          {% if st == "GREEN" %}
+            {% set badge_class = "badge-green" %}
+            {% set badge_label = "GREEN" %}
+          {% elif st in ["AMBER", "YELLOW", "WARNING"] %}
+            {% set badge_class = "badge-amber" %}
+            {% set badge_label = "AMBER" %}
+          {% elif st == "RED" %}
+            {% set badge_class = "badge-red" %}
+            {% set badge_label = "RED" %}
+          {% else %}
+            {% set badge_class = "badge-gray" %}
+            {% set badge_label = "UNKNOWN" %}
+          {% endif %}
+          <tr>
+            <td>{{ row.criterion or row.criterion_name or "nieustalone" }}</td>
+            <td>{{ row.code or row.criterion_id or "-" }}</td>
+            <td>{{ row.weight or "-" }}</td>
+            <td><span class="badge {{ badge_class }}">{{ badge_label }}</span></td>
+            <td>{{ row.observation or "brak obserwacji" }}</td>
+            <td>{{ row.impact or "brak" }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      Brak decision_matrix w danych wejściowych.
+    {% endif %}
+
+    <div class="section-title">Braki danych</div>
+    {% if d.missing_data %}
+      <ul>
+      {% for m in d.missing_data %}
+        <li>{{ m }}</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      Brak krytycznych braków danych.
+    {% endif %}
+
+    <div class="section-title">Rekomendacje</div>
+    {% if d.recommendations %}
+      <ul>
+      {% for r in d.recommendations %}
+        <li>{{ r.code or r }}</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      Brak dodatkowych rekomendacji.
+    {% endif %}
+
+    <div class="section-title">Uwagi / kontekst audytu</div>
+    <div class="verdict-summary-box">
+      {{ d.notes.mode_note or "brak dodatkowych uwag" }}
+    </div>
+
+    <div class="footer">
+      Raport LegitScore ma charakter analityczny i pomocniczy. Nie stanowi certyfikatu ani 100% gwarancji.
+    </div>
+  </div>
+</body>
+</html>
