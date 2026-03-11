@@ -254,7 +254,16 @@ async def get_report_data(case_id: str):
     """
     artifacts_dir = CASES_DIR / case_id / "artifacts"
     path = artifacts_dir / "report_data.json"
-    if not path.exists():
+    exists = path.exists()
+    size = path.stat().st_size if exists else 0
+    logger.debug(
+        "get_report_data: case_id=%s path=%s exists=%s size=%s",
+        case_id,
+        path,
+        exists,
+        size,
+    )
+    if not exists:
         raise HTTPException(status_code=404, detail="report_data.json not found")
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -262,6 +271,16 @@ async def get_report_data(case_id: str):
     except Exception:
         logger.exception("Failed to read report_data.json for case %s", case_id)
         raise HTTPException(status_code=500, detail="Failed to read report_data.json")
+    report_data = wrapper.get("REPORT_DATA") if isinstance(wrapper, dict) else None
+    report_id = None
+    if isinstance(report_data, dict):
+        report_id = report_data.get("report_id")
+    logger.debug(
+        "get_report_data: case_id=%s report_id=%s headers=%s",
+        case_id,
+        report_id,
+        _REPORT_CACHE_HEADERS,
+    )
     return JSONResponse(content=wrapper, headers=_REPORT_CACHE_HEADERS)
 
 
@@ -273,7 +292,17 @@ async def get_report_pdf(case_id: str):
     """
     artifacts_dir = CASES_DIR / case_id / "artifacts"
     path = artifacts_dir / "report.pdf"
-    if not path.exists():
+    exists = path.exists()
+    size = path.stat().st_size if exists else 0
+    logger.debug(
+        "get_report_pdf: case_id=%s path=%s exists=%s size=%s headers=%s",
+        case_id,
+        path,
+        exists,
+        size,
+        _REPORT_CACHE_HEADERS,
+    )
+    if not exists:
         raise HTTPException(status_code=404, detail="report.pdf not found")
     return FileResponse(
         path,
