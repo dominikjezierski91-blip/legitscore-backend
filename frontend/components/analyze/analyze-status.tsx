@@ -50,10 +50,13 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
       stopPolling();
       if (DEBUG) console.debug("[AnalyzeStatus] polling started");
 
+      const POLL_INTERVAL_MS = 3000;
+
       const pollOnce = async () => {
         if (cancelled) return;
         try {
           const data: any = await getCase(id);
+          if (cancelled) return;
           const status: string | undefined = data?.status;
           if (status === "DECIDED") {
             stopPolling();
@@ -70,6 +73,7 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
             if (!cancelled) setError("Analiza zakończyła się błędem. Spróbuj ponownie później.");
             return;
           }
+          if (DEBUG) console.debug("[AnalyzeStatus] polling tick");
           if (!cancelled) setTick((t) => t + 1);
         } catch (e: any) {
           if (!cancelled) {
@@ -81,7 +85,7 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
       };
 
       pollOnce();
-      pollingIntervalRef.current = setInterval(pollOnce, 2500);
+      pollingIntervalRef.current = setInterval(pollOnce, POLL_INTERVAL_MS);
     };
 
     const submission = getPendingSubmission();
