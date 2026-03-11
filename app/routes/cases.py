@@ -86,12 +86,13 @@ async def submit_decision(case_id: str, decision: Decision):
 async def run_decision(case_id: str, mode: str = Query("basic", description="basic | expert")):
     """Uruchamia automatyczną analizę (Gemini), zapisuje decision + report_data.json, generuje report.txt i report.pdf."""
     case_data = load_case(case_id)
+    status = case_data.get("status")
 
-    # Idempotentność: analizę uruchamiamy tylko gdy case jest w stanie "CREATED" (lub "ASSETS_READY" po uploadzie).
-    current_status = case_data.get("status")
-    if current_status not in ("CREATED", "ASSETS_READY"):
-        logger.info("run-decision skipped for case %s (status=%s)", case_id, current_status)
-        return {"ok": True, "skipped": True, "status": current_status}
+    # Idempotentność: analizę uruchamiamy tylko gdy status in ("CREATED", "ASSETS_READY").
+    # Drugi request (status IN_PROGRESS/DECIDED/ERROR) nie uruchamia analizy ani nie nadpisuje artefaktów.
+    if status not in ("CREATED", "ASSETS_READY"):
+        logger.debug("run-decision skipped for case %s, status=%s", case_id, status)
+        return {"ok": True, "status": status, "skipped": True}
 
     assets = case_data.get("assets") or []
     if not assets:
