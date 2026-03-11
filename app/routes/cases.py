@@ -323,25 +323,25 @@ async def get_report_data(case_id: str):
 async def get_report_pdf(case_id: str):
     """
     Zwraca finalny snapshot report.pdf dla danego case_id.
-    Używane przez frontend do pobierania PDF (no-store).
+    Content-Disposition: inline umożliwia preview w Safari/Chrome mobile.
     """
     artifacts_dir = CASES_DIR / case_id / "artifacts"
     path = artifacts_dir / "report.pdf"
     exists = path.exists()
     size = path.stat().st_size if exists else 0
+
+    headers = dict(_REPORT_CACHE_HEADERS)
+    headers["Content-Disposition"] = f'inline; filename="{case_id}_report.pdf"'
+
     logger.debug(
-        "get_report_pdf: case_id=%s path=%s exists=%s size=%s headers=%s",
+        "report-pdf: case_id=%s size=%s content_disposition=inline",
         case_id,
-        path,
-        exists,
         size,
-        _REPORT_CACHE_HEADERS,
     )
     if not exists:
         raise HTTPException(status_code=404, detail="report.pdf not found")
     return FileResponse(
         path,
         media_type="application/pdf",
-        filename=f"{case_id}_report.pdf",
-        headers=_REPORT_CACHE_HEADERS,
+        headers=headers,
     )
