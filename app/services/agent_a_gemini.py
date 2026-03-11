@@ -40,9 +40,46 @@ def _utc_now_iso() -> str:
 
 
 def _load_system_prompt() -> str:
-    prompt = os.getenv("A_PROMPT_TEXT")
-    if prompt and prompt.strip():
-        return prompt
+    """
+    Load Agent A system prompt in the following order:
+    1. A_PROMPT_TEXT env (non-empty),
+    2. A_PROMPT_FILE env (absolute or relative to repo root),
+    3. default file prompt_a.txt at repo root,
+    4. final hardcoded fallback.
+    """
+    env_text = os.getenv("A_PROMPT_TEXT")
+    if env_text and env_text.strip():
+        return env_text
+
+    def _read_prompt_file(path: Path) -> Optional[str]:
+        try:
+            if path.is_file():
+                text = path.read_text(encoding="utf-8")
+                if text.strip():
+                    logger.info("Loaded Agent A prompt from %s", path)
+                    return text
+        except Exception:
+            logger.exception("Failed to read Agent A prompt file: %s", path)
+        return None
+
+    # Repo root = two levels above this file: app/services/agent_a_gemini.py -> app -> repo root
+    repo_root = Path(__file__).resolve().parents[2]
+
+    file_from_env = os.getenv("A_PROMPT_FILE")
+    if file_from_env:
+        candidate = Path(file_from_env)
+        if not candidate.is_absolute():
+            candidate = repo_root / candidate
+        text = _read_prompt_file(candidate)
+        if text is not None:
+            return text
+
+    # Default prompt file at repo root.
+    default_file = repo_root / "prompt_a.txt"
+    text = _read_prompt_file(default_file)
+    if text is not None:
+        return text
+
     # Fallback: minimal forensic prompt with fixed REPORT_DATA schema.
     return (
         "AGENT A — DECISION ENGINE (FORENSICS) — v2.0\n\n"
