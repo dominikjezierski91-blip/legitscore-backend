@@ -80,6 +80,12 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
     """Uruchamia automatyczną analizę (Gemini), zapisuje decision + report_data.json, generuje report.txt i report.pdf."""
     case_data = load_case(case_id)
 
+    # Minimalny guard przed równoległym / powtórnym uruchomieniem analizy.
+    previous_status = case_data.get("status")
+    if previous_status == "IN_PROGRESS":
+        logger.info("run-decision blocked for case %s: status IN_PROGRESS", case_id)
+        raise HTTPException(status_code=409, detail="Analysis already in progress")
+
     assets = case_data.get("assets") or []
     if not assets:
         raise HTTPException(status_code=400, detail="No assets available for decision")
@@ -88,86 +94,98 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
     if not api_key:
         raise HTTPException(status_code=500, detail="Missing GEMINI_API_KEY")
 
-    asset_paths: List[str] = []
-    for asset in assets:
-        rel_path = asset.get("path")
-        if not rel_path:
-            continue
-        asset_paths.append(str(DATA_DIR / rel_path))
-
-    decision_dict = await GeminiAgentA().analyze(case_id, asset_paths)
+    # Oznacz case jako będący w trakcie analizy.
+    case_data["status"] = "IN_PROGRESS"
+    save_case(case_id, case_data)
+    logger.info("run-decision started for case %s (mode=%s)", case_id, mode)
 
     try:
-        decision_model = Decision.model_validate(decision_dict)
-    except Exception:
-        case_dir = get_case_dir(case_id)
-        artifacts_dir = case_dir / "artifacts"
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-        raw_path = artifacts_dir / "decision_raw.txt"
-        with open(raw_path, "w", encoding="utf-8") as f:
-            f.write(json.dumps(decision_dict, indent=2, ensure_ascii=False))
-        raise HTTPException(status_code=422, detail="Decision validation failed")
+        asset_paths: List[str] = []
+        for asset in assets:
+            rel_path = asset.get("path")
+            if not rel_path:
+                continue
+            asset_paths.append(str(DATA_DIR / rel_path))
 
-    artifact_path = save_artifact(case_id, "decision", decision_model.model_dump())
+        decision_dict = await GeminiAgentA().analyze(case_id, asset_paths)
 
-    case_data["status"] = "DECIDED"
-    case_data.setdefault("artifacts", {})
-    case_data["artifacts"]["decision"] = artifact_path
-    save_case(case_id, case_data)
-
-    # Generuj report.txt i report.pdf z report_data.json (non-fatal)
-    artifacts_dir = CASES_DIR / case_id / "artifacts"
-    report_data_path = artifacts_dir / "report_data.json"
-    if report_data_path.exists():
         try:
-            with open(report_data_path, "r", encoding="utf-8") as f:
-                wrapper = json.load(f)
-            report_data = wrapper.get("REPORT_DATA") if isinstance(wrapper, dict) else None
-            if isinstance(report_data, dict):
-                # Minimal technical fix: ensure report_id and analysis_date when missing.
-                # Renderer uses saved REPORT_DATA; never invent static dates in templates.
-                _ensure_report_metadata(report_data, case_id)
-                # Debug: pokaż surowe REPORT_DATA z Agenta A przed normalizacją techniczną.
-                try:
-                    logger.debug(
-                        "REPORT_DATA raw (Agent A) for case %s: %s",
-                        case_id,
-                        json.dumps(report_data, ensure_ascii=False),
-                    )
-                except Exception:
-                    logger.exception("Failed to log raw REPORT_DATA for case %s", case_id)
+            decision_model = Decision.model_validate(decision_dict)
+        except Exception:
+            case_dir = get_case_dir(case_id)
+            artifacts_dir = case_dir / "artifacts"
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+            raw_path = artifacts_dir / "decision_raw.txt"
+            with open(raw_path, "w", encoding="utf-8") as f:
+                f.write(json.dumps(decision_dict, indent=2, ensure_ascii=False))
+            raise HTTPException(status_code=422, detail="Decision validation failed")
 
-                # Minimalna normalizacja techniczna (skala prawdopodobieństw + spójność verdictu).
-                normalize_report_data(report_data)
+        artifact_path = save_artifact(case_id, "decision", decision_model.model_dump())
 
-                # Debug: pokaż REPORT_DATA po normalizacji (ta wersja jest zapisywana i renderowana).
-                try:
-                    logger.debug(
-                        "REPORT_DATA normalized for case %s: %s",
-                        case_id,
-                        json.dumps(report_data, ensure_ascii=False),
-                    )
-                except Exception:
-                    logger.exception("Failed to log normalized REPORT_DATA for case %s", case_id)
+        case_data["status"] = "DECIDED"
+        case_data.setdefault("artifacts", {})
+        case_data["artifacts"]["decision"] = artifact_path
+        save_case(case_id, case_data)
 
-                # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
-                try:
-                    report_data_path.write_text(
-                        json.dumps({"REPORT_DATA": report_data}, ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                except Exception:
-                    logger.exception("Failed to overwrite report_data.json for case %s", case_id)
+        # Generuj report.txt i report.pdf z report_data.json (non-fatal)
+        artifacts_dir = CASES_DIR / case_id / "artifacts"
+        report_data_path = artifacts_dir / "report_data.json"
+        if report_data_path.exists():
+            try:
+                with open(report_data_path, "r", encoding="utf-8") as f:
+                    wrapper = json.load(f)
+                report_data = wrapper.get("REPORT_DATA") if isinstance(wrapper, dict) else None
+                if isinstance(report_data, dict):
+                    # Minimal technical fix: ensure report_id and analysis_date when missing.
+                    # Renderer uses saved REPORT_DATA; never invent static dates in templates.
+                    _ensure_report_metadata(report_data, case_id)
+                    # Debug: pokaż surowe REPORT_DATA z Agenta A przed normalizacją techniczną.
+                    try:
+                        logger.debug(
+                            "REPORT_DATA raw (Agent A) for case %s: %s",
+                            case_id,
+                            json.dumps(report_data, ensure_ascii=False),
+                        )
+                    except Exception:
+                        logger.exception("Failed to log raw REPORT_DATA for case %s", case_id)
 
-                report_mode = "expert" if mode == "expert" else "basic"
-                report_text = render_report_text(report_data, mode=report_mode)
-                (artifacts_dir / "report.txt").write_text(report_text, encoding="utf-8")
-                pdf_path = str(artifacts_dir / "report.pdf")
-                generate_report_pdf(case_id, report_data, pdf_path, mode=report_mode)
-        except Exception as e:
-            logger.exception("Generowanie report.txt / report.pdf nie powiodło się (kontynuujemy): %s", e)
+                    # Minimalna normalizacja techniczna (skala prawdopodobieństw + spójność verdictu).
+                    normalize_report_data(report_data)
 
-    return {"ok": True, "artifact": artifact_path}
+                    # Debug: pokaż REPORT_DATA po normalizacji (ta wersja jest zapisywana i renderowana).
+                    try:
+                        logger.debug(
+                            "REPORT_DATA normalized for case %s: %s",
+                            case_id,
+                            json.dumps(report_data, ensure_ascii=False),
+                        )
+                    except Exception:
+                        logger.exception("Failed to log normalized REPORT_DATA for case %s", case_id)
+
+                    # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
+                    try:
+                        report_data_path.write_text(
+                            json.dumps({"REPORT_DATA": report_data}, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                    except Exception:
+                        logger.exception("Failed to overwrite report_data.json for case %s", case_id)
+
+                    report_mode = "expert" if mode == "expert" else "basic"
+                    report_text = render_report_text(report_data, mode=report_mode)
+                    (artifacts_dir / "report.txt").write_text(report_text, encoding="utf-8")
+                    pdf_path = str(artifacts_dir / "report.pdf")
+                    generate_report_pdf(case_id, report_data, pdf_path, mode=report_mode)
+            except Exception as e:
+                logger.exception("Generowanie report.txt / report.pdf nie powiodło się (kontynuujemy): %s", e)
+
+        return {"ok": True, "artifact": artifact_path}
+    except Exception:
+        # W razie błędu oznacz case jako ERROR (minimalny, konserwatywny stan) i ponownie podnieś wyjątek.
+        case_data["status"] = "ERROR"
+        save_case(case_id, case_data)
+        logger.exception("run-decision failed for case %s; status set to ERROR", case_id)
+        raise
 
 
 def _ensure_report_metadata(report_data: Dict[str, Any], case_id: str) -> None:

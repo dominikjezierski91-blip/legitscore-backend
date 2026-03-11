@@ -413,8 +413,64 @@ class GeminiAgentA:
             )
         except Exception as e:
             msg = str(e)
-            logger.exception("Gemini call failed for model=%s: %s", model, msg)
+            # Rozszerzone logowanie błędów Gemini: spróbujmy wyciągnąć jak najwięcej informacji.
+            status_code = getattr(e, "status_code", None) or getattr(e, "code", None)
+            error_type = type(e).__name__
+            # Niektóre implementacje mogą mieć atrybut response / details
+            response_obj = getattr(e, "response", None)
+            details = getattr(e, "details", None) or getattr(e, "args", None)
+            try:
+                logger.error(
+                    "Gemini API error: type=%s status=%s msg=%s details=%r response=%r",
+                    error_type,
+                    status_code,
+                    msg,
+                    details,
+                    response_obj,
+                )
+            except Exception:
+                # W razie problemów z serializacją nadal logujemy przynajmniej podstawowy komunikat.
+                logger.exception("Gemini API error (logging failed) for model=%s: %s", model, msg)
+
             lowered = msg.lower()
+
+            # Specjalna obsługa limitów / RESOURCE_EXHAUSTED (HTTP 429).
+            is_quota_error = (
+                status_code == 429
+                or "resource_exhausted" in lowered
+                or "quota" in lowered
+                or "rate limit" in lowered
+            )
+            if is_quota_error:
+                retry_after_seconds: Optional[int] = None
+                # Best-effort: spróbujmy odczytać retry delay z wyjątku, jeśli jest.
+                raw_retry = getattr(e, "retry_delay", None)
+                try:
+                    # Google klient może zwrócić timedelta lub liczbę sekund.
+                    if raw_retry is not None:
+                        if hasattr(raw_retry, "total_seconds"):
+                            retry_after_seconds = int(raw_retry.total_seconds())
+                        else:
+                            retry_after_seconds = int(raw_retry)
+                except Exception:
+                    retry_after_seconds = None
+
+                # Jeśli nie znamy dokładnego opóźnienia, przyjmijmy konserwatywnie ~60s.
+                if retry_after_seconds is None or retry_after_seconds <= 0:
+                    retry_after_seconds = 60
+
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "gemini_quota_exhausted",
+                        "message": (
+                            "Limit analiz AI został chwilowo wyczerpany. "
+                            f"Spróbuj ponownie za około {retry_after_seconds // 60 or 1} minutę."
+                        ),
+                        "retry_after_seconds": retry_after_seconds,
+                    },
+                )
+
             if ("404" in msg or "not found" in lowered) and "model" in lowered:
                 raise HTTPException(
                     status_code=502,
