@@ -87,11 +87,11 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
     """Uruchamia automatyczną analizę (Gemini), zapisuje decision + report_data.json, generuje report.txt i report.pdf."""
     case_data = load_case(case_id)
 
-    # Minimalny guard przed równoległym / powtórnym uruchomieniem analizy.
-    previous_status = case_data.get("status")
-    if previous_status == "IN_PROGRESS":
-        logger.info("run-decision blocked for case %s: status IN_PROGRESS", case_id)
-        raise HTTPException(status_code=409, detail="Analysis already in progress")
+    # Idempotentność: analizę uruchamiamy tylko gdy case jest w stanie "CREATED" (lub "ASSETS_READY" po uploadzie).
+    current_status = case_data.get("status")
+    if current_status not in ("CREATED", "ASSETS_READY"):
+        logger.info("run-decision skipped for case %s (status=%s)", case_id, current_status)
+        return {"ok": True, "skipped": True, "status": current_status}
 
     assets = case_data.get("assets") or []
     if not assets:
