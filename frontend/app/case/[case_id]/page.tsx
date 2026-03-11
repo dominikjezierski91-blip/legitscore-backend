@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { cn } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 type Props = {
@@ -70,8 +72,15 @@ export default async function CasePage({ params, searchParams }: Props) {
   const probs = reportData?.probabilities ?? {};
   const keyEvidence = (reportData?.key_evidence as any[]) || [];
   const mode = searchParams.mode;
-
-  const pdfUrl = apiBase + "/cases/" + case_id + "/artifacts/report.pdf";
+  const reportId = reportData?.report_id as string | undefined;
+  const analysisDate = reportData?.analysis_date as string | undefined;
+  const cacheBust = encodeURIComponent(reportId || analysisDate || "");
+  const pdfUrl =
+    apiBase +
+    "/cases/" +
+    case_id +
+    "/artifacts/report.pdf" +
+    (cacheBust ? `?v=${cacheBust}` : "");
 
   return (
     <div className="flex flex-1 flex-col gap-6 py-6 md:flex-row">
@@ -125,6 +134,14 @@ export default async function CasePage({ params, searchParams }: Props) {
                 Pełny raport PDF zawiera szczegółową macierz decyzyjną i opis
                 przesłanek. Poniżej widzisz skrócone podsumowanie.
               </p>
+              {reportId && analysisDate && (
+                <p className="text-[10px] text-slate-500">
+                  Snapshot raportu:{" "}
+                  <span className="font-mono">
+                    {reportId} · {analysisDate}
+                  </span>
+                </p>
+              )}
             </div>
           </section>
 
