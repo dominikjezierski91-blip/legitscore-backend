@@ -635,7 +635,7 @@ analysis_date: data dzisiejsza w formacie YYYY-MM-DD. Nie używaj przykładowych
     "missing_data": [],
     "recommendations": [],
     "notes": {
-      "mode_note": "To jest output Agenta A. Prezentacja BASIC/EXPERT realizuje Agent B."
+      "mode_note": ""To jest output Agenta A v4 TEST MARKER 001. Prezentacja BASIC/EXPERT realizuje Agent B.."
     }
   }
 }
