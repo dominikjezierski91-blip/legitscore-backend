@@ -56,7 +56,7 @@ export default async function CasePage({ params, searchParams }: Props) {
   let reportData: any | null = null;
   const apiBase = API_BASE_URL.replace(/\/$/, "");
   try {
-    const url = apiBase + "/cases/" + case_id + "/artifacts/report_data.json";
+    const url = apiBase + "/api/cases/" + case_id + "/report-data";
     const res = await fetch(url, { cache: "no-store" });
     if (res.ok) {
       const wrapper = await res.json();
@@ -77,9 +77,9 @@ export default async function CasePage({ params, searchParams }: Props) {
   const cacheBust = encodeURIComponent(reportId || analysisDate || "");
   const pdfUrl =
     apiBase +
-    "/cases/" +
+    "/api/cases/" +
     case_id +
-    "/artifacts/report.pdf" +
+    "/report-pdf" +
     (cacheBust ? `?v=${cacheBust}` : "");
 
   return (

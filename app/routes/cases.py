@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi.responses import JSONResponse, FileResponse
 
 from app.models.decision import Decision
 from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data
@@ -23,6 +24,12 @@ from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
 
 logger = logging.getLogger(__name__)
+
+_REPORT_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 router = APIRouter()
 
@@ -237,3 +244,40 @@ async def get_case(case_id: str):
     """Zwraca cały case.json"""
     case_data = load_case(case_id)
     return case_data
+
+
+@router.get("/cases/{case_id}/report-data")
+async def get_report_data(case_id: str):
+    """
+    Zwraca finalny snapshot REPORT_DATA dla danego case_id.
+    Używane przez frontend do wyświetlania wyniku (no-store).
+    """
+    artifacts_dir = CASES_DIR / case_id / "artifacts"
+    path = artifacts_dir / "report_data.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="report_data.json not found")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            wrapper = json.load(f)
+    except Exception:
+        logger.exception("Failed to read report_data.json for case %s", case_id)
+        raise HTTPException(status_code=500, detail="Failed to read report_data.json")
+    return JSONResponse(content=wrapper, headers=_REPORT_CACHE_HEADERS)
+
+
+@router.get("/cases/{case_id}/report-pdf")
+async def get_report_pdf(case_id: str):
+    """
+    Zwraca finalny snapshot report.pdf dla danego case_id.
+    Używane przez frontend do pobierania PDF (no-store).
+    """
+    artifacts_dir = CASES_DIR / case_id / "artifacts"
+    path = artifacts_dir / "report.pdf"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="report.pdf not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=f"{case_id}_report.pdf",
+        headers=_REPORT_CACHE_HEADERS,
+    )
