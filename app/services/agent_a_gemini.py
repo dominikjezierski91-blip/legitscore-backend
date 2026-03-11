@@ -261,8 +261,12 @@ def _normalize_verdict_from_probabilities(report_data: Dict[str, Any]) -> None:
     - zaokrąglenie do intów,
     - dopilnowanie sumy ~ 100.
 
-    Nie nadpisuje już semantycznych pól werdyktu (label / verdict_category / confidence_*).
-    Agent A pozostaje jedynym źródłem werdyktu; backend tylko porządkuje probabilities.
+    Dodatkowo ujednolica confidence_percent i confidence_level względem probabilities
+    dla już ustalonej przez Agenta A kategorii verdict.verdict_category:
+    - confidence_percent = probabilities[verdict_category],
+    - confidence_level wynika z confidence_percent wg bucketów.
+
+    Nie zmienia verdict.verdict_category ani pól opisowych (label, summary, meczowa_detail, personalization_assessment).
     """
     probs = report_data.get("probabilities") or {}
     if not isinstance(probs, dict) or not probs:
@@ -307,8 +311,25 @@ def _normalize_verdict_from_probabilities(report_data: Dict[str, Any]) -> None:
         probs[k] = v
     report_data["probabilities"] = probs
 
-    # Semantyczny werdykt (label, verdict_category, confidence_*) pozostaje taki,
-    # jak zwrócił Agent A. Backend nie nadpisuje już tych pól na podstawie probabilities.
+    # Ujednolicenie confidence_* z probabilities dla istniejącej kategorii werdyktu.
+    verdict_obj = report_data.get("verdict") or {}
+    if isinstance(verdict_obj, dict):
+        cat = (verdict_obj.get("verdict_category") or "").strip()
+        if cat and cat in rounded:
+            pct = int(round(rounded[cat]))
+            # confidence_level buckets (zgodne z dotychczasową logiką)
+            if pct <= 39:
+                level = "ograniczony"
+            elif pct <= 69:
+                level = "sredni"
+            elif pct <= 84:
+                level = "wysoki"
+            else:
+                level = "bardzo_wysoki"
+
+            verdict_obj["confidence_percent"] = pct
+            verdict_obj["confidence_level"] = level
+            report_data["verdict"] = verdict_obj
 
 
 def normalize_report_data(report_data: Dict[str, Any]) -> None:
