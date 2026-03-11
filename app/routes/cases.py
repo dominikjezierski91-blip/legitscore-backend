@@ -211,11 +211,17 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
                     except Exception:
                         logger.exception("Failed to overwrite report_data.json for case %s", case_id)
 
+                    # Jedno źródło prawdy: PDF i report.txt z report_data.json (nie z raw ani decision).
                     report_mode = "expert" if mode == "expert" else "basic"
-                    report_text = render_report_text(report_data, mode=report_mode)
+                    with open(report_data_path, "r", encoding="utf-8") as f:
+                        wrapper_from_file = json.load(f)
+                    report_data_for_render = wrapper_from_file.get("REPORT_DATA") if isinstance(wrapper_from_file, dict) else report_data
+                    if not isinstance(report_data_for_render, dict):
+                        report_data_for_render = report_data
+                    report_text = render_report_text(report_data_for_render, mode=report_mode)
                     (artifacts_dir / "report.txt").write_text(report_text, encoding="utf-8")
                     pdf_path = str(artifacts_dir / "report.pdf")
-                    generate_report_pdf(case_id, report_data, pdf_path, mode=report_mode)
+                    generate_report_pdf(case_id, report_data_for_render, pdf_path, mode=report_mode)
             except Exception as e:
                 logger.exception("Generowanie report.txt / report.pdf nie powiodło się (kontynuujemy): %s", e)
 
@@ -298,13 +304,17 @@ async def get_report_data(case_id: str):
         raise HTTPException(status_code=500, detail="Failed to read report_data.json")
     report_data = wrapper.get("REPORT_DATA") if isinstance(wrapper, dict) else None
     report_id = None
+    confidence_percent = None
     if isinstance(report_data, dict):
         report_id = report_data.get("report_id")
+        verdict_obj = report_data.get("verdict") or {}
+        if isinstance(verdict_obj, dict):
+            confidence_percent = verdict_obj.get("confidence_percent")
     logger.debug(
-        "get_report_data: case_id=%s report_id=%s headers=%s",
+        "report-data loaded: case_id=%s report_id=%s confidence_percent=%s",
         case_id,
         report_id,
-        _REPORT_CACHE_HEADERS,
+        confidence_percent,
     )
     return JSONResponse(content=wrapper, headers=_REPORT_CACHE_HEADERS)
 
