@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCase, runDecision, uploadAssets } from "@/lib/api";
 import {
@@ -8,6 +8,8 @@ import {
   getPendingSubmission,
 } from "@/lib/submission-store";
 import { Loader2, ShieldAlert } from "lucide-react";
+
+const DEBUG = typeof process !== "undefined" && process.env.NODE_ENV === "development";
 
 type Props = {
   caseId?: string;
@@ -19,91 +21,117 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
+  const runDecisionStartedRef = useRef(false);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
+    if (DEBUG) console.debug("[AnalyzeStatus] mount case_id=", caseId);
+
     if (!caseId) {
       setError("Brak identyfikatora sprawy w adresie URL.");
-      return;
+      return () => {
+        if (DEBUG) console.debug("[AnalyzeStatus] cleanup called (no caseId)");
+      };
     }
 
     const id: string = caseId;
     let cancelled = false;
 
-    async function runFullFlow() {
-      const submission = getPendingSubmission();
-      if (submission && submission.caseId === id) {
-        try {
-          await uploadAssets(id, submission.files);
-
-          await runDecision(id, submission.mode);
-
-          clearPendingSubmission();
-
-          const qs = new URLSearchParams();
-          qs.set("caseId", id);
-          if (submission.mode) qs.set("mode", submission.mode);
-          router.replace(`/case/${id}?${qs.toString()}`);
-          return;
-        } catch (e: any) {
-          if (!cancelled) {
-            setError(
-              e instanceof Error
-                ? e.message
-                : "Nie udało się dokończyć analizy. Spróbuj ponownie później."
-            );
-          }
-          clearPendingSubmission();
-        }
+    const stopPolling = () => {
+      if (pollingIntervalRef.current !== null) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+        if (DEBUG) console.debug("[AnalyzeStatus] polling stopped");
       }
-      async function pollOnce() {
+    };
+
+    const startPolling = () => {
+      stopPolling();
+      if (DEBUG) console.debug("[AnalyzeStatus] polling started");
+
+      const pollOnce = async () => {
+        if (cancelled) return;
         try {
           const data: any = await getCase(id);
           const status: string | undefined = data?.status;
           if (status === "DECIDED") {
-            const qs = new URLSearchParams();
-            qs.set("caseId", id);
-            if (mode) qs.set("mode", mode);
-            router.replace(`/case/${id}?${qs.toString()}`);
-          } else {
-            setTick((t) => t + 1);
+            stopPolling();
+            if (!cancelled) {
+              const qs = new URLSearchParams();
+              qs.set("caseId", id);
+              if (mode) qs.set("mode", mode);
+              router.replace(`/case/${id}?${qs.toString()}`);
+            }
+            return;
           }
+          if (status === "ERROR") {
+            stopPolling();
+            if (!cancelled) setError("Analiza zakończyła się błędem. Spróbuj ponownie później.");
+            return;
+          }
+          if (!cancelled) setTick((t) => t + 1);
         } catch (e: any) {
           if (!cancelled) {
             setError(
-              e instanceof Error
-                ? e.message
-                : "Nie udało się pobrać statusu sprawy."
+              e instanceof Error ? e.message : "Nie udało się pobrać statusu sprawy."
             );
           }
         }
-      }
-
-      // Interval polling in fallback mode
-      const timer = setInterval(() => {
-        if (!cancelled) {
-          pollOnce();
-        }
-      }, 2500);
-
-      // Initial poll
-      pollOnce();
-
-      return () => {
-        clearInterval(timer);
       };
+
+      pollOnce();
+      pollingIntervalRef.current = setInterval(pollOnce, 2500);
+    };
+
+    const submission = getPendingSubmission();
+
+    if (submission && submission.caseId === id) {
+      if (runDecisionStartedRef.current) {
+        if (DEBUG) console.debug("[AnalyzeStatus] runDecision skipped because already started");
+        startPolling();
+      } else {
+        runDecisionStartedRef.current = true;
+        if (DEBUG) console.debug("[AnalyzeStatus] runDecision started case_id=", id);
+        (async () => {
+          try {
+            await uploadAssets(id, submission.files);
+            await runDecision(id, submission.mode);
+            clearPendingSubmission();
+            if (!cancelled) {
+              const qs = new URLSearchParams();
+              qs.set("caseId", id);
+              if (submission.mode) qs.set("mode", submission.mode);
+              router.replace(`/case/${id}?${qs.toString()}`);
+            }
+          } catch (e: any) {
+            if (!cancelled) {
+              setError(
+                e instanceof Error
+                  ? e.message
+                  : "Nie udało się dokończyć analizy. Spróbuj ponownie później."
+              );
+            }
+            clearPendingSubmission();
+          }
+        })();
+      }
+    } else {
+      startPolling();
     }
 
-    runFullFlow();
-
-    // prosty timer do rotacji komunikatów co kilka sekund
-    const timer = setInterval(() => {
-      if (!cancelled) {
-        setTick((t) => t + 1);
-      }
+    tickIntervalRef.current = setInterval(() => {
+      if (!cancelled) setTick((t) => t + 1);
     }, 2500);
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stopPolling();
+      if (tickIntervalRef.current !== null) {
+        clearInterval(tickIntervalRef.current);
+        tickIntervalRef.current = null;
+      }
+      if (DEBUG) console.debug("[AnalyzeStatus] cleanup called");
     };
   }, [caseId, mode, router]);
 
