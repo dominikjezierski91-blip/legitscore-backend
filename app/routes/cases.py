@@ -122,11 +122,6 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
 
         artifact_path = save_artifact(case_id, "decision", decision_model.model_dump())
 
-        case_data["status"] = "DECIDED"
-        case_data.setdefault("artifacts", {})
-        case_data["artifacts"]["decision"] = artifact_path
-        save_case(case_id, case_data)
-
         # Generuj report.txt i report.pdf z report_data.json (non-fatal)
         artifacts_dir = CASES_DIR / case_id / "artifacts"
         raw_report_path = artifacts_dir / "report_data_raw.json"
@@ -197,6 +192,15 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
                     generate_report_pdf(case_id, report_data, pdf_path, mode=report_mode)
             except Exception as e:
                 logger.exception("Generowanie report.txt / report.pdf nie powiodło się (kontynuujemy): %s", e)
+
+        logger.debug("Final artifacts ready for case %s", case_id)
+
+        # Dopiero po pełnej finalizacji artefaktów oznacz case jako zakończony.
+        case_data["status"] = "DECIDED"
+        case_data.setdefault("artifacts", {})
+        case_data["artifacts"]["decision"] = artifact_path
+        save_case(case_id, case_data)
+        logger.debug("Case %s status changed to DECIDED", case_id)
 
         return {"ok": True, "artifact": artifact_path}
     except Exception:
