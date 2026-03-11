@@ -129,10 +129,24 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
 
         # Generuj report.txt i report.pdf z report_data.json (non-fatal)
         artifacts_dir = CASES_DIR / case_id / "artifacts"
+        raw_report_path = artifacts_dir / "report_data_raw.json"
         report_data_path = artifacts_dir / "report_data.json"
-        if report_data_path.exists():
+        source_path: Path | None = None
+        if raw_report_path.exists():
+            source_path = raw_report_path
+            logger.debug("Loading raw REPORT_DATA for case %s from %s", case_id, raw_report_path)
+        elif report_data_path.exists():
+            # Defensywnie: obsłuż starsze przypadki, gdzie mamy tylko finalny report_data.json
+            source_path = report_data_path
+            logger.debug(
+                "Loading REPORT_DATA for case %s from existing %s (no raw file found)",
+                case_id,
+                report_data_path,
+            )
+
+        if source_path is not None:
             try:
-                with open(report_data_path, "r", encoding="utf-8") as f:
+                with open(source_path, "r", encoding="utf-8") as f:
                     wrapper = json.load(f)
                 report_data = wrapper.get("REPORT_DATA") if isinstance(wrapper, dict) else None
                 if isinstance(report_data, dict):
@@ -167,6 +181,11 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
                         report_data_path.write_text(
                             json.dumps({"REPORT_DATA": report_data}, ensure_ascii=False, indent=2),
                             encoding="utf-8",
+                        )
+                        logger.debug(
+                            "Final REPORT_DATA written for case %s to %s",
+                            case_id,
+                            report_data_path,
                         )
                     except Exception:
                         logger.exception("Failed to overwrite report_data.json for case %s", case_id)

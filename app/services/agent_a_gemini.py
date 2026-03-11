@@ -544,7 +544,7 @@ class GeminiAgentA:
         # Validate Decision
         decision = Decision.model_validate(payload)
 
-        # Zapisz artifacts/report_data.json (1:1 wrapper) — główne źródło prawdy
+        # Zapisz artifacts/report_data_raw.json (1:1 wrapper) — surowy wynik Agenta A
         if report_data_obj is not None:
             try:
                 from app.services.storage import ensure_case_dirs
@@ -552,12 +552,14 @@ class GeminiAgentA:
                 artifacts_dir = Path("data") / "cases" / case_id / "artifacts"
                 artifacts_dir.mkdir(parents=True, exist_ok=True)
                 wrapper = {"REPORT_DATA": report_data_obj}
-                (artifacts_dir / "report_data.json").write_text(
+                raw_path = artifacts_dir / "report_data_raw.json"
+                raw_path.write_text(
                     json.dumps(wrapper, ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
+                logger.debug("Saved raw REPORT_DATA for case %s to %s", case_id, raw_path)
             except Exception:
-                logger.exception("Failed to save report_data.json (non-fatal)")
+                logger.exception("Failed to save report_data_raw.json (non-fatal)")
 
         decision_dict = decision.model_dump()
         decision_dict["trace"] = trace
