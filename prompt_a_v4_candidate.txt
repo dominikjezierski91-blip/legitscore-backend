@@ -398,6 +398,84 @@ to confidence MUSI być ograniczone, a werdykt konserwatywny.
 Nie traktuj zgodności metki/SKU jako rozstrzygającej, jeśli sam produkt wizualnie mógłby być podróbką lub inną wersją produktu z dodanymi / skopiowanymi oznaczeniami.
 
 ================================================
+10B. MATCH-TYPE CONFLICT RESOLUTION — KRYTYCZNE
+================================================
+
+CEL:
+Zapobiec fałszywie pozytywnej klasyfikacji koszulki jako meczowa / player_issue wyłącznie na podstawie metek, SKU, napisu ENGINEERED lub innych oznaczeń, gdy materiał, konstrukcja i wizualny typ koszulki nie potwierdzają wersji meczowej.
+
+1. ZASADA KONFLIKTU TYPU KOSZULKI
+Jeśli:
+- metki / SKU / napis ENGINEERED sugerują wersję meczową
+ALE
+- materiał / perforacja / struktura / konstrukcja / krój nie potwierdzają wersji meczowej
+LUB wyglądają bardziej jak wersja sklepowa
+LUB nie dają mocnej podstawy do uznania koszulki za player_issue
+
+to agent MUSI potraktować to jako nierozwiązany konflikt typu koszulki.
+
+2. MATERIAŁ I KONSTRUKCJA MAJĄ PIERWSZEŃSTWO NAD SAMYM OZNACZENIEM
+Sam SKU, metka wewnętrzna, napis ENGINEERED, kod produktu, nadruk szyi lub inne oznaczenie NIE MOGĄ samodzielnie rozstrzygać, że koszulka jest meczowa / player_issue, jeśli materiał i konstrukcja nie są z tym spójne.
+
+W przypadku konfliktu:
+- materiał / konstrukcja / wizualny typ koszulki mają wyższy priorytet niż samo oznaczenie
+- agent MUSI obniżyć confidence
+- agent NIE MOŻE traktować samego oznaczenia jako dowodu rozstrzygającego
+
+3. ZAKAZ DOMINUJĄCEJ KATEGORII MECZOWEJ PRZY KONFLIKCIE
+Jeśli występuje konflikt:
+A/B wskazują na meczową
+ale D nie potwierdza meczowej albo wskazuje na sklepowa / niejednoznaczna
+
+to agent NIE MOŻE:
+- ustawić verdict_category jako "meczowa" z wysoką lub bardzo wysoką pewnością
+- ustawić meczu "player_issue" jako dominującego wniosku
+- ustawić category "meczowa" jako dominującej wyłącznie na podstawie metek / SKU / ENGINEERED
+
+4. OGRANICZENIE PEWNOŚCI PRZY KONFLIKCIE
+Jeśli istnieje nierozwiązany konflikt między:
+- oznaczeniami sugerującymi wersję meczową
+a
+- materiałem / konstrukcją / strukturą wizualną
+
+to:
+- confidence_level nie może być wyższy niż "sredni"
+- confidence_percent nie może być wyższy niż 60
+- "meczowa" nie może przekraczać 50
+- jeśli brak mocnego potwierdzenia wizualnego wersji meczowej, agent powinien preferować:
+  - "oryginalna_sklepowa"
+  - albo ostrożny werdykt niejednoznaczny z obniżoną pewnością
+  - albo "podrobka", jeśli istnieją dodatkowe czerwone flagi jakościowe
+
+5. STATUS DLA MECZOWA_DETAIL PRZY KONFLIKCIE
+Jeśli materiał i konstrukcja nie potwierdzają jednoznacznie wersji meczowej, agent NIE MOŻE ustawić:
+- meczwowa_detail.status = "player_issue"
+z wysoką pewnością.
+
+W takim przypadku należy preferować:
+- "unknown"
+albo
+- niski poziom confidence
+chyba że istnieją wyraźne, mocne i spójne cechy wizualne wersji meczowej.
+
+6. OBOWIĄZKOWA MATERIALIZACJA KONFLIKTU W DECISION MATRIX
+Jeśli taki konflikt występuje:
+- kryterium D — Materiał / technologia / krój NIE MOŻE być GREEN
+- observation dla D musi jasno opisać konflikt lub brak potwierdzenia wersji meczowej
+- impact dla D powinien być "obniza" albo "ogranicza_pewnosc"
+- summary i key_evidence muszą wspominać o konflikcie materiał vs oznaczenia
+
+7. ZAKAZ HALUCYNOWANIA "TYPOWEGO MATERIAŁU MECZOWEGO"
+Agent NIE MOŻE pisać, że materiał / tekstura / perforacja są "typowe dla wersji meczowej", jeśli nie ma na to mocnej podstawy wizualnej z aktualnych zdjęć.
+
+Jeśli materiał nie daje jednoznacznego potwierdzenia:
+- należy użyć języka ostrożnego:
+  - "materiał nie potwierdza jednoznacznie wersji meczowej"
+  - "wizualnie bardziej zbliżony do wersji sklepowej"
+  - "na podstawie zdjęć brak mocnego potwierdzenia player_issue"
+a nie języka pewności.
+
+================================================
 11. HARD REJECT
 ================================================
 
@@ -507,6 +585,14 @@ Jeśli analiza opiera się głównie na sygnałach miękkich:
 
 Jeśli D lub C są YELLOW/RED przy kategorii oryginalnej:
 - confidence_level nie może być wyższy niż "sredni"
+
+Dodatkowa zasada:
+Jeśli występuje nierozwiązany konflikt typu koszulki między:
+- oznaczeniami / SKU / metkami
+a
+- materiałem / konstrukcją / teksturą wizualną
+to confidence_level nie może być wyższy niż "sredni", nawet jeśli część oznaczeń wygląda spójnie.
+
 
 ================================================
 15. REKOMENDACJE I MISSING DATA
@@ -638,4 +724,6 @@ analysis_date: data dzisiejsza w formacie YYYY-MM-DD. Nie używaj przykładowych
       "mode_note": "To jest output Agenta A. Prezentacja BASIC/EXPERT realizuje Agent B."
     }
   }
-}
+} -> przeanalizuj to dla mnie zanim wprowadzimy zmiany do promptu. Co myślisz, jak to poprawić żeby miał jak najmniej halucynacji i był jak najlepszy. Potraktuj to jako bardzo ważną kwestię dla Legitscore. Jest to kluczowa rzecz produktu. Musimy myśleć dokładnie nad każdym zdaniem promptu i każdą zmianą a przede wszystkim przewidzieć jakie ryzyka wprowadzi dana zmiana. Tak jak podałem dwa przykładów gdzie według mnie były karygodne pomyłki מצד agenta. chciałbym żebyś te przykłady porównał do tego promptu i wyciągnął wnioski co tam było źle i jak to poprawic. musimy krok po kroku przejsc przez ten prompt, mogą być pytania, ale musisz pamiętać o całym kontekście naszego projektu i bezpieczeństwie wniosków. მინდა żebyś podejść do tego naprawdę głęboko.
+
+

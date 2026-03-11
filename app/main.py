@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv(override=True)
-from fastapi import FastAPI
+xfrom fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.routes import cases
