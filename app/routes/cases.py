@@ -82,27 +82,45 @@ async def submit_decision(case_id: str, decision: Decision):
 # Sprawdź: /cases/{id}/artifacts/report_data.json, /cases/{id}/artifacts/report.txt, /cases/{id}/artifacts/report.pdf
 
 
+_LOCK_FILE = "analysis.lock"
+
+
 @router.post("/cases/{case_id}/run-decision")
 async def run_decision(case_id: str, mode: str = Query("basic", description="basic | expert")):
     """Uruchamia automatyczną analizę (Gemini), zapisuje decision + report_data.json, generuje report.txt i report.pdf."""
     case_data = load_case(case_id)
     status = case_data.get("status")
 
-    # Idempotentność: analizę uruchamiamy tylko gdy status in ("CREATED", "ASSETS_READY").
-    # Drugi request (status IN_PROGRESS/DECIDED/ERROR) nie uruchamia analizy ani nie nadpisuje artefaktów.
-    if status not in ("CREATED", "ASSETS_READY"):
-        logger.debug("run-decision skipped for case %s, status=%s", case_id, status)
+    artifacts_dir = CASES_DIR / case_id / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = artifacts_dir / _LOCK_FILE
+    decision_path = artifacts_dir / "decision.json"
+    report_data_path = artifacts_dir / "report_data.json"
+
+    # Twarda idempotencja: lock lub finalne artefakty -> nie uruchamiaj analizy ponownie.
+    if lock_path.exists():
+        logger.debug("run-decision skipped for case %s because lock exists", case_id)
         return {"ok": True, "status": status, "skipped": True}
+    if decision_path.exists() or report_data_path.exists():
+        logger.debug("run-decision skipped for case %s because final artifacts already exist", case_id)
+        return {"ok": True, "status": status or "DECIDED", "skipped": True}
+
+    lock_created = False
+    lock_path.touch()
+    lock_created = True
 
     assets = case_data.get("assets") or []
     if not assets:
+        lock_path.unlink(missing_ok=True)
+        lock_created = False
         raise HTTPException(status_code=400, detail="No assets available for decision")
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
+        lock_path.unlink(missing_ok=True)
+        lock_created = False
         raise HTTPException(status_code=500, detail="Missing GEMINI_API_KEY")
 
-    # Oznacz case jako będący w trakcie analizy.
     case_data["status"] = "IN_PROGRESS"
     save_case(case_id, case_data)
     logger.info("run-decision started for case %s (mode=%s)", case_id, mode)
@@ -210,13 +228,19 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
         save_case(case_id, case_data)
         logger.debug("Case %s status changed to DECIDED", case_id)
 
+        logger.debug("run-decision finished for case %s", case_id)
         return {"ok": True, "artifact": artifact_path}
     except Exception:
-        # W razie błędu oznacz case jako ERROR (minimalny, konserwatywny stan) i ponownie podnieś wyjątek.
         case_data["status"] = "ERROR"
         save_case(case_id, case_data)
         logger.exception("run-decision failed for case %s; status set to ERROR", case_id)
         raise
+    finally:
+        if lock_created and lock_path.exists():
+            try:
+                lock_path.unlink()
+            except OSError:
+                logger.warning("Failed to remove analysis.lock for case %s", case_id)
 
 
 def _ensure_report_metadata(report_data: Dict[str, Any], case_id: str) -> None:
