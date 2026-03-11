@@ -255,7 +255,15 @@ def _map_report_data_to_decision_payload(report_data: Dict[str, Any], case_id: s
 
 
 def _normalize_verdict_from_probabilities(report_data: Dict[str, Any]) -> None:
-    """Ensure verdict.verdict_category, confidence_percent and confidence_level are consistent with probabilities."""
+    """
+    Techniczna normalizacja prawdopodobieństw:
+    - skala 0–1 → 0–100,
+    - zaokrąglenie do intów,
+    - dopilnowanie sumy ~ 100.
+
+    Nie nadpisuje już semantycznych pól werdyktu (label / verdict_category / confidence_*).
+    Agent A pozostaje jedynym źródłem werdyktu; backend tylko porządkuje probabilities.
+    """
     probs = report_data.get("probabilities") or {}
     if not isinstance(probs, dict) or not probs:
         return
@@ -299,43 +307,8 @@ def _normalize_verdict_from_probabilities(report_data: Dict[str, Any]) -> None:
         probs[k] = v
     report_data["probabilities"] = probs
 
-    # argmax with tie-break (does not change Agent A semantics, only makes it explicit)
-    max_score = max(rounded.values()) if rounded else 0
-    candidates = [k for k, v in rounded.items() if v == max_score]
-    order = [
-        "podrobka",
-        "meczowa",
-        "oryginalna_sklepowa",
-        "oficjalna_replika",
-        "edycja_limitowana",
-        "treningowa_custom",
-    ]
-    chosen = None
-    for name in order:
-        if name in candidates:
-            chosen = name
-            break
-    if chosen is None:
-        return
-
-    pct = int(round(rounded[chosen]))
-    # confidence_level buckets
-    if pct <= 39:
-        level = "ograniczony"
-    elif pct <= 69:
-        level = "sredni"
-    elif pct <= 84:
-        level = "wysoki"
-    else:
-        level = "bardzo_wysoki"
-
-    verdict_obj = report_data.get("verdict") or {}
-    if not isinstance(verdict_obj, dict):
-        verdict_obj = {}
-    verdict_obj["verdict_category"] = chosen
-    verdict_obj["confidence_percent"] = pct
-    verdict_obj["confidence_level"] = level
-    report_data["verdict"] = verdict_obj
+    # Semantyczny werdykt (label, verdict_category, confidence_*) pozostaje taki,
+    # jak zwrócił Agent A. Backend nie nadpisuje już tych pól na podstawie probabilities.
 
 
 def normalize_report_data(report_data: Dict[str, Any]) -> None:
