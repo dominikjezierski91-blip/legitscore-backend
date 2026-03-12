@@ -7,6 +7,8 @@ type CaseRecord = {
   created_at: string | null;
   email: string | null;
   consent_at: string | null;
+  offer_link: string | null;
+  context: string | null;
   model: string | null;
   prompt_version: string | null;
   verdict_category: string | null;
@@ -14,6 +16,8 @@ type CaseRecord = {
   feedback: string | null;
   feedback_at: string | null;
   feedback_comment: string | null;
+  rating: number | null;
+  rating_at: string | null;
 };
 
 type Stats = {
@@ -74,6 +78,7 @@ export default async function DashboardPage() {
                 <th className="px-4 py-3">Model</th>
                 <th className="px-4 py-3">Werdykt</th>
                 <th className="px-4 py-3">Pewność</th>
+                <th className="px-4 py-3">Ocena</th>
                 <th className="px-4 py-3">Feedback</th>
                 <th className="px-4 py-3">Akcje</th>
               </tr>
@@ -81,7 +86,7 @@ export default async function DashboardPage() {
             <tbody className="divide-y divide-slate-800">
               {cases.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                     Brak danych w bazie
                   </td>
                 </tr>
@@ -105,6 +110,16 @@ export default async function DashboardPage() {
                     </td>
                     <td className="px-4 py-3 text-xs">
                       {c.confidence_percent ? `${c.confidence_percent}%` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {c.rating ? (
+                        <span title={`Ocena: ${c.rating}/5`}>
+                          {"⚽".repeat(c.rating)}
+                          <span className="opacity-30">{"⚽".repeat(5 - c.rating)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <FeedbackBadge feedback={c.feedback} />

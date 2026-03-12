@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FeedbackButtons } from "@/components/feedback/feedback-buttons";
+import { RatingBalls } from "@/components/feedback/rating-balls";
 
 export const dynamic = "force-dynamic";
 
@@ -243,6 +245,10 @@ export default async function CasePage({ params, searchParams }: Props) {
           <section className="glass-card space-y-3 p-5 md:p-6">
             <FeedbackButtons caseId={case_id} />
           </section>
+
+          <section className="glass-card space-y-3 p-5 md:p-6">
+            <RatingBalls caseId={case_id} />
+          </section>
         </div>
         <aside className="glass-card flex w-full max-w-xs flex-col justify-between p-5 md:p-6">
           <div className="space-y-3 text-xs text-muted-foreground">
@@ -261,6 +267,14 @@ export default async function CasePage({ params, searchParams }: Props) {
             >
               Pobierz pełny raport PDF
             </a>
+          </div>
+          <div className="mt-4 border-t border-border/40 pt-4">
+            <Link
+              href="/analyze/form"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+            >
+              Nowa analiza
+            </Link>
           </div>
           <div className="mt-4 space-y-1 text-[11px] text-muted-foreground">
             <p>

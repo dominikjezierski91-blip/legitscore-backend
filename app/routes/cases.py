@@ -23,7 +23,7 @@ from app.services.storage import (
 )
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db
+from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db
 from app.services.security import (
     limiter,
     validate_upload_files,
@@ -48,23 +48,30 @@ router = APIRouter()
 
 class CreateCaseRequest(BaseModel):
     email: Optional[str] = None
+    offer_link: Optional[str] = None
+    context: Optional[str] = None
 
 
 @router.post("/cases")
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def create_case_endpoint(request: Request, req: Optional[CreateCaseRequest] = None):
-    """Tworzy nowy case i zwraca case_id. Opcjonalnie zapisuje email (z datą zgody RODO)."""
+    """Tworzy nowy case i zwraca case_id. Zapisuje email, link do oferty i kontekst."""
     case_data = create_case()
     case_id = case_data["case_id"]
 
-    # Waliduj i zapisz email do bazy z datą wyrażenia zgody (RODO)
-    if req and req.email:
-        validated_email = validate_email(req.email)
-        if validated_email:
+    # Waliduj i zapisz dane do bazy
+    if req:
+        validated_email = validate_email(req.email) if req.email else None
+        offer_link = validate_text_field(req.offer_link, "offer_link", 2000) if req.offer_link else None
+        context = validate_text_field(req.context, "context", 5000) if req.context else None
+
+        if validated_email or offer_link or context:
             save_case_to_db(
                 case_id=case_id,
                 email=validated_email,
-                consent_at=datetime.now(timezone.utc),
+                consent_at=datetime.now(timezone.utc) if validated_email else None,
+                offer_link=offer_link,
+                context=context,
             )
 
     return {"case_id": case_id}
@@ -449,6 +456,42 @@ async def get_feedback(case_id: str):
         "feedback": record.feedback,
         "feedback_at": record.feedback_at.isoformat() if record.feedback_at else None,
         "comment": record.feedback_comment,
+    }
+
+
+class RatingRequest(BaseModel):
+    rating: int  # 1-5 (piłki nożne)
+    comment: Optional[str] = None
+
+
+@router.post("/cases/{case_id}/rating")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def submit_rating(request: Request, case_id: str, req: RatingRequest):
+    """Zapisuje ocenę raportu (1-5 piłek nożnych)."""
+    case_id = validate_case_id(case_id)
+
+    if req.rating < 1 or req.rating > 5:
+        raise HTTPException(status_code=400, detail="Ocena musi być w zakresie 1-5")
+
+    comment = validate_text_field(req.comment, "comment", 1000) if req.comment else None
+
+    success = save_rating_to_db(case_id, req.rating, comment)
+    if not success:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    logger.info("Rating saved for case %s: %d", case_id, req.rating)
+    return {"ok": True, "rating": req.rating}
+
+
+@router.get("/cases/{case_id}/rating")
+async def get_rating(case_id: str):
+    """Pobiera ocenę raportu."""
+    record = get_case_from_db(case_id)
+    if record is None:
+        return {"rating": None}
+    return {
+        "rating": record.rating,
+        "rating_at": record.rating_at.isoformat() if record.rating_at else None,
     }
 
 

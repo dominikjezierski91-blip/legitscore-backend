@@ -40,8 +40,8 @@ export function AnalyzeForm() {
 
     try {
       setSubmitting(true);
-      // 1) Tworzymy sprawę z emailem (RODO - data zgody zapisywana automatycznie)
-      const { case_id } = await createCase(email);
+      // 1) Tworzymy sprawę z emailem, linkiem do oferty i kontekstem
+      const { case_id } = await createCase(email, offerLink, context);
       // 2) Zapisujemy dane lokalne do dalszego przetwarzania na ekranie statusu.
       setPendingSubmission({
         caseId: case_id,

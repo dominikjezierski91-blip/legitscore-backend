@@ -42,11 +42,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-export async function createCase(email?: string): Promise<{ case_id: string }> {
+export async function createCase(
+  email?: string,
+  offerLink?: string,
+  context?: string
+): Promise<{ case_id: string }> {
   return request<{ case_id: string }>("/api/cases", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: email || null }),
+    body: JSON.stringify({
+      email: email || null,
+      offer_link: offerLink || null,
+      context: context || null,
+    }),
   });
 }
 
@@ -95,5 +103,23 @@ export async function getFeedback(
   caseId: string
 ): Promise<{ feedback: string | null; feedback_at: string | null; comment: string | null }> {
   return request(`/api/cases/${caseId}/feedback`);
+}
+
+export async function submitRating(
+  caseId: string,
+  rating: number,
+  comment?: string
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/cases/${caseId}/rating`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating, comment: comment || null }),
+  });
+}
+
+export async function getRating(
+  caseId: string
+): Promise<{ rating: number | null; rating_at: string | null }> {
+  return request(`/api/cases/${caseId}/rating`);
 }
 

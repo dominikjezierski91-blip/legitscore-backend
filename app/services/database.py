@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON
+from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -38,10 +38,18 @@ class CaseRecord(Base):
     # Pełny raport jako JSON
     report_data = Column(JSON, nullable=True)
 
+    # Dane z formularza
+    offer_link = Column(Text, nullable=True)  # Link do oferty / cena
+    context = Column(Text, nullable=True)  # Dodatkowy kontekst
+
     # Feedback użytkownika
     feedback = Column(String, nullable=True)  # correct / incorrect / unsure
     feedback_at = Column(DateTime, nullable=True)
     feedback_comment = Column(Text, nullable=True)
+
+    # Ocena raportu (1-5 piłek)
+    rating = Column(Integer, nullable=True)
+    rating_at = Column(DateTime, nullable=True)
 
 
 def init_db():
@@ -68,6 +76,8 @@ def save_case_to_db(
     report_data: Optional[dict] = None,
     email: Optional[str] = None,
     consent_at: Optional[datetime] = None,
+    offer_link: Optional[str] = None,
+    context: Optional[str] = None,
 ):
     """Zapisuje lub aktualizuje case w bazie."""
     db = SessionLocal()
@@ -91,6 +101,10 @@ def save_case_to_db(
             record.email = email
         if consent_at is not None:
             record.consent_at = consent_at
+        if offer_link is not None:
+            record.offer_link = offer_link
+        if context is not None:
+            record.context = context
 
         db.commit()
         return record
@@ -142,6 +156,8 @@ def get_all_cases_from_db() -> list:
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "email": r.email,
                 "consent_at": r.consent_at.isoformat() if r.consent_at else None,
+                "offer_link": r.offer_link,
+                "context": r.context,
                 "model": r.model,
                 "prompt_version": r.prompt_version,
                 "verdict_category": r.verdict_category,
@@ -149,6 +165,8 @@ def get_all_cases_from_db() -> list:
                 "feedback": r.feedback,
                 "feedback_at": r.feedback_at.isoformat() if r.feedback_at else None,
                 "feedback_comment": r.feedback_comment,
+                "rating": r.rating,
+                "rating_at": r.rating_at.isoformat() if r.rating_at else None,
             }
             for r in records
         ]
@@ -172,6 +190,32 @@ def get_db_stats() -> dict:
             "incorrect": incorrect,
             "unsure": unsure,
         }
+    finally:
+        db.close()
+
+
+def save_rating_to_db(
+    case_id: str,
+    rating: int,
+    comment: Optional[str] = None,
+) -> bool:
+    """Zapisuje ocenę raportu (1-5 piłek)."""
+    if rating < 1 or rating > 5:
+        return False
+
+    db = SessionLocal()
+    try:
+        record = db.query(CaseRecord).filter(CaseRecord.case_id == case_id).first()
+        if record is None:
+            return False
+
+        record.rating = rating
+        record.rating_at = datetime.now(timezone.utc)
+        if comment:
+            record.feedback_comment = comment
+
+        db.commit()
+        return True
     finally:
         db.close()
 
