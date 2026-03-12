@@ -28,7 +28,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
 
         <main className={cn("flex flex-1 flex-col", className)}>{children}</main>
 
-        <footer className="mt-10 border-t border-border/60 pt-4 text-center text-xs text-muted-foreground">
+        <footer className="mt-10 border-t border-border/60 pt-4 text-center text-[10px] text-muted-foreground/70">
           <p>© 2026 LegitScore. Wszystkie prawa zastrzeżone.</p>
           <p className="mt-1">
             LegitScore dostarcza analizy ryzyka autentyczności koszulek

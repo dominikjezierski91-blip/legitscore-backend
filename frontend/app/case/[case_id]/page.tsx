@@ -115,9 +115,14 @@ export default async function CasePage({ params, searchParams }: Props) {
             <div className="space-y-2">
               <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
                 <span>🧾</span>
-                <span>Identyfikator sprawy</span>
+                <span>Numer sprawy</span>
               </div>
-              <p className="font-mono text-sm text-emerald-300">{case_id}</p>
+              <p className="font-mono text-sm text-emerald-300">
+                {case_id.slice(0, 8).toUpperCase()}
+              </p>
+              <p className="text-[10px] text-slate-500">
+                Pełny ID: {case_id}
+              </p>
               {mode && (
                 <p className="text-[11px] text-muted-foreground">
                   Tryb raportu:{" "}
@@ -139,9 +144,9 @@ export default async function CasePage({ params, searchParams }: Props) {
               </p>
               {reportId && analysisDate && (
                 <p className="text-[10px] text-slate-500">
-                  Snapshot raportu:{" "}
+                  Wersja:{" "}
                   <span className="font-mono">
-                    {reportId} · {analysisDate}
+                    {reportId.slice(0, 8)} · {analysisDate}
                   </span>
                 </p>
               )}
@@ -149,33 +154,22 @@ export default async function CasePage({ params, searchParams }: Props) {
           </section>
 
           <section className="glass-card space-y-3 p-5 md:p-6">
+            <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200">
+              <span>📊</span>
+              <span>Poziom pewności</span>
+            </div>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200">
-                <span>📊</span>
-                <span>Poziom pewności</span>
-              </div>
+              <span className="text-3xl font-bold text-emerald-300">
+                {verdict.confidence_percent ?? "—"}%
+              </span>
               <span
                 className={cn(
-                  "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                  "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold",
                   getConfidenceBadgeClasses(verdict.confidence_level)
                 )}
               >
                 {getConfidenceLabel(verdict.confidence_level)}
               </span>
-            </div>
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <div>
-                Poziom pewności:{" "}
-                <span className="font-semibold text-slate-100">
-                  {verdict.confidence_level || "nieustalone"}
-                </span>
-              </div>
-              <div>
-                Pewność (%):{" "}
-                <span className="text-2xl font-semibold text-emerald-300">
-                  {verdict.confidence_percent ?? "—"}%
-                </span>
-              </div>
             </div>
           </section>
 
@@ -245,10 +239,6 @@ export default async function CasePage({ params, searchParams }: Props) {
           <section className="glass-card space-y-3 p-5 md:p-6">
             <FeedbackButtons caseId={case_id} />
           </section>
-
-          <section className="glass-card space-y-3 p-5 md:p-6">
-            <RatingBalls caseId={case_id} />
-          </section>
         </div>
         <aside className="glass-card flex w-full max-w-xs flex-col justify-between p-5 md:p-6">
           <div className="space-y-3 text-xs text-muted-foreground">
@@ -263,7 +253,7 @@ export default async function CasePage({ params, searchParams }: Props) {
             <a
               href={pdfUrl}
               rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center justify-center rounded-full bg-emerald-500 px-4 py-2 text-[11px] font-medium text-slate-950 shadow-md shadow-emerald-500/40 transition hover:bg-emerald-400"
+              className="mt-2 inline-flex w-full items-center justify-center rounded-full bg-emerald-500 px-4 py-2.5 text-xs font-medium text-slate-950 shadow-md shadow-emerald-500/40 transition hover:bg-emerald-400"
             >
               Pobierz pełny raport PDF
             </a>
@@ -275,6 +265,9 @@ export default async function CasePage({ params, searchParams }: Props) {
             >
               Nowa analiza
             </Link>
+          </div>
+          <div className="mt-4 border-t border-border/40 pt-4">
+            <RatingBalls caseId={case_id} />
           </div>
           <div className="mt-4 space-y-1 text-[11px] text-muted-foreground">
             <p>
@@ -315,11 +308,22 @@ function getConfidenceLabel(level?: string) {
 
 function getProbabilityBarStyle(pct: number, key: string) {
   let barColor = "bg-slate-600";
-  if (pct > 70) {
-    barColor = "bg-emerald-400";
-  } else if (pct >= 30) {
-    barColor = "bg-amber-400";
+
+  // Specjalna logika dla podróbki - czerwony pasek przy wysokiej pewności
+  if (key === "podrobka") {
+    if (pct > 50) {
+      barColor = "bg-red-500";
+    } else if (pct >= 20) {
+      barColor = "bg-red-400/70";
+    }
+  } else {
+    if (pct > 70) {
+      barColor = "bg-emerald-400";
+    } else if (pct >= 30) {
+      barColor = "bg-amber-400";
+    }
   }
+
   const label = key.replace(/_/g, " ");
   return { barColor, label };
 }
