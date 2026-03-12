@@ -127,11 +127,14 @@ export function AnalyzeForm() {
         </section>
 
         {/* STEP 3 — CONTACT */}
-        <section className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur space-y-4">
-          <h2 className="text-sm font-semibold text-slate-100">
-            3. Dane kontaktowe i kontekst
-          </h2>
-          <div className="space-y-3">
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/10 text-[11px] text-emerald-200">
+              3
+            </span>
+            <span>Podaj dane kontaktowe i kontekst</span>
+          </div>
+          <div className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur space-y-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">
                 Email (wymagany)
