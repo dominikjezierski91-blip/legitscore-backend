@@ -15,7 +15,7 @@ from app.models.decision import Decision, Reason, Trace, Recommendation
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "models/gemini-2.5-flash"
+DEFAULT_MODEL = "models/gemini-2.5-pro"
 DEFAULT_PROMPT_VERSION = "a-2.0"
 
 _client: Optional[genai.Client] = None
