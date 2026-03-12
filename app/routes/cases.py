@@ -3,10 +3,11 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from fastapi.responses import JSONResponse, FileResponse
+from pydantic import BaseModel
 
 from app.models.decision import Decision
 from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data
@@ -22,7 +23,7 @@ from app.services.storage import (
 )
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats
+from app.services.database import save_case_to_db, save_feedback_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,25 @@ _REPORT_CACHE_HEADERS = {
 router = APIRouter()
 
 
+class CreateCaseRequest(BaseModel):
+    email: Optional[str] = None
+
+
 @router.post("/cases")
-async def create_case_endpoint():
-    """Tworzy nowy case i zwraca case_id"""
+async def create_case_endpoint(req: Optional[CreateCaseRequest] = None):
+    """Tworzy nowy case i zwraca case_id. Opcjonalnie zapisuje email (z datą zgody RODO)."""
     case_data = create_case()
-    return {"case_id": case_data["case_id"]}
+    case_id = case_data["case_id"]
+
+    # Zapisz email do bazy z datą wyrażenia zgody (RODO)
+    if req and req.email:
+        save_case_to_db(
+            case_id=case_id,
+            email=req.email,
+            consent_at=datetime.now(timezone.utc),
+        )
+
+    return {"case_id": case_id}
 
 
 @router.post("/cases/{case_id}/assets")
@@ -370,10 +385,6 @@ async def get_report_pdf(case_id: str):
     )
 
 
-from pydantic import BaseModel
-from typing import Optional
-
-
 class FeedbackRequest(BaseModel):
     feedback: str  # "correct" | "incorrect" | "unsure"
     comment: Optional[str] = None
@@ -420,3 +431,21 @@ async def list_all_cases():
 async def get_stats():
     """Statystyki z bazy (dla dashboardu)."""
     return get_db_stats()
+
+
+@router.delete("/cases/{case_id}/email")
+async def anonymize_email(case_id: str):
+    """Anonimizuje email w case (RODO - prawo do bycia zapomnianym)."""
+    success = anonymize_case_email(case_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Case not found in database")
+    return {"ok": True, "message": "Email został usunięty"}
+
+
+@router.delete("/cases/{case_id}")
+async def delete_case(case_id: str):
+    """Usuwa case z bazy danych (RODO - prawo do bycia zapomnianym)."""
+    success = delete_case_from_db(case_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Case not found in database")
+    return {"ok": True, "message": "Dane zostały usunięte z bazy"}

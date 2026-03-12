@@ -23,6 +23,10 @@ class CaseRecord(Base):
     case_id = Column(String, primary_key=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # Dane kontaktowe (RODO)
+    email = Column(String, nullable=True)
+    consent_at = Column(DateTime, nullable=True)  # Data wyrażenia zgody
+
     # Model i prompt
     model = Column(String, nullable=True)
     prompt_version = Column(String, nullable=True)
@@ -62,6 +66,8 @@ def save_case_to_db(
     verdict_category: Optional[str] = None,
     confidence_percent: Optional[int] = None,
     report_data: Optional[dict] = None,
+    email: Optional[str] = None,
+    consent_at: Optional[datetime] = None,
 ):
     """Zapisuje lub aktualizuje case w bazie."""
     db = SessionLocal()
@@ -81,6 +87,10 @@ def save_case_to_db(
             record.confidence_percent = str(confidence_percent)
         if report_data is not None:
             record.report_data = report_data
+        if email is not None:
+            record.email = email
+        if consent_at is not None:
+            record.consent_at = consent_at
 
         db.commit()
         return record
@@ -130,6 +140,8 @@ def get_all_cases_from_db() -> list:
             {
                 "case_id": r.case_id,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
+                "email": r.email,
+                "consent_at": r.consent_at.isoformat() if r.consent_at else None,
                 "model": r.model,
                 "prompt_version": r.prompt_version,
                 "verdict_category": r.verdict_category,
@@ -160,5 +172,34 @@ def get_db_stats() -> dict:
             "incorrect": incorrect,
             "unsure": unsure,
         }
+    finally:
+        db.close()
+
+
+def anonymize_case_email(case_id: str) -> bool:
+    """Anonimizuje email w case (RODO - prawo do bycia zapomnianym)."""
+    db = SessionLocal()
+    try:
+        record = db.query(CaseRecord).filter(CaseRecord.case_id == case_id).first()
+        if record is None:
+            return False
+        record.email = None
+        record.consent_at = None
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def delete_case_from_db(case_id: str) -> bool:
+    """Usuwa case z bazy (RODO - prawo do bycia zapomnianym)."""
+    db = SessionLocal()
+    try:
+        record = db.query(CaseRecord).filter(CaseRecord.case_id == case_id).first()
+        if record is None:
+            return False
+        db.delete(record)
+        db.commit()
+        return True
     finally:
         db.close()

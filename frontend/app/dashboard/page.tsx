@@ -5,6 +5,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 type CaseRecord = {
   case_id: string;
   created_at: string | null;
+  email: string | null;
+  consent_at: string | null;
   model: string | null;
   prompt_version: string | null;
   verdict_category: string | null;
@@ -68,6 +70,7 @@ export default async function DashboardPage() {
               <tr>
                 <th className="px-4 py-3">Data</th>
                 <th className="px-4 py-3">Case ID</th>
+                <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Model</th>
                 <th className="px-4 py-3">Werdykt</th>
                 <th className="px-4 py-3">Pewność</th>
@@ -78,7 +81,7 @@ export default async function DashboardPage() {
             <tbody className="divide-y divide-slate-800">
               {cases.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     Brak danych w bazie
                   </td>
                 </tr>
@@ -90,6 +93,9 @@ export default async function DashboardPage() {
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">
                       {c.case_id.slice(0, 8)}...
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-300">
+                      {c.email || <span className="text-slate-500">—</span>}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-400">
                       {c.model?.replace("models/", "") || "—"}

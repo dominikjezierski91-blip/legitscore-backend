@@ -42,9 +42,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-export async function createCase(): Promise<{ case_id: string }> {
+export async function createCase(email?: string): Promise<{ case_id: string }> {
   return request<{ case_id: string }>("/api/cases", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email || null }),
   });
 }
 

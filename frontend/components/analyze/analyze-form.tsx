@@ -40,8 +40,8 @@ export function AnalyzeForm() {
 
     try {
       setSubmitting(true);
-      // 1) Tworzymy sprawę...
-      const { case_id } = await createCase();
+      // 1) Tworzymy sprawę z emailem (RODO - data zgody zapisywana automatycznie)
+      const { case_id } = await createCase(email);
       // 2) Zapisujemy dane lokalne do dalszego przetwarzania na ekranie statusu.
       setPendingSubmission({
         caseId: case_id,
@@ -128,15 +128,9 @@ export function AnalyzeForm() {
 
         {/* STEP 3 — CONTACT */}
         <section className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-100">
-              3. Dane kontaktowe i kontekst
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Email służy wyłącznie do komunikacji w sprawie raportu. Możesz też
-              dodać odnośnik do oferty lub dodatkowe informacje.
-            </p>
-          </div>
+          <h2 className="text-sm font-semibold text-slate-100">
+            3. Dane kontaktowe i kontekst
+          </h2>
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">
@@ -149,7 +143,7 @@ export function AnalyzeForm() {
                 className="w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
                 placeholder="np. twoj.email@example.com"
               />
-              <p className="pt-1 text-xs text-muted-foreground">
+              <p className="pt-1 text-xs italic text-muted-foreground">
                 Wpisując adres email, zgadzasz się na kontakt w sprawie raportu
                 oraz informacje o rozwoju LegitScore.
               </p>
