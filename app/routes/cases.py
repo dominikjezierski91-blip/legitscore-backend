@@ -22,7 +22,7 @@ from app.services.storage import (
 )
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, get_case_from_db
+from app.services.database import save_case_to_db, save_feedback_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats
 
 logger = logging.getLogger(__name__)
 
@@ -408,3 +408,15 @@ async def get_feedback(case_id: str):
         "feedback_at": record.feedback_at.isoformat() if record.feedback_at else None,
         "comment": record.feedback_comment,
     }
+
+
+@router.get("/dashboard/cases")
+async def list_all_cases():
+    """Lista wszystkich case'ów z bazy (dla dashboardu)."""
+    return get_all_cases_from_db()
+
+
+@router.get("/dashboard/stats")
+async def get_stats():
+    """Statystyki z bazy (dla dashboardu)."""
+    return get_db_stats()

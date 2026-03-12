@@ -119,3 +119,46 @@ def get_case_from_db(case_id: str) -> Optional[CaseRecord]:
         return db.query(CaseRecord).filter(CaseRecord.case_id == case_id).first()
     finally:
         db.close()
+
+
+def get_all_cases_from_db() -> list:
+    """Pobiera wszystkie case'y z bazy."""
+    db = SessionLocal()
+    try:
+        records = db.query(CaseRecord).order_by(CaseRecord.created_at.desc()).all()
+        return [
+            {
+                "case_id": r.case_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "model": r.model,
+                "prompt_version": r.prompt_version,
+                "verdict_category": r.verdict_category,
+                "confidence_percent": r.confidence_percent,
+                "feedback": r.feedback,
+                "feedback_at": r.feedback_at.isoformat() if r.feedback_at else None,
+                "feedback_comment": r.feedback_comment,
+            }
+            for r in records
+        ]
+    finally:
+        db.close()
+
+
+def get_db_stats() -> dict:
+    """Statystyki z bazy."""
+    db = SessionLocal()
+    try:
+        total = db.query(CaseRecord).count()
+        with_feedback = db.query(CaseRecord).filter(CaseRecord.feedback.isnot(None)).count()
+        correct = db.query(CaseRecord).filter(CaseRecord.feedback == "correct").count()
+        incorrect = db.query(CaseRecord).filter(CaseRecord.feedback == "incorrect").count()
+        unsure = db.query(CaseRecord).filter(CaseRecord.feedback == "unsure").count()
+        return {
+            "total": total,
+            "with_feedback": with_feedback,
+            "correct": correct,
+            "incorrect": incorrect,
+            "unsure": unsure,
+        }
+    finally:
+        db.close()
