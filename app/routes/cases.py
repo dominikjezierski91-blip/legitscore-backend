@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Request, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
@@ -24,6 +24,16 @@ from app.services.storage import (
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
 from app.services.database import save_case_to_db, save_feedback_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db
+from app.services.security import (
+    limiter,
+    validate_upload_files,
+    validate_email,
+    validate_case_id,
+    validate_text_field,
+    RATE_LIMIT_DEFAULT,
+    RATE_LIMIT_UPLOAD,
+    RATE_LIMIT_ANALYSIS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,25 +51,35 @@ class CreateCaseRequest(BaseModel):
 
 
 @router.post("/cases")
-async def create_case_endpoint(req: Optional[CreateCaseRequest] = None):
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def create_case_endpoint(request: Request, req: Optional[CreateCaseRequest] = None):
     """Tworzy nowy case i zwraca case_id. Opcjonalnie zapisuje email (z datą zgody RODO)."""
     case_data = create_case()
     case_id = case_data["case_id"]
 
-    # Zapisz email do bazy z datą wyrażenia zgody (RODO)
+    # Waliduj i zapisz email do bazy z datą wyrażenia zgody (RODO)
     if req and req.email:
-        save_case_to_db(
-            case_id=case_id,
-            email=req.email,
-            consent_at=datetime.now(timezone.utc),
-        )
+        validated_email = validate_email(req.email)
+        if validated_email:
+            save_case_to_db(
+                case_id=case_id,
+                email=validated_email,
+                consent_at=datetime.now(timezone.utc),
+            )
 
     return {"case_id": case_id}
 
 
 @router.post("/cases/{case_id}/assets")
-async def upload_assets(case_id: str, files: List[UploadFile] = File(...)):
+@limiter.limit(RATE_LIMIT_UPLOAD)
+async def upload_assets(request: Request, case_id: str, files: List[UploadFile] = File(...)):
     """Przyjmuje multipart/form-data z plikami i zapisuje je do assets"""
+    # Waliduj case_id
+    case_id = validate_case_id(case_id)
+
+    # Waliduj pliki (rozmiar, typ MIME, rozszerzenie)
+    await validate_upload_files(files)
+
     # Sprawdź czy case istnieje
     case_data = load_case(case_id)
 
@@ -102,8 +122,16 @@ _LOCK_FILE = "analysis.lock"
 
 
 @router.post("/cases/{case_id}/run-decision")
-async def run_decision(case_id: str, mode: str = Query("basic", description="basic | expert")):
+@limiter.limit(RATE_LIMIT_ANALYSIS)
+async def run_decision(request: Request, case_id: str, mode: str = Query("basic", description="basic | expert")):
     """Uruchamia automatyczną analizę (Gemini), zapisuje decision + report_data.json, generuje report.txt i report.pdf."""
+    # Waliduj case_id
+    case_id = validate_case_id(case_id)
+
+    # Waliduj mode
+    if mode not in ("basic", "expert"):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy tryb. Dozwolone: basic, expert")
+
     case_data = load_case(case_id)
     status = case_data.get("status")
 
@@ -391,11 +419,14 @@ class FeedbackRequest(BaseModel):
 
 
 @router.post("/cases/{case_id}/feedback")
-async def submit_feedback(case_id: str, req: FeedbackRequest):
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def submit_feedback(request: Request, case_id: str, req: FeedbackRequest):
     """
     Zapisuje feedback użytkownika o poprawności analizy.
     feedback: correct | incorrect | unsure
     """
+    case_id = validate_case_id(case_id)
+
     if req.feedback not in ("correct", "incorrect", "unsure"):
         raise HTTPException(status_code=400, detail="Invalid feedback value")
 
@@ -422,13 +453,15 @@ async def get_feedback(case_id: str):
 
 
 @router.get("/dashboard/cases")
-async def list_all_cases():
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def list_all_cases(request: Request):
     """Lista wszystkich case'ów z bazy (dla dashboardu)."""
     return get_all_cases_from_db()
 
 
 @router.get("/dashboard/stats")
-async def get_stats():
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_stats(request: Request):
     """Statystyki z bazy (dla dashboardu)."""
     return get_db_stats()
 
