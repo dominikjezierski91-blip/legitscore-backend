@@ -22,6 +22,7 @@ from app.services.storage import (
 )
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
+from app.services.database import save_case_to_db, save_feedback_to_db, get_case_from_db
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +228,28 @@ async def run_decision(case_id: str, mode: str = Query("basic", description="bas
 
         logger.debug("Final artifacts ready for case %s", case_id)
 
+        # Zapisz do bazy danych dla przyszłego ML
+        try:
+            verdict_cat = None
+            conf_pct = None
+            if isinstance(report_data, dict):
+                verdict_obj = report_data.get("verdict") or {}
+                if isinstance(verdict_obj, dict):
+                    verdict_cat = verdict_obj.get("verdict_category")
+                    conf_pct = verdict_obj.get("confidence_percent")
+
+            save_case_to_db(
+                case_id=case_id,
+                model=os.getenv("GEMINI_MODEL", "unknown"),
+                prompt_version=os.getenv("A_PROMPT_VERSION", "unknown"),
+                verdict_category=verdict_cat,
+                confidence_percent=conf_pct,
+                report_data=report_data,
+            )
+            logger.info("Case %s saved to database", case_id)
+        except Exception:
+            logger.exception("Failed to save case %s to database (non-fatal)", case_id)
+
         # Dopiero po pełnej finalizacji artefaktów oznacz case jako zakończony.
         case_data["status"] = "DECIDED"
         case_data.setdefault("artifacts", {})
@@ -345,3 +368,43 @@ async def get_report_pdf(case_id: str):
         media_type="application/pdf",
         headers=headers,
     )
+
+
+from pydantic import BaseModel
+from typing import Optional
+
+
+class FeedbackRequest(BaseModel):
+    feedback: str  # "correct" | "incorrect" | "unsure"
+    comment: Optional[str] = None
+
+
+@router.post("/cases/{case_id}/feedback")
+async def submit_feedback(case_id: str, req: FeedbackRequest):
+    """
+    Zapisuje feedback użytkownika o poprawności analizy.
+    feedback: correct | incorrect | unsure
+    """
+    if req.feedback not in ("correct", "incorrect", "unsure"):
+        raise HTTPException(status_code=400, detail="Invalid feedback value")
+
+    try:
+        save_feedback_to_db(case_id, req.feedback, req.comment)
+        logger.info("Feedback saved for case %s: %s", case_id, req.feedback)
+        return {"ok": True, "feedback": req.feedback}
+    except Exception:
+        logger.exception("Failed to save feedback for case %s", case_id)
+        raise HTTPException(status_code=500, detail="Failed to save feedback")
+
+
+@router.get("/cases/{case_id}/feedback")
+async def get_feedback(case_id: str):
+    """Pobiera zapisany feedback dla case."""
+    record = get_case_from_db(case_id)
+    if record is None:
+        return {"feedback": None}
+    return {
+        "feedback": record.feedback,
+        "feedback_at": record.feedback_at.isoformat() if record.feedback_at else None,
+        "comment": record.feedback_comment,
+    }

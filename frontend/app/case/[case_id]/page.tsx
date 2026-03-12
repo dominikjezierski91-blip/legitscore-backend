@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { FeedbackButtons } from "@/components/feedback/feedback-buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -237,6 +238,10 @@ export default async function CasePage({ params, searchParams }: Props) {
                 pełny PDF, aby zobaczyć szczegóły analizy.
               </p>
             )}
+          </section>
+
+          <section className="glass-card space-y-3 p-5 md:p-6">
+            <FeedbackButtons caseId={case_id} />
           </section>
         </div>
         <aside className="glass-card flex w-full max-w-xs flex-col justify-between p-5 md:p-6">

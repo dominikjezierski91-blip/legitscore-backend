@@ -4,8 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.routes import cases
+from app.services.database import init_db
 
 app = FastAPI()
+
+# Inicjalizacja bazy danych
+init_db()
 
 # CORS dla MVP
 app.add_middleware(

@@ -77,3 +77,21 @@ export async function getCase(caseId: string): Promise<unknown> {
   return request(`/api/cases/${caseId}`);
 }
 
+export async function submitFeedback(
+  caseId: string,
+  feedback: "correct" | "incorrect" | "unsure",
+  comment?: string
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/cases/${caseId}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ feedback, comment }),
+  });
+}
+
+export async function getFeedback(
+  caseId: string
+): Promise<{ feedback: string | null; feedback_at: string | null; comment: string | null }> {
+  return request(`/api/cases/${caseId}/feedback`);
+}
+
