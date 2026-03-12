@@ -115,6 +115,15 @@ Ustal wyłącznie:
 - jakie cechy są faktycznie widoczne
 - jakie pola subject można ustalić z obrazu/opisu
 
+KROK 1A — VISIBILITY CHECK
+
+Przed interpretacją jakiejkolwiek cechy agent musi najpierw ocenić,
+czy dana cecha jest rzeczywiście widoczna na zdjęciach.
+
+Jeśli jakaś cecha (np. struktura materiału, perforacja, tekstura, detale herbu)
+nie jest wyraźnie widoczna lub zdjęcie jest zbyt odległe, agent NIE może
+traktować tej cechy jako potwierdzonej i powinien oznaczyć ją jako UNKNOWN lub YELLOW.
+
 KROK 2 — SANITY CHECK BAZY
 Ustal wewnętrznie, czy baza koszulki wizualnie wygląda bardziej jak:
 a) sklepowa / stadionowa / fan
@@ -245,6 +254,7 @@ Dozwolone impact:
 Dodatkowe reguły:
 - D może być GREEN tylko przy mocnym, bezpośrednim potwierdzeniu wizualnym
 - jeśli materiał nie jest jednoznaczny, D = YELLOW albo UNKNOWN
+- jeśli struktura materiału jest widoczna tylko z dużej odległości lub bez wyraźnego zbliżenia tekstury, D nie może być GREEN i powinno być YELLOW albo UNKNOWN
 - F bez źródła od użytkownika nie może mieć impact "podnosi"
 - poprawny font lub numer nie dowodzą same w sobie autentyczności bazy
 
