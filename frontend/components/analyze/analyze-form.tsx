@@ -10,11 +10,14 @@ import { createCase } from "@/lib/api";
 import { setPendingSubmission } from "@/lib/submission-store";
 import { useRouter } from "next/navigation";
 
+type InputMode = "photos" | "url";
+
 export function AnalyzeForm() {
+  const [inputMode, setInputMode] = useState<InputMode>("photos");
   const [files, setFiles] = useState<File[]>([]);
+  const [auctionUrl, setAuctionUrl] = useState("");
   const [reportType, setReportType] = useState<ReportType>("basic");
   const [email, setEmail] = useState("");
-  const [offerLink, setOfferLink] = useState("");
   const [context, setContext] = useState("");
   const [acceptedDisclaimer, setAcceptedDisclaimer] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,31 +25,53 @@ export function AnalyzeForm() {
   const router = useRouter();
 
   const minImages = 7;
+
+  // Walidacja URL aukcji
+  const isValidAuctionUrl = (url: string) => {
+    if (!url.trim()) return false;
+    const lower = url.toLowerCase();
+    return (
+      lower.includes("vinted") ||
+      lower.includes("allegro") ||
+      lower.includes("ebay")
+    );
+  };
+
   const canSubmit =
-    files.length >= minImages &&
     acceptedDisclaimer &&
     email.trim().length > 0 &&
-    !submitting;
+    !submitting &&
+    (inputMode === "photos"
+      ? files.length >= minImages
+      : isValidAuctionUrl(auctionUrl));
 
   async function handleSubmit() {
     setError(null);
 
     if (!canSubmit) {
-      setError(
-        "Upewnij się, że dodałeś minimum 7 zdjęć, podałeś email i zaakceptowałeś zastrzeżenia."
-      );
+      if (inputMode === "photos") {
+        setError(
+          "Upewnij się, że dodałeś minimum 7 zdjęć, podałeś email i zaakceptowałeś zastrzeżenia."
+        );
+      } else {
+        setError(
+          "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay), podałeś email i zaakceptowałeś zastrzeżenia."
+        );
+      }
       return;
     }
 
     try {
       setSubmitting(true);
-      // 1) Tworzymy sprawę z emailem, linkiem do oferty i kontekstem
-      const { case_id } = await createCase(email, offerLink, context);
+      // 1) Tworzymy sprawę z emailem i kontekstem
+      const { case_id } = await createCase(email, undefined, context);
       // 2) Zapisujemy dane lokalne do dalszego przetwarzania na ekranie statusu.
       setPendingSubmission({
         caseId: case_id,
         mode: reportType,
-        files,
+        inputType: inputMode,
+        files: inputMode === "photos" ? files : undefined,
+        auctionUrl: inputMode === "url" ? auctionUrl : undefined,
       });
       // 3) Od razu przechodzimy na stronę statusu, gdzie wykonujemy upload + analizę.
       const qs = new URLSearchParams();
@@ -88,31 +113,98 @@ export function AnalyzeForm() {
           </div>
         </section>
 
-        {/* STEP 1 — PHOTOS */}
+        {/* STEP 1 — INPUT MODE SELECTOR */}
         <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/10 text-[11px] text-emerald-200">
-                1
-              </span>
-              <span>Dodaj zdjęcia koszulki</span>
-            </div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/10 text-[11px] text-emerald-200">
+              1
+            </span>
+            <span>Jak chcesz przeanalizować koszulkę?</span>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Im lepsza jakość i kompletność zdjęć, tym bardziej wiarygodny raport.
-          </p>
-          <section className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur">
-            <p className="mb-3 text-xs text-muted-foreground">
-              Dodaj 7–12 zdjęć koszulki. Lepsza jakość i kompletność zdjęć = bardziej
-              wiarygodny raport.
-            </p>
-            <MultiImageUploader
-              files={files}
-              onChange={setFiles}
-              minCount={minImages}
-            />
-          </section>
-          <PhotoRequirementsCard />
+          <div className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur space-y-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
+              <label
+                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
+                  inputMode === "photos"
+                    ? "border-emerald-400/60 bg-emerald-500/10"
+                    : "border-border/70 bg-slate-950/40 hover:border-slate-500"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="inputMode"
+                  value="photos"
+                  checked={inputMode === "photos"}
+                  onChange={() => setInputMode("photos")}
+                  className="h-4 w-4 accent-emerald-500"
+                />
+                <div>
+                  <div className="text-sm font-medium text-slate-100">Dodaj zdjęcia</div>
+                  <div className="text-xs text-muted-foreground">Prześlij własne zdjęcia koszulki</div>
+                </div>
+              </label>
+              <label
+                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
+                  inputMode === "url"
+                    ? "border-emerald-400/60 bg-emerald-500/10"
+                    : "border-border/70 bg-slate-950/40 hover:border-slate-500"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="inputMode"
+                  value="url"
+                  checked={inputMode === "url"}
+                  onChange={() => setInputMode("url")}
+                  className="h-4 w-4 accent-emerald-500"
+                />
+                <div>
+                  <div className="text-sm font-medium text-slate-100">Wklej link do aukcji</div>
+                  <div className="text-xs text-muted-foreground">Vinted, Allegro lub eBay</div>
+                </div>
+              </label>
+            </div>
+
+            {/* PHOTOS MODE */}
+            {inputMode === "photos" && (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Dodaj 7–12 zdjęć koszulki. Im lepsza jakość i kompletność zdjęć, tym
+                  bardziej wiarygodny raport.
+                </p>
+                <MultiImageUploader
+                  files={files}
+                  onChange={setFiles}
+                  minCount={minImages}
+                />
+              </div>
+            )}
+
+            {/* URL MODE */}
+            {inputMode === "url" && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Link do oferty (Vinted, Allegro lub eBay)
+                </label>
+                <input
+                  type="url"
+                  value={auctionUrl}
+                  onChange={(e) => setAuctionUrl(e.target.value)}
+                  className="w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
+                  placeholder="https://www.vinted.pl/items/... lub https://allegro.pl/oferta/..."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Pobierzemy zdjęcia z aukcji i przeanalizujemy je automatycznie.
+                </p>
+                {auctionUrl && !isValidAuctionUrl(auctionUrl) && (
+                  <p className="text-xs text-amber-300">
+                    Link musi prowadzić do Vinted, Allegro lub eBay.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          {inputMode === "photos" && <PhotoRequirementsCard />}
         </section>
 
         {/* STEP 2 — REPORT TYPE */}
@@ -153,18 +245,6 @@ export function AnalyzeForm() {
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">
-                Link do oferty lub cena zakupu (opcjonalnie)
-              </label>
-              <input
-                type="text"
-                value={offerLink}
-                onChange={(e) => setOfferLink(e.target.value)}
-                className="w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
-                placeholder="np. link do aukcji, cena w zł"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">
                 Dodatkowy kontekst / opis (opcjonalnie)
               </label>
               <textarea
@@ -201,8 +281,11 @@ export function AnalyzeForm() {
       {/* SUMMARY / CTA */}
       <SubmitSummaryCard
         reportType={reportType}
+        inputMode={inputMode}
         imageCount={files.length}
         minImages={minImages}
+        auctionUrl={auctionUrl}
+        isValidUrl={isValidAuctionUrl(auctionUrl)}
         email={email}
         canSubmit={canSubmit}
         onSubmit={handleSubmit}

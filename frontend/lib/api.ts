@@ -123,3 +123,17 @@ export async function getRating(
   return request(`/api/cases/${caseId}/rating`);
 }
 
+export async function importFromUrl(
+  caseId: string,
+  url: string
+): Promise<{ ok: boolean; assets: unknown[]; count: number }> {
+  return request<{ ok: boolean; assets: unknown[]; count: number }>(
+    `/api/cases/${caseId}/import-from-url`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }
+  );
+}
+

@@ -16,11 +16,13 @@ from app.services.storage import (
     load_case,
     save_case,
     save_assets,
+    save_assets_from_bytes,
     save_artifact,
     get_case_dir,
     DATA_DIR,
     CASES_DIR,
 )
+from app.services.auction_scraper import fetch_auction_images, AuctionScraperError
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
 from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db
@@ -101,6 +103,63 @@ async def upload_assets(request: Request, case_id: str, files: List[UploadFile] 
     save_case(case_id, case_data)
 
     return {"assets": saved_assets}
+
+
+class ImportFromUrlRequest(BaseModel):
+    url: str
+
+
+@router.post("/cases/{case_id}/import-from-url")
+@limiter.limit(RATE_LIMIT_UPLOAD)
+async def import_from_url(request: Request, case_id: str, req: ImportFromUrlRequest):
+    """
+    Pobiera zdjęcia z linku do aukcji (Vinted, Allegro, eBay) i zapisuje jako assets.
+    Alternatywa dla ręcznego uploadu zdjęć.
+    """
+    case_id = validate_case_id(case_id)
+    case_data = load_case(case_id)
+
+    # Sprawdź czy case nie ma już assets
+    if case_data.get("assets"):
+        raise HTTPException(
+            status_code=400,
+            detail="Case ma już dodane zdjęcia. Utwórz nowy case."
+        )
+
+    try:
+        # Pobierz zdjęcia z aukcji
+        images = await fetch_auction_images(req.url)
+
+        # Zapisz jako assets (używamy tej samej funkcji co upload)
+        saved_assets = save_assets_from_bytes(case_id, images)
+
+        # Aktualizuj case.json
+        case_data["assets"].extend(saved_assets)
+        case_data["status"] = "ASSETS_READY"
+        case_data["source_url"] = req.url  # Zapisz źródło dla informacji
+        save_case(case_id, case_data)
+
+        logger.info(
+            "Zaimportowano %d zdjęć z aukcji dla case %s",
+            len(saved_assets),
+            case_id
+        )
+
+        return {
+            "ok": True,
+            "assets": saved_assets,
+            "count": len(saved_assets),
+        }
+
+    except AuctionScraperError as e:
+        logger.warning("Błąd scrapera dla case %s: %s", case_id, str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Nieoczekiwany błąd podczas importu z URL dla case %s", case_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Wystąpił błąd podczas pobierania zdjęć z aukcji."
+        )
 
 
 @router.post("/cases/{case_id}/decision")

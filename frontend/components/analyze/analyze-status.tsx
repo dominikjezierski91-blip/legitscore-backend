@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getCase, runDecision, uploadAssets } from "@/lib/api";
+import { getCase, runDecision, uploadAssets, importFromUrl } from "@/lib/api";
 import {
   clearPendingSubmission,
   getPendingSubmission,
@@ -96,10 +96,15 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
         startPolling();
       } else {
         runDecisionStartedRef.current = true;
-        if (DEBUG) console.debug("[AnalyzeStatus] runDecision started case_id=", id);
+        if (DEBUG) console.debug("[AnalyzeStatus] runDecision started case_id=", id, "inputType=", submission.inputType);
         (async () => {
           try {
-            await uploadAssets(id, submission.files);
+            // Obsłuż dwa tryby: upload zdjęć lub import z URL
+            if (submission.inputType === "url" && submission.auctionUrl) {
+              await importFromUrl(id, submission.auctionUrl);
+            } else if (submission.files && submission.files.length > 0) {
+              await uploadAssets(id, submission.files);
+            }
             await runDecision(id, submission.mode);
             clearPendingSubmission();
             if (!cancelled) {

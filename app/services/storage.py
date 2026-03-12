@@ -96,6 +96,37 @@ async def save_assets(case_id: str, files: List[UploadFile]) -> List[Dict]:
     return saved_assets
 
 
+def save_assets_from_bytes(case_id: str, images: List[tuple]) -> List[Dict]:
+    """
+    Zapisuje obrazy z bytes do data/cases/{case_id}/assets/.
+    images: lista krotek (bytes, filename)
+    Zwraca listę dict z asset_id, filename, path, uploaded_at.
+    """
+    ensure_case_dirs(case_id)
+    assets_dir = CASES_DIR / case_id / "assets"
+
+    saved_assets: List[Dict] = []
+    now = datetime.now(timezone.utc).isoformat()
+
+    for content, original_filename in images:
+        asset_id = str(uuid4())
+        filename = f"{asset_id}_{original_filename}"
+        file_path = assets_dir / filename
+
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        asset_info = {
+            "asset_id": asset_id,
+            "filename": original_filename,
+            "path": str(file_path.relative_to(DATA_DIR)),
+            "uploaded_at": now,
+        }
+        saved_assets.append(asset_info)
+
+    return saved_assets
+
+
 def save_artifact(case_id: str, name: str, data: Dict) -> str:
     """Zapisuje artefakt JSON w data/cases/{case_id}/artifacts/{name}.json i zwraca ścieżkę względną od DATA_DIR."""
     ensure_case_dirs(case_id)

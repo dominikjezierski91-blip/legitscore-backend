@@ -259,15 +259,15 @@ export default async function CasePage({ params, searchParams }: Props) {
             </a>
           </div>
           <div className="mt-4 border-t border-border/40 pt-4">
+            <RatingBalls caseId={case_id} />
+          </div>
+          <div className="mt-4 border-t border-border/40 pt-4">
             <Link
               href="/analyze/form"
               className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
             >
               Nowa analiza
             </Link>
-          </div>
-          <div className="mt-4 border-t border-border/40 pt-4">
-            <RatingBalls caseId={case_id} />
           </div>
           <div className="mt-4 space-y-1 text-[11px] text-muted-foreground">
             <p>

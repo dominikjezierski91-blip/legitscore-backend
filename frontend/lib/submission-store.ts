@@ -1,7 +1,9 @@
 export type PendingSubmission = {
   caseId: string;
   mode: "basic" | "expert";
-  files: File[];
+  inputType: "photos" | "url";
+  files?: File[];
+  auctionUrl?: string;
 };
 
 let pending: PendingSubmission | null = null;

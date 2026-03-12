@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock,
   ImageIcon,
+  Link2,
   Mail,
   ShieldCheck,
 } from "lucide-react";
@@ -15,8 +16,11 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   reportType: ReportType;
+  inputMode: "photos" | "url";
   imageCount: number;
   minImages: number;
+  auctionUrl: string;
+  isValidUrl: boolean;
   email: string;
   canSubmit: boolean;
   onSubmit: () => void;
@@ -25,8 +29,11 @@ type Props = {
 
 export function SubmitSummaryCard({
   reportType,
+  inputMode,
   imageCount,
   minImages,
+  auctionUrl,
+  isValidUrl,
   email,
   canSubmit,
   onSubmit,
@@ -46,16 +53,31 @@ export function SubmitSummaryCard({
             value={reportType === "basic" ? "BASIC" : "EXPERT"}
             accent
           />
-          <SummaryRow
-            icon={<ImageIcon className="h-3 w-3" />}
-            label="Zdjęcia"
-            value={
-              imageCount >= minImages
-                ? `${imageCount} z ${minImages}+ gotowe`
-                : `${imageCount} z ${minImages} wymaganych`
-            }
-            status={imageCount >= minImages ? "ok" : "warn"}
-          />
+          {inputMode === "photos" ? (
+            <SummaryRow
+              icon={<ImageIcon className="h-3 w-3" />}
+              label="Zdjęcia"
+              value={
+                imageCount >= minImages
+                  ? `${imageCount} z ${minImages}+ gotowe`
+                  : `${imageCount} z ${minImages} wymaganych`
+              }
+              status={imageCount >= minImages ? "ok" : "warn"}
+            />
+          ) : (
+            <SummaryRow
+              icon={<Link2 className="h-3 w-3" />}
+              label="Link aukcji"
+              value={
+                auctionUrl
+                  ? isValidUrl
+                    ? "prawidłowy"
+                    : "nieprawidłowa domena"
+                  : "niepodany"
+              }
+              status={auctionUrl && isValidUrl ? "ok" : "warn"}
+            />
+          )}
           <SummaryRow
             icon={<Mail className="h-3 w-3" />}
             label="Email kontaktowy"
