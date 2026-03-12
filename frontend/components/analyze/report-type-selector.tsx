@@ -33,10 +33,10 @@ export function ReportTypeSelector({ value, onChange }: Props) {
               : "border-border/80"
           )}
         >
-          <div className="mb-1 text-[11px] font-semibold text-slate-100">
+          <div className="mb-1 text-xs font-semibold text-slate-100">
             BASIC
           </div>
-          <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+          <ul className="space-y-0.5 text-xs text-muted-foreground">
             <li>• Szybsza ocena ryzyka</li>
             <li>• Dla większości standardowych przypadków</li>
           </ul>
@@ -53,10 +53,10 @@ export function ReportTypeSelector({ value, onChange }: Props) {
               : "border-border/80"
           )}
         >
-          <div className="mb-1 text-[11px] font-semibold text-slate-100">
+          <div className="mb-1 text-xs font-semibold text-slate-100">
             EXPERT
           </div>
-          <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+          <ul className="space-y-0.5 text-xs text-muted-foreground">
             <li>• Dokładniejsza analiza</li>
             <li>• Dla trudniejszych lub bardziej wartościowych koszulek</li>
           </ul>

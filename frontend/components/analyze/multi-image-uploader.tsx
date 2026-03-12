@@ -72,23 +72,23 @@ export function MultiImageUploader({
         onClick={() => inputRef.current?.click()}
       >
         <ImageIcon className="mb-2 h-6 w-6 text-emerald-300" />
-        <div className="mb-1 text-[11px] font-medium text-slate-100">
+        <div className="mb-1 text-xs font-medium text-slate-100">
           Przeciągnij zdjęcia lub kliknij, aby wybrać
         </div>
-        <div className="text-[11px]">
+        <div className="text-xs">
           JPG, PNG • maks. {maxCount} zdjęć
         </div>
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
           multiple
           className="hidden"
           onChange={(e) => handleFiles(e.target.files)}
         />
       </div>
 
-      <div className="space-y-1 text-[11px] text-muted-foreground">
+      <div className="space-y-1 text-xs text-muted-foreground">
         <div className="flex items-center justify-between">
           <span>
             {files.length} z {minCount} wymaganych zdjęć
@@ -116,7 +116,7 @@ export function MultiImageUploader({
       </div>
 
       {warning && (
-        <div className="text-[11px] text-amber-300">{warning}</div>
+        <div className="text-xs text-amber-300">{warning}</div>
       )}
 
       {files.length > 0 && (
@@ -140,7 +140,7 @@ export function MultiImageUploader({
                     e.stopPropagation();
                     onRemove(idx);
                   }}
-                  className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/90 text-[10px] text-slate-200 opacity-0 shadow-md transition group-hover:opacity-100"
+                  className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/90 text-[11px] text-slate-200 opacity-0 shadow-md transition group-hover:opacity-100"
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>

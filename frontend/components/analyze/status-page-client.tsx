@@ -31,7 +31,7 @@ export function StatusPageClient() {
           <h1 className="text-lg font-semibold tracking-tight text-slate-50">
             Analizujemy koszulkę
           </h1>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Trwa analiza. Sprawdzamy detale, metki i spójność wykonania...
           </p>
         </div>

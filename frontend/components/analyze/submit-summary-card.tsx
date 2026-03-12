@@ -35,7 +35,7 @@ export function SubmitSummaryCard({
   return (
     <aside className="flex flex-col justify-between rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur md:sticky md:top-6 md:self-start">
       <div className="space-y-4 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-100">
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-100">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" />
           Podsumowanie zgłoszenia
         </div>
@@ -83,7 +83,7 @@ export function SubmitSummaryCard({
         <div className="flex justify-between gap-3">
           <Link
             href="/analyze"
-            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-slate-950/40 px-4 py-2 text-[11px] font-medium text-muted-foreground hover:border-emerald-400/70 hover:text-emerald-200"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-slate-950/40 px-4 py-2 text-xs font-medium text-muted-foreground hover:border-emerald-400/70 hover:text-emerald-200"
           >
             <ArrowLeft className="h-3 w-3" />
             Wróć do startu
@@ -93,7 +93,7 @@ export function SubmitSummaryCard({
             onClick={onSubmit}
             disabled={!canSubmit || submitting}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-[11px] font-semibold shadow-lg transition",
+              "inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-xs font-semibold shadow-lg transition",
               canSubmit && !submitting
                 ? "bg-emerald-500 text-slate-950 shadow-emerald-500/50 hover:bg-emerald-400 hover:shadow-emerald-400/60"
                 : "cursor-not-allowed bg-slate-800/60 text-slate-500 shadow-none"
@@ -103,7 +103,7 @@ export function SubmitSummaryCard({
             <ArrowRight className="h-3 w-3" />
           </button>
         </div>
-        <div className="text-[11px] text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
           <div>Darmowe w becie.</div>
           <div>Raport ryzyka, nie gwarancja.</div>
         </div>
@@ -140,13 +140,13 @@ function SummaryRow({
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/80 text-slate-200">
           {icon}
         </span>
-        <span className="text-[11px] text-slate-300">{label}</span>
+        <span className="text-xs text-slate-300">{label}</span>
       </div>
       <div className="flex items-center gap-1">
         {statusIcon}
         <span
           className={cn(
-            "break-all text-right text-[11px]",
+            "break-all text-right text-xs",
             accent ? "font-semibold text-slate-100" : "",
             status === "warn" && !accent ? "text-amber-300" : ""
           )}

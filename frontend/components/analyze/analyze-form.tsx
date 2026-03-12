@@ -98,7 +98,7 @@ export function AnalyzeForm() {
               <span>Dodaj zdjęcia koszulki</span>
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Im lepsza jakość i kompletność zdjęć, tym bardziej wiarygodny raport.
           </p>
           <section className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur">
@@ -149,9 +149,9 @@ export function AnalyzeForm() {
                 className="w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
                 placeholder="np. twoj.email@example.com"
               />
-              <p className="pt-1 text-[11px] text-muted-foreground">
-                Email służy wyłącznie do kontaktu w sprawie raportu. Nie
-                wykorzystujemy go do celów marketingowych.
+              <p className="pt-1 text-xs text-muted-foreground">
+                Wpisując adres email, zgadzasz się na kontakt w sprawie raportu
+                oraz informacje o rozwoju LegitScore.
               </p>
             </div>
             <div className="space-y-1">

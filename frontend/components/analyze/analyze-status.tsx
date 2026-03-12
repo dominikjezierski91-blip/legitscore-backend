@@ -148,12 +148,12 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
         <h1 className="text-lg font-semibold tracking-tight text-slate-50">
           Analizujemy koszulkę
         </h1>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Sprawdzamy detale, metki i spójność wykonania. Generujemy raport
           ryzyka autentyczności.
         </p>
       </div>
-      <ul className="space-y-1 text-left text-[11px] text-muted-foreground">
+      <ul className="space-y-1 text-left text-xs text-muted-foreground">
         <StatusLine active={step === 0}>
           Przesyłanie zdjęć...
         </StatusLine>
@@ -173,12 +173,12 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
           Finalizowanie analizy...
         </StatusLine>
       </ul>
-      <p className="text-[11px] text-slate-400">
+      <p className="text-xs text-slate-400">
         Analiza może potrwać od kilku sekund do około minuty. Produkt jest w
         wersji beta i dostarcza raport ryzyka, a nie certyfikat.
       </p>
       {error && (
-        <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200">
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
           <ShieldAlert className="h-3.5 w-3.5" />
           <span>{error}</span>
         </div>

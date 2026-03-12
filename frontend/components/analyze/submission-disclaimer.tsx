@@ -21,7 +21,7 @@ export function SubmissionDisclaimer({ accepted, onChange }: Props) {
             certyfikat autentyczności ani gwarancja.
           </span>
         </label>
-        <p className="text-[11px]">
+        <p className="text-xs">
           Dokładność raportu zależy od jakości i kompletności przesłanych
           zdjęć.
         </p>
