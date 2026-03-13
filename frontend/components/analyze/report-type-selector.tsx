@@ -17,8 +17,8 @@ export function ReportTypeSelector({ value, onChange }: Props) {
           Wybierz typ raportu
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Obie wersje są darmowe w becie. BASIC jest szybszy, EXPERT
-          dokładniejszy.
+          Obie wersje są darmowe w becie. EXPERT dostarcza pełną dokumentację
+          wartości kolekcjonerskiej.
         </p>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -37,8 +37,9 @@ export function ReportTypeSelector({ value, onChange }: Props) {
             BASIC
           </div>
           <ul className="space-y-0.5 text-xs text-muted-foreground">
-            <li>• Szybsza ocena ryzyka</li>
-            <li>• Dla większości standardowych przypadków</li>
+            <li>• Szybka ocena ryzyka autentyczności</li>
+            <li>• Werdykt + poziom pewności</li>
+            <li>• Dla większości koszulek</li>
           </ul>
         </button>
 
@@ -46,19 +47,23 @@ export function ReportTypeSelector({ value, onChange }: Props) {
           type="button"
           onClick={() => onChange("expert")}
           className={cn(
-            "flex h-full flex-col items-start rounded-2xl border px-4 py-3 text-left text-xs transition",
+            "relative flex h-full flex-col items-start rounded-2xl border px-4 py-3 text-left text-xs transition",
             "bg-slate-950/40 hover:border-emerald-400/60 hover:bg-slate-900/60",
             value === "expert"
               ? "border-emerald-400 bg-emerald-500/10 shadow-md shadow-emerald-500/30"
               : "border-border/80"
           )}
         >
-          <div className="mb-1 text-xs font-semibold text-slate-100">
+          <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-slate-100">
             EXPERT
+            <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+              Polecane
+            </span>
           </div>
           <ul className="space-y-0.5 text-xs text-muted-foreground">
-            <li>• Dokładniejsza analiza</li>
-            <li>• Dla trudniejszych lub bardziej wartościowych koszulek</li>
+            <li>• Pełna macierz decyzyjna z obserwacjami</li>
+            <li>• Najlepsza dokumentacja dla kolekcjonerów</li>
+            <li>• Dla wartościowych lub spornych koszulek</li>
           </ul>
         </button>
       </div>

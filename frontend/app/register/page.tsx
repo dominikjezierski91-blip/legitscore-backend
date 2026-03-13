@@ -51,6 +51,21 @@ export default function RegisterPage() {
           </p>
         </div>
 
+        <ul className="space-y-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-slate-300">
+          <li className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            Archiwum raportów — wszystkie analizy w jednym miejscu
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            Kolekcja z ceną zakupu, datą i źródłem
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            Bezpłatne w czasie trwania bety
+          </li>
+        </ul>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-300">Email</label>
@@ -107,6 +122,11 @@ export default function RegisterPage() {
           <Link href={`/login${next !== "/collection" ? `?next=${encodeURIComponent(next)}` : ""}`} className="text-emerald-400 hover:underline">
             Zaloguj się
           </Link>
+        </p>
+
+        <p className="text-center text-[10px] text-slate-600">
+          Nie wysyłamy spamu. Możesz usunąć konto w dowolnym momencie.
+          Dane analizowanych zdjęć nie są przechowywane po zakończeniu analizy.
         </p>
       </div>
     </div>

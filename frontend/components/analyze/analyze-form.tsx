@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PhotoRequirementsCard } from "./photo-requirements-card";
 import { MultiImageUploader } from "./multi-image-uploader";
 import { ReportType, ReportTypeSelector } from "./report-type-selector";
@@ -9,10 +9,12 @@ import { SubmitSummaryCard } from "./submit-summary-card";
 import { createCase } from "@/lib/api";
 import { setPendingSubmission } from "@/lib/submission-store";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth/auth-provider";
 
 type InputMode = "photos" | "url";
 
 export function AnalyzeForm() {
+  const { user } = useAuth();
   const [inputMode, setInputMode] = useState<InputMode>("photos");
   const [files, setFiles] = useState<File[]>([]);
   const [auctionUrl, setAuctionUrl] = useState("");
@@ -23,6 +25,10 @@ export function AnalyzeForm() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (user?.email) setEmail(user.email);
+  }, [user]);
 
   const minImages = 7;
 
@@ -51,11 +57,15 @@ export function AnalyzeForm() {
     if (!canSubmit) {
       if (inputMode === "photos") {
         setError(
-          "Upewnij się, że dodałeś minimum 7 zdjęć, podałeś email i zaakceptowałeś zastrzeżenia."
+          user
+            ? "Upewnij się, że dodałeś minimum 7 zdjęć i zaakceptowałeś zastrzeżenia."
+            : "Upewnij się, że dodałeś minimum 7 zdjęć, podałeś email i zaakceptowałeś zastrzeżenia."
         );
       } else {
         setError(
-          "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay), podałeś email i zaakceptowałeś zastrzeżenia."
+          user
+            ? "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay) i zaakceptowałeś zastrzeżenia."
+            : "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay), podałeś email i zaakceptowałeś zastrzeżenia."
         );
       }
       return;
@@ -94,11 +104,11 @@ export function AnalyzeForm() {
         {/* HERO / PAGE HEADER */}
         <section className="space-y-4">
           <h1 className="text-xl font-semibold tracking-tight text-slate-50 md:text-2xl">
-            Oceń autentyczność koszulki piłkarskiej
+            Prześlij zdjęcia koszulki albo podaj link do aukcji
           </h1>
           <p className="max-w-xl text-sm text-muted-foreground">
-            Prześlij zdjęcia koszulki, a LegitScore przygotuje raport ryzyka
-            autentyczności.
+            LegitScore analizuje koszulki piłkarskie i generuje szczegółowy
+            raport ryzyka autentyczności na podstawie przesłanych zdjęć.
           </p>
           <div className="flex flex-wrap gap-2 text-[11px]">
             <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
@@ -168,10 +178,10 @@ export function AnalyzeForm() {
             {/* PHOTOS MODE */}
             {inputMode === "photos" && (
               <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Dodaj 7–12 zdjęć koszulki. Im lepsza jakość i kompletność zdjęć, tym
-                  bardziej wiarygodny raport.
-                </p>
+                <div className="rounded-xl border border-amber-400/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/80">
+                  <span className="font-medium">Wskazówka:</span> Ostre zdjęcia z dobrym oświetleniem znacząco
+                  poprawiają dokładność analizy. Prześlij 7–12 zdjęć z różnych kątów.
+                </div>
                 <MultiImageUploader
                   files={files}
                   onChange={setFiles}
@@ -182,25 +192,38 @@ export function AnalyzeForm() {
 
             {/* URL MODE */}
             {inputMode === "url" && (
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Link do oferty (Vinted, Allegro lub eBay)
-                </label>
-                <input
-                  type="url"
-                  value={auctionUrl}
-                  onChange={(e) => setAuctionUrl(e.target.value)}
-                  className="w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
-                  placeholder="https://www.vinted.pl/items/... lub https://allegro.pl/oferta/..."
-                />
-                <p className="text-xs text-muted-foreground">
-                  Pobierzemy zdjęcia z aukcji i przeanalizujemy je automatycznie.
-                </p>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-300">Vinted</span>
+                  <span className="rounded-full border border-orange-400/40 bg-orange-500/10 px-2.5 py-0.5 text-[11px] font-medium text-orange-300">Allegro</span>
+                  <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-medium text-blue-300">eBay</span>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Link do oferty
+                  </label>
+                  <input
+                    type="url"
+                    value={auctionUrl}
+                    onChange={(e) => setAuctionUrl(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
+                    placeholder="https://www.vinted.pl/items/... lub https://allegro.pl/oferta/..."
+                  />
+                </div>
                 {auctionUrl && !isValidAuctionUrl(auctionUrl) && (
                   <p className="text-xs text-amber-300">
                     Link musi prowadzić do Vinted, Allegro lub eBay.
                   </p>
                 )}
+                <div className="rounded-xl border border-slate-700/50 bg-slate-900/40 p-3 text-xs text-slate-400 space-y-1.5">
+                  <p className="font-medium text-slate-300">Dla najlepszej analizy ogłoszenie powinno zawierać:</p>
+                  <ul className="space-y-1">
+                    <li className="flex gap-2"><span className="text-emerald-400">·</span> Przód koszulki (pełne zdjęcie)</li>
+                    <li className="flex gap-2"><span className="text-emerald-400">·</span> Tył koszulki</li>
+                    <li className="flex gap-2"><span className="text-emerald-400">·</span> Zbliżenie herbu lub logo producenta</li>
+                    <li className="flex gap-2"><span className="text-slate-500">·</span> Zdjęcie metryczki lub nadruku szyjnego (opcjonalnie)</li>
+                  </ul>
+                </div>
               </div>
             )}
           </div>
@@ -224,25 +247,32 @@ export function AnalyzeForm() {
             <span className="flex h-6 w-6 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/10 text-[11px] text-emerald-200">
               3
             </span>
-            <span>Podaj dane kontaktowe i kontekst</span>
+            <span>{user ? "Dodaj kontekst (opcjonalnie)" : "Podaj dane kontaktowe i kontekst"}</span>
           </div>
           <div className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur space-y-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">
-                Email (wymagany)
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
-                placeholder="np. twoj.email@example.com"
-              />
-              <p className="pt-1 text-xs italic text-muted-foreground">
-                Wpisując adres email, zgadzasz się na kontakt w sprawie raportu
-                oraz informacje o rozwoju LegitScore.
+            {user ? (
+              <p className="text-xs text-slate-400">
+                Jesteś zalogowany jako{" "}
+                <span className="font-medium text-emerald-300">{user.email}</span>.
               </p>
-            </div>
+            ) : (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Email (wymagany)
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
+                  placeholder="np. twoj.email@example.com"
+                />
+                <p className="pt-1 text-xs italic text-muted-foreground">
+                  Wpisując adres email, zgadzasz się na kontakt w sprawie raportu
+                  oraz informacje o rozwoju LegitScore.
+                </p>
+              </div>
+            )}
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">
                 Dodatkowy kontekst / opis (opcjonalnie)

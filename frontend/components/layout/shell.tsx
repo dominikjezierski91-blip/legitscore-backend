@@ -36,6 +36,9 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                 <Link href="/collection" className="text-slate-400 transition hover:text-slate-200">
                   Kolekcja
                 </Link>
+                <Link href="/account" className="text-slate-400 transition hover:text-slate-200">
+                  Konto
+                </Link>
                 <button
                   onClick={logout}
                   className="text-slate-500 transition hover:text-slate-300"

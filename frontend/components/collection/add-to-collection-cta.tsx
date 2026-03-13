@@ -8,10 +8,11 @@ type Props = {
   caseId: string;
   mode?: string;
   reportData: any;
+  autoOpen?: boolean;
 };
 
-export function AddToCollectionCta({ caseId, mode, reportData }: Props) {
-  const [open, setOpen] = useState(false);
+export function AddToCollectionCta({ caseId, mode, reportData, autoOpen }: Props) {
+  const [open, setOpen] = useState(autoOpen ?? false);
 
   return (
     <>

@@ -46,13 +46,13 @@ export function AddToCollectionModal({ caseId, mode, reportData, onClose }: Prop
           </div>
           <div className="flex flex-col gap-2">
             <button
-              onClick={() => router.push(`/login?next=${encodeURIComponent(`/case/${caseId}`)}`)}
+              onClick={() => router.push(`/login?next=${encodeURIComponent(`/case/${caseId}?add_to_collection=1`)}`)}
               className="w-full rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-emerald-400"
             >
               Zaloguj się
             </button>
             <button
-              onClick={() => router.push(`/register?next=${encodeURIComponent(`/case/${caseId}`)}`)}
+              onClick={() => router.push(`/register?next=${encodeURIComponent(`/case/${caseId}?add_to_collection=1`)}`)}
               className="w-full rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20"
             >
               Załóż konto

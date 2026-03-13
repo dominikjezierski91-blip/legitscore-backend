@@ -11,7 +11,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 type Props = {
   params: { case_id: string };
-  searchParams: { mode?: string };
+  searchParams: { mode?: string; add_to_collection?: string };
 };
 
 export default async function CasePage({ params, searchParams }: Props) {
@@ -296,7 +296,12 @@ export default async function CasePage({ params, searchParams }: Props) {
             </a>
           </div>
           <div className="mt-4 border-t border-border/40 pt-4">
-            <AddToCollectionCta caseId={case_id} mode={mode} reportData={reportData} />
+            <AddToCollectionCta
+                caseId={case_id}
+                mode={mode}
+                reportData={reportData}
+                autoOpen={searchParams.add_to_collection === "1"}
+              />
           </div>
           <div className="mt-4 border-t border-border/40 pt-4">
             <RatingBalls caseId={case_id} />

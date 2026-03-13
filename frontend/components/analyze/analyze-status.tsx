@@ -180,7 +180,7 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
     };
   }, [caseId, mode, router]);
 
-  const step = tick % 6;
+  const step = tick % 8;
 
   // UI dla błędu prechecka
   if (precheckError) {
@@ -339,24 +339,30 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
           Przesyłanie zdjęć...
         </StatusLine>
         <StatusLine active={step === 1}>
-          Analiza elementów wizualnych...
+          Sprawdzamy metki i nadruki szyjne...
         </StatusLine>
         <StatusLine active={step === 2}>
-          Sprawdzanie zgodności modelu...
+          Analizujemy haft i herb producenta...
         </StatusLine>
         <StatusLine active={step === 3}>
-          Porównywanie z bazą koszulek...
+          Oceniamy materiał i technologię...
         </StatusLine>
         <StatusLine active={step === 4}>
-          Budowanie raportu ryzyka...
+          Weryfikujemy personalizację...
         </StatusLine>
         <StatusLine active={step === 5}>
-          Finalizowanie analizy...
+          Sprawdzamy spójność wykonania...
+        </StatusLine>
+        <StatusLine active={step === 6}>
+          Budowanie raportu ryzyka...
+        </StatusLine>
+        <StatusLine active={step === 7}>
+          Finalizowanie analizy i generowanie PDF...
         </StatusLine>
       </ul>
       <p className="text-xs text-slate-400">
-        Analiza może potrwać od kilku sekund do około minuty. Produkt jest w
-        wersji beta i dostarcza raport ryzyka, a nie certyfikat.
+        Analiza zajmuje zwykle od 30 sekund do minuty. LegitScore dostarcza
+        raport ryzyka — nie certyfikat autentyczności.
       </p>
     </div>
   );
