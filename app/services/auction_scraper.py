@@ -28,6 +28,25 @@ class AuctionScraperError(Exception):
     pass
 
 
+def detect_provider(url: str) -> str:
+    """
+    Wykrywa dostawcę (Vinted, Allegro, eBay) na podstawie URL.
+    Zwraca nazwę dostawcy lub 'unknown'.
+    """
+    try:
+        parsed = urlparse(url)
+        domain_lower = parsed.netloc.lower()
+        if "vinted" in domain_lower:
+            return "vinted"
+        elif "allegro" in domain_lower:
+            return "allegro"
+        elif "ebay" in domain_lower:
+            return "ebay"
+    except Exception:
+        pass
+    return "unknown"
+
+
 def validate_auction_url(url: str) -> str:
     """
     Waliduje URL aukcji. Sprawdza czy domena jest dozwolona.
@@ -152,7 +171,8 @@ async def fetch_auction_images(url: str) -> List[Tuple[bytes, str]]:
     Zwraca listę krotek (bytes, filename).
     """
     url = validate_auction_url(url)
-    logger.info("Pobieranie zdjęć z aukcji: %s", url)
+    provider = detect_provider(url)
+    logger.info("[SCRAPER] provider=%s url=%s", provider, url)
 
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         # Pobierz HTML strony
@@ -169,9 +189,10 @@ async def fetch_auction_images(url: str) -> List[Tuple[bytes, str]]:
 
         # Wyciągnij URL-e obrazów
         image_urls = _extract_images_from_html(html, url)
-        logger.info("Znaleziono %d obrazów na stronie", len(image_urls))
+        logger.info("[SCRAPER] provider=%s listing_image_count_detected=%d", provider, len(image_urls))
 
         if not image_urls:
+            logger.warning("[SCRAPER] provider=%s NO_IMAGES_DETECTED url=%s", provider, url)
             raise AuctionScraperError(
                 "Nie znaleziono zdjęć na stronie. Sprawdź czy link jest prawidłowy."
             )
@@ -209,9 +230,10 @@ async def fetch_auction_images(url: str) -> List[Tuple[bytes, str]]:
                 continue
 
         if not images:
+            logger.warning("[SCRAPER] provider=%s NO_IMAGES_DOWNLOADED url=%s", provider, url)
             raise AuctionScraperError(
                 "Nie udało się pobrać żadnego zdjęcia z aukcji."
             )
 
-        logger.info("Pobrano %d zdjęć z aukcji", len(images))
+        logger.info("[SCRAPER] provider=%s listing_image_count_downloaded=%d", provider, len(images))
         return images

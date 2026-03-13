@@ -24,10 +24,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail: string | undefined;
     try {
       const data = await res.json();
-      detail =
-        typeof data?.detail === "string"
-          ? data.detail
-          : JSON.stringify(data?.detail ?? data);
+      if (typeof data?.detail === "string") {
+        detail = data.detail;
+      } else if (data?.detail && typeof data.detail === "object") {
+        // Obsługa błędów precheck z message
+        detail = data.detail.message || JSON.stringify(data.detail);
+      } else {
+        detail = JSON.stringify(data?.detail ?? data);
+      }
     } catch {
       detail = res.statusText;
     }

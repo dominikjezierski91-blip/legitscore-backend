@@ -2,14 +2,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getCase, runDecision, uploadAssets, importFromUrl } from "@/lib/api";
 import {
   clearPendingSubmission,
   getPendingSubmission,
 } from "@/lib/submission-store";
-import { Loader2, ShieldAlert } from "lucide-react";
+import { Loader2, ShieldAlert, AlertTriangle, ArrowLeft, Camera } from "lucide-react";
 
 const DEBUG = typeof process !== "undefined" && process.env.NODE_ENV === "development";
+
+type PrecheckError = {
+  stage: "coverage" | "quality";
+  message: string;
+  missing_required?: string[];
+  missing_optional?: string[];
+  issues?: Array<{ area: string; issue: string }>;
+  detected_views?: Record<string, boolean>;
+};
 
 type Props = {
   caseId?: string;
@@ -19,6 +29,7 @@ type Props = {
 export function AnalyzeStatus({ caseId, mode }: Props) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [precheckError, setPrecheckError] = useState<PrecheckError | null>(null);
   const [tick, setTick] = useState(0);
 
   const runDecisionStartedRef = useRef(false);
@@ -73,6 +84,17 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
             if (!cancelled) setError("Analiza zakończyła się błędem. Spróbuj ponownie później.");
             return;
           }
+          if (status === "PRECHECK_FAILED") {
+            stopPolling();
+            // Pobierz szczegóły precheck z case data
+            const precheckResult = data?.precheck_result;
+            if (precheckResult && !cancelled) {
+              setPrecheckError(precheckResult);
+            } else if (!cancelled) {
+              setError("Zdjęcia nie spełniają wymagań do analizy. Sprawdź jakość i kompletność zdjęć.");
+            }
+            return;
+          }
           if (DEBUG) console.debug("[AnalyzeStatus] polling tick");
           if (!cancelled) setTick((t) => t + 1);
         } catch (e: any) {
@@ -114,14 +136,28 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
               router.replace(`/case/${id}?${qs.toString()}`);
             }
           } catch (e: any) {
-            if (!cancelled) {
-              setError(
-                e instanceof Error
-                  ? e.message
-                  : "Nie udało się dokończyć analizy. Spróbuj ponownie później."
-              );
-            }
             clearPendingSubmission();
+            if (cancelled) return;
+
+            // Spróbuj sparsować błąd prechecka
+            const errorMessage = e instanceof Error ? e.message : String(e);
+
+            // Sprawdź czy to błąd prechecka (zawiera stage)
+            try {
+              // Jeśli message wygląda jak JSON z stage, to precheck error
+              if (errorMessage.includes('"stage"') || errorMessage.includes("stage")) {
+                // Pobierz case data z precheck_result
+                const caseData: any = await getCase(id);
+                if (caseData?.precheck_result) {
+                  setPrecheckError(caseData.precheck_result);
+                  return;
+                }
+              }
+            } catch {
+              // Ignoruj błędy parsowania
+            }
+
+            setError(errorMessage || "Nie udało się dokończyć analizy. Spróbuj ponownie później.");
           }
         })();
       }
@@ -146,6 +182,146 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
 
   const step = tick % 6;
 
+  // UI dla błędu prechecka
+  if (precheckError) {
+    return (
+      <div className="glass-card flex w-full max-w-lg flex-col gap-5 p-6 md:p-8">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/20">
+            <AlertTriangle className="h-5 w-5 text-amber-400" />
+          </div>
+          <div className="flex-1">
+            <h1 className="text-lg font-semibold text-slate-50">
+              {precheckError.stage === "coverage"
+                ? "Brakuje wymaganych zdjęć"
+                : "Problemy z jakością zdjęć"}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {precheckError.message}
+            </p>
+          </div>
+        </div>
+
+        {/* Lista brakujących zdjęć (coverage) */}
+        {precheckError.missing_required && precheckError.missing_required.length > 0 && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-amber-300">
+              <Camera className="h-3.5 w-3.5" />
+              Wymagane zdjęcia
+            </div>
+            <ul className="space-y-1">
+              {precheckError.missing_required.map((item, idx) => (
+                <li key={idx} className="flex items-start gap-2 text-sm text-amber-100">
+                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-amber-400" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Pokaż wykryte widoki gdy missing_required jest puste */}
+        {precheckError.stage === "coverage" &&
+         (!precheckError.missing_required || precheckError.missing_required.length === 0) &&
+         precheckError.detected_views && (
+          <div className="rounded-xl border border-slate-600/50 bg-slate-800/30 p-4">
+            <div className="mb-2 text-xs font-medium text-slate-400">
+              Status wykrytych zdjęć:
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              {Object.entries(precheckError.detected_views).map(([key, detected]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${detected ? "bg-emerald-400" : "bg-red-400"}`} />
+                  <span className={detected ? "text-slate-300" : "text-red-300"}>
+                    {translateViewName(key)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Lista opcjonalnych zdjęć */}
+        {precheckError.missing_optional && precheckError.missing_optional.length > 0 && (
+          <div className="rounded-xl border border-slate-600/50 bg-slate-800/30 p-4">
+            <div className="mb-2 text-xs font-medium text-slate-400">
+              Opcjonalne (zwiększą dokładność analizy):
+            </div>
+            <ul className="space-y-1">
+              {precheckError.missing_optional.map((item, idx) => (
+                <li key={idx} className="flex items-start gap-2 text-xs text-slate-300">
+                  <span className="mt-1 h-1 w-1 rounded-full bg-slate-500" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Lista problemów jakościowych */}
+        {precheckError.issues && precheckError.issues.length > 0 && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-amber-300">
+              <ShieldAlert className="h-3.5 w-3.5" />
+              Wykryte problemy
+            </div>
+            <ul className="space-y-1">
+              {precheckError.issues.map((issue, idx) => (
+                <li key={idx} className="flex items-start gap-2 text-sm text-amber-100">
+                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-amber-400" />
+                  <span>
+                    {translateIssue(issue.area, issue.issue)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link
+            href="/analyze/form"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+          >
+            <Camera className="h-4 w-4" />
+            Dodaj nowe zdjęcia
+          </Link>
+          <Link
+            href="/analyze"
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-600 px-4 py-2.5 text-sm text-slate-300 transition hover:border-slate-500 hover:text-slate-100"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Wróć
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // UI dla generycznego błędu
+  if (error) {
+    return (
+      <div className="glass-card flex w-full max-w-md flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/20">
+          <ShieldAlert className="h-6 w-6 text-red-400" />
+        </div>
+        <div className="space-y-1">
+          <h1 className="text-lg font-semibold tracking-tight text-slate-50">
+            Wystąpił błąd
+          </h1>
+          <p className="text-sm text-muted-foreground">{error}</p>
+        </div>
+        <Link
+          href="/analyze/form"
+          className="mt-2 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+        >
+          Spróbuj ponownie
+        </Link>
+      </div>
+    );
+  }
+
+  // UI dla ładowania (spinner)
   return (
     <div className="glass-card flex w-full max-w-md flex-col items-center justify-center gap-4 p-8 text-center">
       <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
@@ -182,14 +358,41 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
         Analiza może potrwać od kilku sekund do około minuty. Produkt jest w
         wersji beta i dostarcza raport ryzyka, a nie certyfikat.
       </p>
-      {error && (
-        <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
-          <ShieldAlert className="h-3.5 w-3.5" />
-          <span>{error}</span>
-        </div>
-      )}
     </div>
   );
+}
+
+function translateIssue(area: string, issue: string): string {
+  const areas: Record<string, string> = {
+    material_closeup: "Zdjęcie materiału",
+    tag_sku: "Zdjęcie metki/SKU",
+    crest_logo: "Zdjęcie herbu/logo",
+    personalization: "Zdjęcie personalizacji",
+    general: "Ogólnie",
+  };
+  const issues: Record<string, string> = {
+    blur: "jest nieostre",
+    too_far: "jest za daleko",
+    low_light: "ma słabe oświetlenie",
+    compression: "jest zbyt skompresowane",
+    not_visible: "jest niewidoczne",
+  };
+  const areaText = areas[area] || area;
+  const issueText = issues[issue] || issue;
+  return `${areaText} ${issueText}`;
+}
+
+function translateViewName(key: string): string {
+  const names: Record<string, string> = {
+    front: "Przód koszulki",
+    back: "Tył koszulki",
+    crest_logo_closeup: "Zbliżenie herbu/logo",
+    material_closeup: "Zbliżenie materiału",
+    tag_sku: "Metka/SKU",
+    personalization: "Personalizacja",
+    sleeve_patch: "Naszywka na rękawie",
+  };
+  return names[key] || key;
 }
 
 function StatusLine({

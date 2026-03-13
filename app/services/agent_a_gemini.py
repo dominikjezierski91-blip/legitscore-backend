@@ -20,6 +20,124 @@ DEFAULT_PROMPT_VERSION = "a-2.0"
 
 _client: Optional[genai.Client] = None
 
+# ============================================================
+# PRECHECK PROMPTS
+# ============================================================
+
+COVERAGE_CHECK_PROMPT = """You are an inspection pre-check system for football jersey authentication.
+
+Your task is NOT to authenticate the jersey.
+
+Your task is only to evaluate whether the provided images contain sufficient visual coverage for a meaningful forensic analysis.
+
+You must detect whether the following types of views are present in the image set:
+
+- front view of the jersey
+- back view of the jersey
+- close-up of crest or manufacturer logo
+- close-up of fabric / material structure
+- tag or SKU label
+- personalization (name/number) if present
+- sleeve patches if visible
+
+CRITICAL RULES:
+
+1. Photos from marketplace listings (Vinted, eBay, Allegro) often show the SAME jersey from different angles, with different lighting, or on different backgrounds. This is NORMAL and should NOT be flagged as "multiple items".
+
+2. Only flag "multiple items" if you are 100% certain the photos show genuinely DIFFERENT jerseys (e.g., different teams, different colors, different sizes clearly visible).
+
+3. Variation in photo quality, angles, backgrounds, or lighting does NOT mean multiple items.
+
+4. Focus on whether you can find sufficient views of ONE jersey across all photos.
+
+5. Not every image type is required in every case.
+
+6. If the jersey appears to have no personalization, lack of number/name images should NOT block the analysis.
+
+7. If tags are not visible in any photo, that alone should not automatically block analysis.
+
+8. The analysis CAN continue if you have:
+   - At least a front OR back view visible
+   - AND at least one detail shot (logo, material, or tag)
+
+9. Only set can_continue=false if truly insufficient coverage exists.
+
+10. Do not judge authenticity. Only judge coverage.
+
+Return JSON only:
+
+{
+  "can_continue": true,
+  "case_type": "standard | personalized | uncertain",
+  "detected_views": {
+    "front": true,
+    "back": false,
+    "crest_logo_closeup": true,
+    "material_closeup": true,
+    "tag_sku": false,
+    "personalization": false,
+    "sleeve_patch": false
+  },
+  "missing_required": [],
+  "missing_optional": [],
+  "message": ""
+}
+
+If can_continue=false, explain briefly in "message" what specific images are needed.
+Always fill "missing_required" with specific items needed (e.g., "zdjęcie przodu koszulki", "zbliżenie herbu/logo").
+IMPORTANT: The "message" field MUST be in Polish language, user-friendly, and specific.
+Return JSON only. No markdown. No extra text."""
+
+QUALITY_CHECK_PROMPT = """You are a photo quality inspection system for football jersey authentication.
+
+Your task is NOT to authenticate the jersey.
+
+Your task is only to determine whether the provided images are of sufficient quality to perform a reliable inspection.
+
+Evaluate:
+
+- image sharpness
+- distance from key elements
+- lighting
+- visibility of details
+- ability to inspect fabric texture
+- readability of tags or labels
+- clarity of crest or logo
+- clarity of personalization if present
+
+Important rules:
+
+1. Do not judge authenticity.
+2. Only judge whether inspection is possible.
+3. If images are blurry, too far away, too dark, or compressed, mark them as issues.
+4. Be conservative. If critical details cannot be inspected, the analysis should not continue.
+5. Do not infer authenticity or final verdict.
+
+Return JSON only:
+
+{
+  "can_continue": true,
+  "issues": [],
+  "message": ""
+}
+
+or
+
+{
+  "can_continue": false,
+  "issues": [
+    {
+      "area": "material_closeup | tag_sku | crest_logo | personalization | general",
+      "issue": "blur | too_far | low_light | compression | not_visible"
+    }
+  ],
+  "message": ""
+}
+
+If can_continue=false, provide a short user-friendly explanation in "message".
+IMPORTANT: The "message" field MUST be in Polish language, user-friendly, and specific.
+Return JSON only. No markdown. No extra text."""
+
 
 def _get_api_key() -> Optional[str]:
     return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -346,6 +464,189 @@ def normalize_report_data(report_data: Dict[str, Any]) -> None:
     except Exception:
         # Normalizacja jest technicznym udogodnieniem; w razie problemu nie zatrzymujemy całego flow.
         logger.exception("Failed to normalize REPORT_DATA; leaving Agent A output unchanged.")
+
+
+# ============================================================
+# PRECHECK FUNCTIONS
+# ============================================================
+
+async def coverage_check(asset_paths: List[str]) -> Dict[str, Any]:
+    """
+    Etap 1: Sprawdza czy zdjęcia pokrywają wystarczające obszary do analizy.
+    Używa tego samego modelu Gemini co Agent A.
+
+    Returns:
+        Dict z kluczami: can_continue, case_type, detected_views, missing_required, missing_optional, message
+    """
+    if not asset_paths:
+        return {
+            "can_continue": False,
+            "case_type": "uncertain",
+            "detected_views": {},
+            "missing_required": ["any_images"],
+            "missing_optional": [],
+            "message": "Nie przesłano żadnych zdjęć do analizy."
+        }
+
+    client = _get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Gemini API key missing")
+
+    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+
+    # Przygotuj części z obrazami
+    parts: List[types.Part] = [
+        types.Part(text="Analyze the attached images for coverage. Return ONLY the JSON as specified.")
+    ]
+
+    valid_images = 0
+    for p in asset_paths:
+        path = Path(p)
+        if not path.exists():
+            continue
+        suffix = path.suffix.lower()
+        mime = "image/jpeg"
+        if suffix == ".png":
+            mime = "image/png"
+        elif suffix == ".webp":
+            mime = "image/webp"
+        parts.append(types.Part.from_bytes(data=path.read_bytes(), mime_type=mime))
+        valid_images += 1
+
+    if valid_images == 0:
+        return {
+            "can_continue": False,
+            "case_type": "uncertain",
+            "detected_views": {},
+            "missing_required": ["any_images"],
+            "missing_optional": [],
+            "message": "Nie znaleziono prawidłowych plików zdjęć."
+        }
+
+    logger.info("Coverage check: sending %d images to model %s", valid_images, model)
+
+    try:
+        resp = await client.aio.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=parts)],
+            config=types.GenerateContentConfig(
+                system_instruction=COVERAGE_CHECK_PROMPT,
+                temperature=0.1,  # Niska temperatura dla deterministyczności
+                response_mime_type="application/json",
+            ),
+        )
+    except Exception as e:
+        logger.exception("Coverage check API error: %s", e)
+        # W przypadku błędu API, pozwalamy kontynuować (fail-open) żeby nie blokować usera
+        return {
+            "can_continue": True,
+            "case_type": "uncertain",
+            "detected_views": {},
+            "missing_required": [],
+            "missing_optional": [],
+            "message": ""
+        }
+
+    text = (resp.text or "").strip()
+    if not text:
+        logger.warning("Empty response from coverage check")
+        return {"can_continue": True, "case_type": "uncertain", "detected_views": {}, "missing_required": [], "missing_optional": [], "message": ""}
+
+    try:
+        result = json.loads(text)
+    except Exception:
+        try:
+            extracted = _extract_first_json_object(text)
+            result = json.loads(extracted)
+        except Exception:
+            logger.error("Non-JSON response from coverage check: %r", text[:500])
+            return {"can_continue": True, "case_type": "uncertain", "detected_views": {}, "missing_required": [], "missing_optional": [], "message": ""}
+
+    logger.info("Coverage check result: can_continue=%s", result.get("can_continue"))
+    return result
+
+
+async def quality_check(asset_paths: List[str]) -> Dict[str, Any]:
+    """
+    Etap 2: Sprawdza jakość zdjęć (ostrość, oświetlenie, odległość).
+    Używa tego samego modelu Gemini co Agent A.
+
+    Returns:
+        Dict z kluczami: can_continue, issues, message
+    """
+    if not asset_paths:
+        return {
+            "can_continue": False,
+            "issues": [{"area": "general", "issue": "not_visible"}],
+            "message": "Nie przesłano żadnych zdjęć do analizy."
+        }
+
+    client = _get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Gemini API key missing")
+
+    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+
+    # Przygotuj części z obrazami
+    parts: List[types.Part] = [
+        types.Part(text="Evaluate the quality of the attached images. Return ONLY the JSON as specified.")
+    ]
+
+    valid_images = 0
+    for p in asset_paths:
+        path = Path(p)
+        if not path.exists():
+            continue
+        suffix = path.suffix.lower()
+        mime = "image/jpeg"
+        if suffix == ".png":
+            mime = "image/png"
+        elif suffix == ".webp":
+            mime = "image/webp"
+        parts.append(types.Part.from_bytes(data=path.read_bytes(), mime_type=mime))
+        valid_images += 1
+
+    if valid_images == 0:
+        return {
+            "can_continue": False,
+            "issues": [{"area": "general", "issue": "not_visible"}],
+            "message": "Nie znaleziono prawidłowych plików zdjęć."
+        }
+
+    logger.info("Quality check: sending %d images to model %s", valid_images, model)
+
+    try:
+        resp = await client.aio.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=parts)],
+            config=types.GenerateContentConfig(
+                system_instruction=QUALITY_CHECK_PROMPT,
+                temperature=0.1,  # Niska temperatura dla deterministyczności
+                response_mime_type="application/json",
+            ),
+        )
+    except Exception as e:
+        logger.exception("Quality check API error: %s", e)
+        # W przypadku błędu API, pozwalamy kontynuować (fail-open)
+        return {"can_continue": True, "issues": [], "message": ""}
+
+    text = (resp.text or "").strip()
+    if not text:
+        logger.warning("Empty response from quality check")
+        return {"can_continue": True, "issues": [], "message": ""}
+
+    try:
+        result = json.loads(text)
+    except Exception:
+        try:
+            extracted = _extract_first_json_object(text)
+            result = json.loads(extracted)
+        except Exception:
+            logger.error("Non-JSON response from quality check: %r", text[:500])
+            return {"can_continue": True, "issues": [], "message": ""}
+
+    logger.info("Quality check result: can_continue=%s", result.get("can_continue"))
+    return result
 
 
 class GeminiAgentA:

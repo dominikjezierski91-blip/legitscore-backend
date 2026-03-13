@@ -51,6 +51,9 @@ class CaseRecord(Base):
     rating = Column(Integer, nullable=True)
     rating_at = Column(DateTime, nullable=True)
 
+    # SKU wykryte przez model (jeśli widoczne na zdjęciach)
+    sku = Column(String, nullable=True)
+
 
 def init_db():
     """Tworzy tabele jeśli nie istnieją."""
@@ -78,6 +81,7 @@ def save_case_to_db(
     consent_at: Optional[datetime] = None,
     offer_link: Optional[str] = None,
     context: Optional[str] = None,
+    sku: Optional[str] = None,
 ):
     """Zapisuje lub aktualizuje case w bazie."""
     db = SessionLocal()
@@ -105,6 +109,8 @@ def save_case_to_db(
             record.offer_link = offer_link
         if context is not None:
             record.context = context
+        if sku is not None:
+            record.sku = sku
 
         db.commit()
         return record
@@ -167,6 +173,7 @@ def get_all_cases_from_db() -> list:
                 "feedback_comment": r.feedback_comment,
                 "rating": r.rating,
                 "rating_at": r.rating_at.isoformat() if r.rating_at else None,
+                "sku": r.sku,
             }
             for r in records
         ]

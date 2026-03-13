@@ -18,6 +18,7 @@ type CaseRecord = {
   feedback_comment: string | null;
   rating: number | null;
   rating_at: string | null;
+  sku: string | null;
 };
 
 type Stats = {
@@ -75,6 +76,7 @@ export default async function DashboardPage() {
                 <th className="px-4 py-3">Data</th>
                 <th className="px-4 py-3">Case ID</th>
                 <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">SKU</th>
                 <th className="px-4 py-3">Model</th>
                 <th className="px-4 py-3">Werdykt</th>
                 <th className="px-4 py-3">Pewność</th>
@@ -86,7 +88,7 @@ export default async function DashboardPage() {
             <tbody className="divide-y divide-slate-800">
               {cases.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                     Brak danych w bazie
                   </td>
                 </tr>
@@ -101,6 +103,9 @@ export default async function DashboardPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-300">
                       {c.email || <span className="text-slate-500">—</span>}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-emerald-300">
+                      {c.sku || <span className="text-slate-500">—</span>}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-400">
                       {c.model?.replace("models/", "") || "—"}

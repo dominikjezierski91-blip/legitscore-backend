@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -10,7 +11,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from app.models.decision import Decision
-from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data
+from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, coverage_check, quality_check
 from app.services.storage import (
     create_case,
     load_case,
@@ -140,9 +141,10 @@ async def import_from_url(request: Request, case_id: str, req: ImportFromUrlRequ
         save_case(case_id, case_data)
 
         logger.info(
-            "Zaimportowano %d zdjęć z aukcji dla case %s",
+            "[IMPORT] case_id=%s case_asset_count_saved=%d source_url=%s",
+            case_id,
             len(saved_assets),
-            case_id
+            req.url[:100]
         )
 
         return {
@@ -243,6 +245,81 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                 continue
             asset_paths.append(str(DATA_DIR / rel_path))
 
+        logger.info(
+            "[RUN_DECISION] case_id=%s total_assets=%d asset_paths=%s",
+            case_id,
+            len(asset_paths),
+            [p.split("/")[-1] for p in asset_paths]  # Only filenames for brevity
+        )
+
+        # ============================================================
+        # ETAP 1: Photo Coverage Check
+        # ============================================================
+        logger.info("[PRECHECK] case_id=%s stage=coverage coverage_assets_count=%d", case_id, len(asset_paths))
+        coverage_result = await coverage_check(asset_paths)
+
+        if not coverage_result.get("can_continue", True):
+            # Usuń lock i zapisz wynik prechecka do case.json
+            lock_path.unlink(missing_ok=True)
+            case_data["status"] = "PRECHECK_FAILED"
+            case_data["precheck_result"] = {
+                "stage": "coverage",
+                "message": coverage_result.get("message") or "Zdjęcia nie pokrywają wystarczających obszarów do rzetelnej analizy.",
+                "missing_required": coverage_result.get("missing_required") or [],
+                "missing_optional": coverage_result.get("missing_optional") or [],
+                "detected_views": coverage_result.get("detected_views") or {},
+            }
+            save_case(case_id, case_data)
+
+            logger.warning(
+                "[PRECHECK] case_id=%s stage=coverage precheck_result=FAILED agent_a_started=false message=%s",
+                case_id,
+                case_data["precheck_result"]["message"]
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=case_data["precheck_result"]
+            )
+
+        logger.info(
+            "[PRECHECK] case_id=%s stage=coverage precheck_result=PASSED case_type=%s",
+            case_id,
+            coverage_result.get("case_type")
+        )
+
+        # ============================================================
+        # ETAP 2: Photo Quality Check
+        # ============================================================
+        logger.info("[PRECHECK] case_id=%s stage=quality quality_assets_count=%d", case_id, len(asset_paths))
+        quality_result = await quality_check(asset_paths)
+
+        if not quality_result.get("can_continue", True):
+            # Usuń lock i zapisz wynik prechecka do case.json
+            lock_path.unlink(missing_ok=True)
+            case_data["status"] = "PRECHECK_FAILED"
+            case_data["precheck_result"] = {
+                "stage": "quality",
+                "message": quality_result.get("message") or "Jakość zdjęć jest niewystarczająca do przeprowadzenia rzetelnej analizy.",
+                "issues": quality_result.get("issues") or [],
+            }
+            save_case(case_id, case_data)
+
+            logger.warning(
+                "[PRECHECK] case_id=%s stage=quality precheck_result=FAILED agent_a_started=false message=%s",
+                case_id,
+                case_data["precheck_result"]["message"]
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=case_data["precheck_result"]
+            )
+
+        logger.info("[PRECHECK] case_id=%s stage=quality precheck_result=PASSED", case_id)
+
+        # ============================================================
+        # ETAP 3: Agent A Forensic Analysis (bez zmian)
+        # ============================================================
+        logger.info("[AGENT_A] case_id=%s agent_a_started=true assets_count=%d", case_id, len(asset_paths))
         decision_dict = await GeminiAgentA().analyze(case_id, asset_paths)
 
         try:
@@ -341,11 +418,16 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
         try:
             verdict_cat = None
             conf_pct = None
+            extracted_sku = None
             if isinstance(report_data, dict):
                 verdict_obj = report_data.get("verdict") or {}
                 if isinstance(verdict_obj, dict):
                     verdict_cat = verdict_obj.get("verdict_category")
                     conf_pct = verdict_obj.get("confidence_percent")
+                # Wyciągnij SKU jeśli model go wykrył
+                extracted_sku = _extract_sku_from_report(report_data)
+                if extracted_sku:
+                    logger.info("Extracted SKU for case %s: %s", case_id, extracted_sku)
 
             save_case_to_db(
                 case_id=case_id,
@@ -354,6 +436,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                 verdict_category=verdict_cat,
                 confidence_percent=conf_pct,
                 report_data=report_data,
+                sku=extracted_sku,
             )
             logger.info("Case %s saved to database", case_id)
         except Exception:
@@ -368,6 +451,9 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
 
         logger.debug("run-decision finished for case %s", case_id)
         return {"ok": True, "artifact": artifact_path}
+    except HTTPException:
+        # HTTPException z prechecków - nie nadpisuj statusu ERROR, propaguj dalej
+        raise
     except Exception:
         case_data["status"] = "ERROR"
         save_case(case_id, case_data)
@@ -379,6 +465,41 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                 lock_path.unlink()
             except OSError:
                 logger.warning("Failed to remove analysis.lock for case %s", case_id)
+
+
+def _extract_sku_from_report(report_data: Dict[str, Any]) -> Optional[str]:
+    """
+    Wyciąga SKU z raportu AI jeśli zostało wykryte.
+    Szuka w key_evidence, decision_matrix i summary.
+    """
+    if not isinstance(report_data, dict):
+        return None
+
+    # Konwertuj cały raport do tekstu
+    text = json.dumps(report_data, ensure_ascii=False)
+
+    # Wzorce SKU dla różnych producentów
+    patterns = [
+        r'\b([A-Z]{2}\d{4}-\d{3})\b',  # Nike: DM1840-452
+        r'\b([A-Z]{2}\d{2}-\d{1,3}[A-Z]{0,2}(?:-[A-Z0-9]+)?)\b',  # Inne: NS22-1GA-PS-200
+        r'\b([A-Z]{2}\d{5})\b',  # Adidas: GL3746
+        r'SKU[:\s]+([A-Z0-9\-]+)',  # Generyczny z prefiksem SKU
+    ]
+
+    found_skus = []
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for match in matches:
+            # Filtruj fałszywe trafienia (za krótkie, tylko litery/cyfry)
+            if len(match) >= 5 and re.search(r'\d', match) and re.search(r'[A-Z]', match, re.IGNORECASE):
+                found_skus.append(match.upper())
+
+    # Usuń duplikaty i zwróć pierwszy znaleziony
+    unique_skus = list(dict.fromkeys(found_skus))
+    if unique_skus:
+        return unique_skus[0]
+
+    return None
 
 
 def _ensure_report_metadata(report_data: Dict[str, Any], case_id: str) -> None:
