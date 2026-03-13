@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.services.database import get_db, CollectionItem
 from app.routes.auth import get_current_user
 from app.services.database import User
+from app.services.market_value_agent import estimate_market_value
 
 router = APIRouter()
 
@@ -116,6 +117,52 @@ async def delete_from_collection(
     return {"ok": True}
 
 
+# ── Market value ─────────────────────────────────────────────
+
+@router.post("/collection/{item_id}/market-value")
+async def refresh_market_value(
+    item_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Szacuje wartość rynkową koszulki i zapisuje do bazy."""
+    item = db.query(CollectionItem).filter(
+        CollectionItem.id == item_id,
+        CollectionItem.user_id == current_user.id,
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Nie znaleziono pozycji w kolekcji.")
+
+    # Zbuduj mini report_data z danych snapshotu w kolekcji
+    report_data = {
+        "subject": {
+            "club": item.club,
+            "season": item.season,
+            "brand": item.brand,
+            "player_name": item.player_name,
+            "player_number": item.player_number,
+            "model": item.model_type,
+        },
+        "verdict": {
+            "verdict_category": item.verdict_category,
+        },
+    }
+
+    result = await estimate_market_value(report_data)
+
+    if result.get("sample_size", 0) > 0:
+        item.market_value_pln = result.get("median_pln")
+        item.market_value_range_min = result.get("range_min_pln")
+        item.market_value_range_max = result.get("range_max_pln")
+        item.market_value_sample_size = result.get("sample_size")
+        item.market_value_source = result.get("source", "gemini")
+        item.market_value_updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(item)
+
+    return {**_serialize(item), "market_value_result": result}
+
+
 # ── Admin: wszystkie rekordy kolekcji ────────────────────────
 
 @router.get("/admin/collection")
@@ -153,4 +200,10 @@ def _serialize(item: CollectionItem) -> dict:
         "purchase_date": item.purchase_date,
         "purchase_source": item.purchase_source,
         "notes": item.notes,
+        "market_value_pln": item.market_value_pln,
+        "market_value_range_min": item.market_value_range_min,
+        "market_value_range_max": item.market_value_range_max,
+        "market_value_sample_size": item.market_value_sample_size,
+        "market_value_source": item.market_value_source,
+        "market_value_updated_at": item.market_value_updated_at.isoformat() if item.market_value_updated_at else None,
     }

@@ -214,3 +214,7 @@ export async function deleteFromCollection(itemId: string): Promise<{ ok: boolea
   return request(`/api/collection/${itemId}`, { method: "DELETE" });
 }
 
+export async function refreshMarketValue(itemId: string): Promise<any> {
+  return request(`/api/collection/${itemId}/market-value`, { method: "POST" });
+}
+

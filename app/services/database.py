@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean
+from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean, Float
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -96,11 +96,42 @@ class CollectionItem(Base):
     purchase_source = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
 
+    # Szacowana wartość rynkowa (Portfel Koszulek)
+    market_value_pln = Column(Float, nullable=True)
+    market_value_range_min = Column(Float, nullable=True)
+    market_value_range_max = Column(Float, nullable=True)
+    market_value_sample_size = Column(Integer, nullable=True)
+    market_value_source = Column(String, nullable=True)
+    market_value_updated_at = Column(DateTime, nullable=True)
+
 
 def init_db():
-    """Tworzy tabele jeśli nie istnieją."""
+    """Tworzy tabele jeśli nie istnieją + migruje nowe kolumny."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    _migrate_collection_market_value()
+
+
+def _migrate_collection_market_value():
+    """Dodaje kolumny market_value_* do collection_items jeśli nie istnieją (SQLite migration)."""
+    new_columns = [
+        ("market_value_pln", "REAL"),
+        ("market_value_range_min", "REAL"),
+        ("market_value_range_max", "REAL"),
+        ("market_value_sample_size", "INTEGER"),
+        ("market_value_source", "TEXT"),
+        ("market_value_updated_at", "TEXT"),
+    ]
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(collection_items)")
+        )}
+        for col_name, col_type in new_columns:
+            if col_name not in existing:
+                conn.execute(__import__("sqlalchemy").text(
+                    f"ALTER TABLE collection_items ADD COLUMN {col_name} {col_type}"
+                ))
+        conn.commit()
 
 
 def get_db():

@@ -627,6 +627,24 @@ async def get_report_data(case_id: str):
     return JSONResponse(content=wrapper, headers=_REPORT_CACHE_HEADERS)
 
 
+@router.get("/cases/{case_id}/thumbnail")
+async def get_case_thumbnail(case_id: str):
+    """Zwraca pierwsze zdjęcie z assets jako miniaturę do panelu kolekcji."""
+    from fastapi.responses import FileResponse as _FileResponse
+    import mimetypes as _mimetypes
+    case_data = load_case(case_id)
+    assets = case_data.get("assets") or []
+    for asset in assets:
+        rel_path = (asset.get("path") or "").lstrip("/")
+        if not rel_path:
+            continue
+        full_path = Path("data") / rel_path
+        if full_path.exists() and full_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            mime = _mimetypes.guess_type(str(full_path))[0] or "image/jpeg"
+            return _FileResponse(str(full_path), media_type=mime)
+    raise HTTPException(status_code=404, detail="No image assets found")
+
+
 @router.get("/cases/{case_id}/report-pdf")
 async def get_report_pdf(case_id: str):
     """
