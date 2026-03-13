@@ -239,7 +239,7 @@
         <div class="ident-label">Producent:</div>
         <div>{{ data.subject.brand or "nieustalone" }}</div>
         <div class="ident-label">Zawodnik:</div>
-        <div>{{ data.subject.player_name or "nieustalone" }} ({{ data.subject.player_number or "?" }})</div>
+        <div>{% set _pn = data.subject.player_name %}{% set _pnum = data.subject.player_number %}{% if _pn and (_pn|lower) not in ["unknown", "nieustalone", "none", ""] %}{{ _pn }}{% if _pnum and (_pnum|string|lower) not in ["unknown", "nieustalone", "none", "?", "0", ""] %} ({{ _pnum }}){% endif %}{% else %}nieustalone{% endif %}</div>
       </div>
     </div>
 
@@ -345,13 +345,28 @@
         <td>{{ label }}</td>
         <td>
           <div class="prob-bar-bg">
-            <div class="prob-bar-fill" style="width: {{ pct }}%;"></div>
+            <div class="prob-bar-fill" style="width: {{ [pct, 1]|max }}%;"></div>
           </div>
-          {{ pct }}%
+          {% if pct == 0 %}&lt;1{% else %}{{ pct }}{% endif %}%
         </td>
       </tr>
       {% endfor %}
     </table>
+
+    {% if data.key_evidence and data.key_evidence|length > 0 %}
+    <div class="section-title">Najsilniejsze sygnały wskazujące na werdykt</div>
+    <div class="section-card">
+      <ul>
+      {% for ev in data.key_evidence[:3] %}
+        <li><strong>{{ ev.text if ev is mapping else ev }}</strong></li>
+      {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if data.sku_format_warning %}
+    <div style="margin-top:6px;font-size:10px;color:#b45309;">⚠ {{ data.sku_format_warning }}</div>
+    {% endif %}
 
     <div class="section-title">Kluczowe przesłanki</div>
     {% if data.key_evidence %}

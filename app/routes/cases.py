@@ -48,12 +48,35 @@ _REPORT_CACHE_HEADERS = {
 }
 
 # Twarde reguły coverage — Python decyduje o gatingu, nie model.
-_REQUIRED_VIEWS: set = {"front_full", "back_full", "crest_or_brand_closeup"}
+_REQUIRED_VIEWS: set = {"front_full", "crest_or_brand_closeup"}
 _REQUIRED_VIEW_LABELS: dict = {
     "front_full": "zdjęcie pełnego przodu koszulki",
-    "back_full": "zdjęcie pełnego tyłu koszulki",
     "crest_or_brand_closeup": "zbliżenie herbu lub logo producenta",
 }
+# Quality check blokuje tylko gdy kluczowy widok jest nieużywalny.
+# Nieostre zbliżenie herbu / metki nie blokuje — Agent A po prostu ma mniej danych.
+_QUALITY_BLOCKING_VIEWS: set = {"front_full"}
+# Model może zwrócić alternatywne nazwy dla tych samych widoków.
+# Normalizujemy je do kluczy z _REQUIRED_VIEWS przed gatingiem.
+_DETECTED_VIEW_ALIASES: dict = {
+    "front_full": ["jersey_front", "front_view", "front", "full_front", "shirt_front", "front_side"],
+    "back_full": ["jersey_back", "back_view", "back", "full_back", "shirt_back", "back_side"],
+    "crest_or_brand_closeup": ["crest", "badge", "logo", "brand_logo", "crest_closeup", "badge_closeup", "logo_closeup"],
+}
+
+
+def _normalize_detected_views(detected_views: dict) -> dict:
+    """Mapuje alternatywne nazwy widoków na klucze używane w _REQUIRED_VIEWS."""
+    result = dict(detected_views)
+    for canonical, aliases in _DETECTED_VIEW_ALIASES.items():
+        if not result.get(canonical):
+            for alias in aliases:
+                if result.get(alias):
+                    result[canonical] = True
+                    logger.info("Coverage normalization: '%s' mapped to '%s'", alias, canonical)
+                    break
+    return result
+
 
 router = APIRouter()
 
@@ -268,7 +291,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
         coverage_result = await coverage_check(asset_paths)
 
         # Gating na podstawie twardych reguł REQUIRED_VIEWS — nie używamy can_continue z modelu.
-        detected_views = coverage_result.get("detected_views") or {}
+        detected_views = _normalize_detected_views(coverage_result.get("detected_views") or {})
         missing_required_keys = [k for k in _REQUIRED_VIEWS if not detected_views.get(k)]
 
         if missing_required_keys:
@@ -309,7 +332,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
         # Blokuj tylko gdy problemy dotyczą krytycznych widoków (REQUIRED_VIEWS).
         # Problemy z identity_tag, material_closeup itp. nie blokują analizy.
         quality_issues = quality_result.get("issues") or []
-        blocking_quality_issues = [i for i in quality_issues if i.get("area") in _REQUIRED_VIEWS]
+        blocking_quality_issues = [i for i in quality_issues if i.get("area") in _QUALITY_BLOCKING_VIEWS]
 
         if blocking_quality_issues:
             lock_path.unlink(missing_ok=True)
