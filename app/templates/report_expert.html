@@ -198,6 +198,20 @@
 </head>
 <body>
   {% set d = data %}
+  {% set VERDICT_LABELS = {
+    "oryginalna_sklepowa": "Oryginalna (sklepowa)",
+    "meczowa": "Meczowa",
+    "oficjalna_replika": "Oficjalna replika",
+    "podrobka": "Podróbka",
+    "edycja_limitowana": "Edycja limitowana",
+    "treningowa_custom": "Treningowa / custom"
+  } %}
+  {% set CONFIDENCE_LABELS = {
+    "bardzo_wysoki": "Bardzo wysoki",
+    "wysoki": "Wysoki",
+    "sredni": "Średni",
+    "ograniczony": "Ograniczony"
+  } %}
 
   <div class="page">
     <div class="header">
@@ -231,15 +245,34 @@
     <div class="section-title">Werdykt</div>
     <div>
       <span class="verdict-badge">
-        {{ d.verdict.verdict_category or "nieustalone" }}
+        {{ VERDICT_LABELS.get((d.verdict.verdict_category or "")|lower, d.verdict.verdict_category) or "nieustalone" }}
       </span>
       <span class="confidence-text">
-        Poziom pewności: {{ d.verdict.confidence_level or "nieustalone" }} ({{ d.verdict.confidence_percent or 0 }}%)
+        Poziom pewności: {{ CONFIDENCE_LABELS.get((d.verdict.confidence_level or "")|lower, d.verdict.confidence_level) or "nieustalone" }} ({{ d.verdict.confidence_percent or 0 }}%)
       </span>
     </div>
     <div class="verdict-summary-box">
       {{ d.verdict.summary or "brak podsumowania" }}
     </div>
+
+    {% if d.player_club_consistency and d.player_club_consistency.status != "not_applicable" %}
+    {% set pcc = d.player_club_consistency %}
+    {% set pcc_status = (pcc.status or "")|lower %}
+    {% set PCC_STATUS_LABELS = {
+      "consistent": "Spójna",
+      "inconsistent": "Niespójna",
+      "uncertain": "Niejednoznaczna",
+      "not_applicable": "Nie dotyczy"
+    } %}
+    {% set PCC_CONF_LABELS = {"low": "Niska", "medium": "Średnia", "high": "Wysoka"} %}
+    <div class="section-title">Zgodność personalizacji z klubem i sezonem <span style="font-weight:400;font-size:9px;color:#888;">(pomocniczy check)</span></div>
+    <div style="margin-bottom:12px;font-size:11px;">
+      <span>Status: <strong>{{ PCC_STATUS_LABELS.get(pcc_status, pcc.status) or "nieustalone" }}</strong></span>
+      &nbsp;·&nbsp;
+      <span>Pewność oceny: {{ PCC_CONF_LABELS.get((pcc.confidence or "")|lower, pcc.confidence) or "—" }}</span>
+      {% if pcc.reason %}<div style="margin-top:4px;color:#555;">{{ pcc.reason }}</div>{% endif %}
+    </div>
+    {% endif %}
 
     <div class="section-title">Analiza prawdopodobieństwa</div>
     <table class="prob-table">
@@ -298,16 +331,16 @@
           {% set st = (row.status or "")|upper %}
           {% if st == "GREEN" %}
             {% set badge_class = "badge-green" %}
-            {% set badge_label = "GREEN" %}
+            {% set badge_label = "OK" %}
           {% elif st in ["AMBER", "YELLOW", "WARNING"] %}
             {% set badge_class = "badge-amber" %}
-            {% set badge_label = "AMBER" %}
+            {% set badge_label = "Uwaga" %}
           {% elif st == "RED" %}
             {% set badge_class = "badge-red" %}
-            {% set badge_label = "RED" %}
+            {% set badge_label = "Problem" %}
           {% else %}
             {% set badge_class = "badge-gray" %}
-            {% set badge_label = "UNKNOWN" %}
+            {% set badge_label = "Nieznany" %}
           {% endif %}
           <tr>
             <td>{{ row.criterion or row.criterion_name or "nieustalone" }}</td>

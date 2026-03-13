@@ -12,6 +12,8 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.routes import cases
+from app.routes import auth as auth_router
+from app.routes import collection as collection_router
 from app.services.database import init_db
 from app.services.security import limiter, ALLOWED_ORIGINS, SECURITY_HEADERS
 
@@ -74,7 +76,9 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def health():
     return {"ok": True, "production": PRODUCTION}
 
-# Podłącz router cases pod prefixem /api
+# Podłącz routery pod prefixem /api
 app.include_router(cases.router, prefix="/api")
+app.include_router(auth_router.router, prefix="/api")
+app.include_router(collection_router.router, prefix="/api")
 
 app.mount("/", StaticFiles(directory="data"), name="data")

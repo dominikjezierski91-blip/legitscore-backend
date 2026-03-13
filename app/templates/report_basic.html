@@ -243,13 +243,46 @@
       </div>
     </div>
 
+    {% set VERDICT_LABELS = {
+      "oryginalna_sklepowa": "Oryginalna (sklepowa)",
+      "meczowa": "Meczowa",
+      "oficjalna_replika": "Oficjalna replika",
+      "podrobka": "Podróbka",
+      "edycja_limitowana": "Edycja limitowana",
+      "treningowa_custom": "Treningowa / custom"
+    } %}
+    {% set CONFIDENCE_LABELS = {
+      "bardzo_wysoki": "Bardzo wysoki",
+      "wysoki": "Wysoki",
+      "sredni": "Średni",
+      "ograniczony": "Ograniczony"
+    } %}
+    {% set PERSONALIZATION_STATUS_LABELS = {
+      "fabryczna": "Fabryczna",
+      "pozniejsza": "Późniejsza",
+      "niezweryfikowana": "Niezweryfikowana",
+      "brak": "Brak",
+      "unknown": "Nieznany"
+    } %}
+    {% set MECZOWA_STATUS_LABELS = {
+      "match_worn": "Noszona meczowo",
+      "match_prepared": "Przygotowana meczowo",
+      "player_issue": "Wydanie zawodnicze",
+      "unknown": "Nieznany"
+    } %}
+    {% set CONFIDENCE_LEVEL_LABELS = {
+      "wysoka": "Wysoka",
+      "srednia": "Średnia",
+      "niska": "Niska",
+      "unknown": "Nieznany"
+    } %}
     {% set vc = (data.verdict.verdict_category or "")|lower %}
     <div class="verdict-box">
       <div class="verdict-main">
         <div class="label">{{ data.verdict.label or "nieustalone" }}</div>
-        <div>Werdykt: {{ data.verdict.verdict_category or "nieustalone" }}</div>
+        <div>Werdykt: {{ VERDICT_LABELS.get(vc, data.verdict.verdict_category) or "nieustalone" }}</div>
         <span class="confidence-badge">
-          Poziom pewności: {{ data.verdict.confidence_level or "nieustalone" }}
+          Poziom pewności: {{ CONFIDENCE_LABELS.get((data.verdict.confidence_level or "")|lower, data.verdict.confidence_level) or "nieustalone" }}
         </span>
         <div class="summary">{{ data.verdict.summary or "brak podsumowania" }}</div>
       </div>
@@ -262,17 +295,35 @@
     <div class="cards-row">
       <div class="card">
         <div class="card-title">Personalizacja</div>
-        <div>Status: {{ data.personalization_assessment.status or "nieustalone" }}</div>
-        <div>Pewność: {{ data.personalization_assessment.confidence or "nieustalone" }}</div>
+        <div>Status: {{ PERSONALIZATION_STATUS_LABELS.get((data.personalization_assessment.status or "")|lower, data.personalization_assessment.status) or "nieustalone" }}</div>
+        <div>Pewność: {{ CONFIDENCE_LEVEL_LABELS.get((data.personalization_assessment.confidence or "")|lower, data.personalization_assessment.confidence) or "nieustalone" }}</div>
         <div>{{ data.personalization_assessment.notes or "brak danych" }}</div>
       </div>
       <div class="card">
         <div class="card-title">Status meczowy</div>
-        <div>Status: {{ data.meczowa_detail.status or "nieustalone" }}</div>
-        <div>Pewność: {{ data.meczowa_detail.confidence or "nieustalone" }}</div>
+        <div>Status: {{ MECZOWA_STATUS_LABELS.get((data.meczowa_detail.status or "")|lower, data.meczowa_detail.status) or "nieustalone" }}</div>
+        <div>Pewność: {{ CONFIDENCE_LEVEL_LABELS.get((data.meczowa_detail.confidence or "")|lower, data.meczowa_detail.confidence) or "nieustalone" }}</div>
         <div>{{ data.meczowa_detail.notes or "Nie dotyczy." }}</div>
       </div>
     </div>
+
+    {% if data.player_club_consistency and data.player_club_consistency.status != "not_applicable" %}
+    {% set pcc = data.player_club_consistency %}
+    {% set pcc_status = (pcc.status or "")|lower %}
+    {% set PCC_STATUS_LABELS = {
+      "consistent": "Spójna",
+      "inconsistent": "Niespójna",
+      "uncertain": "Niejednoznaczna",
+      "not_applicable": "Nie dotyczy"
+    } %}
+    {% set PCC_CONF_LABELS = {"low": "Niska", "medium": "Średnia", "high": "Wysoka"} %}
+    <div class="card" style="margin-bottom:12px;">
+      <div class="card-title">Zgodność personalizacji z klubem i sezonem <span style="font-weight:400;font-size:9px;color:#888;">(pomocniczy check)</span></div>
+      <div>Status: <strong>{{ PCC_STATUS_LABELS.get(pcc_status, pcc.status) or "nieustalone" }}</strong></div>
+      <div>Pewność oceny: {{ PCC_CONF_LABELS.get((pcc.confidence or "")|lower, pcc.confidence) or "—" }}</div>
+      {% if pcc.reason %}<div style="margin-top:4px;color:#555;">{{ pcc.reason }}</div>{% endif %}
+    </div>
+    {% endif %}
 
     <div class="section-title">Rozkład prawdopodobieństwa</div>
     <table class="prob-table">

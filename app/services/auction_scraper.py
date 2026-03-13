@@ -197,9 +197,9 @@ async def fetch_auction_images(url: str) -> List[Tuple[bytes, str]]:
                 "Nie znaleziono zdjęć na stronie. Sprawdź czy link jest prawidłowy."
             )
 
-        # Pobierz obrazy (max 15)
+        # Pobierz wszystkie obrazy galerii
         images: List[Tuple[bytes, str]] = []
-        for i, img_url in enumerate(image_urls[:15]):
+        for i, img_url in enumerate(image_urls):
             try:
                 img_response = await client.get(img_url, headers=BROWSER_HEADERS)
                 img_response.raise_for_status()

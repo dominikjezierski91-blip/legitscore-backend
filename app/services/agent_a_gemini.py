@@ -28,63 +28,62 @@ COVERAGE_CHECK_PROMPT = """You are an inspection pre-check system for football j
 
 Your task is NOT to authenticate the jersey.
 
-Your task is only to evaluate whether the provided images contain sufficient visual coverage for a meaningful forensic analysis.
+Your task is only to detect which types of views are present in the provided image set.
 
-You must detect whether the following types of views are present in the image set:
+You must detect the following views:
 
-- front view of the jersey
-- back view of the jersey
-- close-up of crest or manufacturer logo
-- close-up of fabric / material structure
-- tag or SKU label
-- personalization (name/number) if present
-- sleeve patches if visible
+REQUIRED views (essential for forensic analysis):
+- front_full: full front view of the jersey (whole shirt visible)
+- back_full: full back view of the jersey (whole shirt visible)
+- crest_or_brand_closeup: close-up of the club crest or manufacturer logo (Nike, Adidas, etc.)
+- identity_tag: any identity tag — inner neck tag, neck print with washing instructions, product code tag, or wash label
+
+RECOMMENDED views (improve analysis but are NOT required):
+- material_closeup: close-up of fabric texture or material structure
+- paper_sku_tag: hanging paper tag with barcode or SKU number
+- patch_closeup: close-up of sleeve patches (league badge, cup patch, etc.)
+- personalization_closeup: close-up of player name or number if personalized
+- sleeve_details: sleeve area or armband details
 
 CRITICAL RULES:
 
-1. Photos from marketplace listings (Vinted, eBay, Allegro) often show the SAME jersey from different angles, with different lighting, or on different backgrounds. This is NORMAL and should NOT be flagged as "multiple items".
+1. Photos from marketplace listings (Vinted, eBay, Allegro) often show the SAME jersey from different angles, with different lighting or backgrounds. This is NORMAL.
 
-2. Only flag "multiple items" if you are 100% certain the photos show genuinely DIFFERENT jerseys (e.g., different teams, different colors, different sizes clearly visible).
+2. Only flag "multiple items" if you are 100% certain the photos show genuinely DIFFERENT jerseys (different teams, different colors).
 
-3. Variation in photo quality, angles, backgrounds, or lighting does NOT mean multiple items.
+3. A general full-body shot counts as front_full or back_full if the full side is visible.
 
-4. Focus on whether you can find sufficient views of ONE jersey across all photos.
+4. crest_or_brand_closeup is true ONLY if there is a dedicated close-up of the crest or logo — a partial logo visible in a general shot does NOT count.
 
-5. Not every image type is required in every case.
+5. identity_tag is true if ANY of the following is visible: inner neck tag, neck label with product info, neck print, hang tag with product code.
 
-6. If the jersey appears to have no personalization, lack of number/name images should NOT block the analysis.
+6. Do NOT judge authenticity. Only detect which views are present.
 
-7. If tags are not visible in any photo, that alone should not automatically block analysis.
-
-8. The analysis CAN continue if you have:
-   - At least a front OR back view visible
-   - AND at least one detail shot (logo, material, or tag)
-
-9. Only set can_continue=false if truly insufficient coverage exists.
-
-10. Do not judge authenticity. Only judge coverage.
+7. Set can_continue=false only when at least one REQUIRED view is missing.
 
 Return JSON only:
 
 {
   "can_continue": true,
-  "case_type": "standard | personalized | uncertain",
   "detected_views": {
-    "front": true,
-    "back": false,
-    "crest_logo_closeup": true,
+    "front_full": true,
+    "back_full": false,
+    "crest_or_brand_closeup": true,
+    "identity_tag": false,
     "material_closeup": true,
-    "tag_sku": false,
-    "personalization": false,
-    "sleeve_patch": false
+    "paper_sku_tag": false,
+    "patch_closeup": false,
+    "personalization_closeup": false,
+    "sleeve_details": false
   },
   "missing_required": [],
   "missing_optional": [],
   "message": ""
 }
 
+In missing_required list the REQUIRED view keys that are absent.
+In missing_optional list the RECOMMENDED view keys that are absent.
 If can_continue=false, explain briefly in "message" what specific images are needed.
-Always fill "missing_required" with specific items needed (e.g., "zdjęcie przodu koszulki", "zbliżenie herbu/logo").
 IMPORTANT: The "message" field MUST be in Polish language, user-friendly, and specific.
 Return JSON only. No markdown. No extra text."""
 
@@ -112,6 +111,9 @@ Important rules:
 3. If images are blurry, too far away, too dark, or compressed, mark them as issues.
 4. Be conservative. If critical details cannot be inspected, the analysis should not continue.
 5. Do not infer authenticity or final verdict.
+6. CRITICAL: Only evaluate quality of image categories that are ACTUALLY PRESENT in the photo set.
+   Do NOT report "not_visible" for a category that is simply absent from the photos — that is a coverage issue, not a quality issue.
+   If you are told a category is absent, ignore it completely. Do not create a quality issue for it.
 
 Return JSON only:
 
@@ -566,10 +568,16 @@ async def coverage_check(asset_paths: List[str]) -> Dict[str, Any]:
     return result
 
 
-async def quality_check(asset_paths: List[str]) -> Dict[str, Any]:
+async def quality_check(
+    asset_paths: List[str],
+    detected_views: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Etap 2: Sprawdza jakość zdjęć (ostrość, oświetlenie, odległość).
     Używa tego samego modelu Gemini co Agent A.
+
+    detected_views: wynik z coverage_check — informuje model, które kategorie są obecne,
+    żeby nie raportował "not_visible" dla kategorii, których po prostu nie ma w zestawie.
 
     Returns:
         Dict z kluczami: can_continue, issues, message
@@ -587,9 +595,22 @@ async def quality_check(asset_paths: List[str]) -> Dict[str, Any]:
 
     model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
 
+    # Buduj kontekst detected_views żeby model nie mylił "brak zdjęcia" z "złą jakością"
+    coverage_context = "Evaluate the quality of the attached images. Return ONLY the JSON as specified."
+    if detected_views and isinstance(detected_views, dict):
+        present = [k for k, v in detected_views.items() if v]
+        absent = [k for k, v in detected_views.items() if not v]
+        if present:
+            coverage_context += f"\n\nThe following view types are PRESENT in the photos: {', '.join(present)}."
+        if absent:
+            coverage_context += (
+                f"\nThe following view types are ABSENT (no photo was taken of them): {', '.join(absent)}."
+                "\nDo NOT report quality issues for absent categories — their absence is a coverage issue, not a quality issue."
+            )
+
     # Przygotuj części z obrazami
     parts: List[types.Part] = [
-        types.Part(text="Evaluate the quality of the attached images. Return ONLY the JSON as specified.")
+        types.Part(text=coverage_context)
     ]
 
     valid_images = 0
@@ -646,6 +667,107 @@ async def quality_check(asset_paths: List[str]) -> Dict[str, Any]:
             return {"can_continue": True, "issues": [], "message": ""}
 
     logger.info("Quality check result: can_continue=%s", result.get("can_continue"))
+    return result
+
+
+RED_FLAG_CHECK_PROMPT = """You are a counterfeit detection expert analyzing football jersey photos.
+
+Your task: determine whether the provided images show STRONG visual indicators of a counterfeit/fake jersey.
+
+Focus ONLY on what is clearly visible. Do NOT speculate about absent photos.
+
+Strong red flags to look for:
+- Obvious print quality issues: blurry, pixelated, faded, or misaligned sponsor logos/club badges
+- Clearly wrong fonts or letter spacing in names/numbers
+- Visibly poor stitching quality (uneven, fraying, excessive thread)
+- Wrong badge construction (printed instead of woven/embroidered)
+- Incorrect collar design or obvious cheap fabric texture
+- Sponsor logos in wrong position or wrong color
+- Wrong kit design for the claimed club/season (if identifiable)
+
+Be conservative: only return has_strong_red_flags=true if you see CLEAR, OBVIOUS counterfeit indicators — not minor imperfections or ambiguous details.
+
+Return ONLY a JSON object with this exact schema:
+{
+  "has_strong_red_flags": boolean,
+  "red_flags_found": ["list of specific issues observed, or empty array"],
+  "confidence": "low" | "medium" | "high",
+  "reason": "brief explanation in Polish"
+}"""
+
+
+async def red_flag_check(asset_paths: List[str]) -> Dict[str, Any]:
+    """Sprawdza czy zdjęcia zawierają mocne czerwone flagi podróbki.
+    Zawsze zwraca dict, nigdy nie rzuca wyjątku."""
+    fallback = {
+        "has_strong_red_flags": False,
+        "red_flags_found": [],
+        "confidence": "low",
+        "reason": "Nie udało się wykonać sprawdzenia czerwonych flag.",
+    }
+
+    client = _get_client()
+    if client is None:
+        return fallback
+
+    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+
+    parts: List[types.Part] = [
+        types.Part(text="Analyze the attached jersey images for counterfeit red flags.")
+    ]
+
+    valid_images = 0
+    for p in asset_paths:
+        path = Path(p)
+        if not path.exists():
+            continue
+        suffix = path.suffix.lower()
+        mime = "image/jpeg"
+        if suffix == ".png":
+            mime = "image/png"
+        elif suffix == ".webp":
+            mime = "image/webp"
+        parts.append(types.Part.from_bytes(data=path.read_bytes(), mime_type=mime))
+        valid_images += 1
+
+    if valid_images == 0:
+        return fallback
+
+    logger.info("Red flag check: sending %d images to model %s", valid_images, model)
+
+    try:
+        resp = await client.aio.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=parts)],
+            config=types.GenerateContentConfig(
+                system_instruction=RED_FLAG_CHECK_PROMPT,
+                temperature=0.1,
+                response_mime_type="application/json",
+            ),
+        )
+    except Exception as e:
+        logger.exception("Red flag check API error: %s", e)
+        return fallback
+
+    text = (resp.text or "").strip()
+    if not text:
+        return fallback
+
+    try:
+        result = json.loads(text)
+    except Exception:
+        try:
+            extracted = _extract_first_json_object(text)
+            result = json.loads(extracted)
+        except Exception:
+            logger.error("Non-JSON response from red flag check: %r", text[:500])
+            return fallback
+
+    logger.info(
+        "Red flag check result: has_strong_red_flags=%s confidence=%s",
+        result.get("has_strong_red_flags"),
+        result.get("confidence"),
+    )
     return result
 
 

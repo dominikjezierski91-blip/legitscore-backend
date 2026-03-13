@@ -1,9 +1,10 @@
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer
+from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -53,6 +54,47 @@ class CaseRecord(Base):
 
     # SKU wykryte przez model (jeśli widoczne na zdjęciach)
     sku = Column(String, nullable=True)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class CollectionItem(Base):
+    __tablename__ = "collection_items"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, index=True, nullable=False)
+    case_id = Column(String, nullable=False)
+    added_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Snapshot z raportu
+    report_mode = Column(String, nullable=True)
+    club = Column(String, nullable=True)
+    season = Column(String, nullable=True)
+    model_type = Column(String, nullable=True)
+    brand = Column(String, nullable=True)
+    player_name = Column(String, nullable=True)
+    player_number = Column(String, nullable=True)
+    verdict_category = Column(String, nullable=True)
+    confidence_percent = Column(Integer, nullable=True)
+    confidence_level = Column(String, nullable=True)
+    sku = Column(String, nullable=True)
+    report_id = Column(String, nullable=True)
+    analysis_date = Column(String, nullable=True)
+
+    # Pola dodawane przez usera (opcjonalne)
+    purchase_price = Column(String, nullable=True)
+    purchase_currency = Column(String, nullable=True)
+    purchase_date = Column(String, nullable=True)
+    purchase_source = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
 
 
 def init_db():

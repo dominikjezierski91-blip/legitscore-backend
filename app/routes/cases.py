@@ -11,7 +11,8 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from app.models.decision import Decision
-from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, coverage_check, quality_check
+from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, coverage_check, quality_check, red_flag_check
+from app.services.consistency_check import run_player_club_consistency_check
 from app.services.storage import (
     create_case,
     load_case,
@@ -44,6 +45,14 @@ _REPORT_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate",
     "Pragma": "no-cache",
     "Expires": "0",
+}
+
+# Twarde reguły coverage — Python decyduje o gatingu, nie model.
+_REQUIRED_VIEWS: set = {"front_full", "back_full", "crest_or_brand_closeup"}
+_REQUIRED_VIEW_LABELS: dict = {
+    "front_full": "zdjęcie pełnego przodu koszulki",
+    "back_full": "zdjęcie pełnego tyłu koszulki",
+    "crest_or_brand_closeup": "zbliżenie herbu lub logo producenta",
 }
 
 router = APIRouter()
@@ -258,23 +267,27 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
         logger.info("[PRECHECK] case_id=%s stage=coverage coverage_assets_count=%d", case_id, len(asset_paths))
         coverage_result = await coverage_check(asset_paths)
 
-        if not coverage_result.get("can_continue", True):
-            # Usuń lock i zapisz wynik prechecka do case.json
+        # Gating na podstawie twardych reguł REQUIRED_VIEWS — nie używamy can_continue z modelu.
+        detected_views = coverage_result.get("detected_views") or {}
+        missing_required_keys = [k for k in _REQUIRED_VIEWS if not detected_views.get(k)]
+
+        if missing_required_keys:
+            missing_labels = [_REQUIRED_VIEW_LABELS.get(k, k) for k in missing_required_keys]
             lock_path.unlink(missing_ok=True)
             case_data["status"] = "PRECHECK_FAILED"
             case_data["precheck_result"] = {
                 "stage": "coverage",
-                "message": coverage_result.get("message") or "Zdjęcia nie pokrywają wystarczających obszarów do rzetelnej analizy.",
-                "missing_required": coverage_result.get("missing_required") or [],
+                "message": "Brakuje wymaganych zdjęć do przeprowadzenia analizy.",
+                "missing_required": missing_labels,
                 "missing_optional": coverage_result.get("missing_optional") or [],
-                "detected_views": coverage_result.get("detected_views") or {},
+                "detected_views": detected_views,
             }
             save_case(case_id, case_data)
 
             logger.warning(
-                "[PRECHECK] case_id=%s stage=coverage precheck_result=FAILED agent_a_started=false message=%s",
+                "[PRECHECK] case_id=%s stage=coverage precheck_result=FAILED missing=%s",
                 case_id,
-                case_data["precheck_result"]["message"]
+                missing_required_keys,
             )
             raise HTTPException(
                 status_code=400,
@@ -282,32 +295,36 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
             )
 
         logger.info(
-            "[PRECHECK] case_id=%s stage=coverage precheck_result=PASSED case_type=%s",
+            "[PRECHECK] case_id=%s stage=coverage precheck_result=PASSED detected=%s",
             case_id,
-            coverage_result.get("case_type")
+            list(detected_views.keys()),
         )
 
         # ============================================================
         # ETAP 2: Photo Quality Check
         # ============================================================
         logger.info("[PRECHECK] case_id=%s stage=quality quality_assets_count=%d", case_id, len(asset_paths))
-        quality_result = await quality_check(asset_paths)
+        quality_result = await quality_check(asset_paths, detected_views=detected_views)
 
-        if not quality_result.get("can_continue", True):
-            # Usuń lock i zapisz wynik prechecka do case.json
+        # Blokuj tylko gdy problemy dotyczą krytycznych widoków (REQUIRED_VIEWS).
+        # Problemy z identity_tag, material_closeup itp. nie blokują analizy.
+        quality_issues = quality_result.get("issues") or []
+        blocking_quality_issues = [i for i in quality_issues if i.get("area") in _REQUIRED_VIEWS]
+
+        if blocking_quality_issues:
             lock_path.unlink(missing_ok=True)
             case_data["status"] = "PRECHECK_FAILED"
             case_data["precheck_result"] = {
                 "stage": "quality",
-                "message": quality_result.get("message") or "Jakość zdjęć jest niewystarczająca do przeprowadzenia rzetelnej analizy.",
-                "issues": quality_result.get("issues") or [],
+                "message": quality_result.get("message") or "Jakość kluczowych zdjęć jest niewystarczająca do przeprowadzenia analizy.",
+                "issues": blocking_quality_issues,
             }
             save_case(case_id, case_data)
 
             logger.warning(
-                "[PRECHECK] case_id=%s stage=quality precheck_result=FAILED agent_a_started=false message=%s",
+                "[PRECHECK] case_id=%s stage=quality precheck_result=FAILED blocking_areas=%s",
                 case_id,
-                case_data["precheck_result"]["message"]
+                [i.get("area") for i in blocking_quality_issues],
             )
             raise HTTPException(
                 status_code=400,
@@ -383,6 +400,26 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                         )
                     except Exception:
                         logger.exception("Failed to log normalized REPORT_DATA for case %s", case_id)
+
+                    # ============================================================
+                    # ETAP 4: Pomocniczy factual check spójności personalizacji.
+                    # Strictly non-fatal — nigdy nie przerywa flow, nie zmienia werdyktu.
+                    # ============================================================
+                    try:
+                        pcc_result = await run_player_club_consistency_check(report_data)
+                        report_data["player_club_consistency"] = pcc_result
+                        logger.info(
+                            "[CONSISTENCY_CHECK] case_id=%s status=%s confidence=%s",
+                            case_id, pcc_result.get("status"), pcc_result.get("confidence"),
+                        )
+                    except Exception:
+                        logger.exception("[CONSISTENCY_CHECK] Nieoczekiwany błąd (non-fatal), case_id=%s", case_id)
+                        report_data["player_club_consistency"] = {
+                            "status": "uncertain",
+                            "confidence": "low",
+                            "reason": "Nie udało się wykonać dodatkowego sprawdzenia zgodności personalizacji.",
+                            "notes": [],
+                        }
 
                     # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
                     try:
@@ -513,14 +550,9 @@ def _ensure_report_metadata(report_data: Dict[str, Any], case_id: str) -> None:
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
     id_prefix = now.strftime("%Y%m%d")
-    rid = report_data.get("report_id")
-    adate = report_data.get("analysis_date")
-    rid_str = (rid or "").strip() if isinstance(rid, str) else ""
-    adate_str = (adate or "").strip() if isinstance(adate, str) else ""
-    if not rid_str or "2023" in rid_str:
-        report_data["report_id"] = f"{id_prefix}-{case_id[:8]}"
-    if not adate_str or adate_str.startswith("2023"):
-        report_data["analysis_date"] = date_str
+    # Backend jest jedynym źródłem prawdy dla metadanych raportu
+    report_data["report_id"] = f"{id_prefix}-{case_id[:8]}"
+    report_data["analysis_date"] = date_str
 
 
 @router.get("/cases/{case_id}")

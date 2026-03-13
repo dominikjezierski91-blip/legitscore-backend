@@ -384,10 +384,20 @@ function translateIssue(area: string, issue: string): string {
 
 function translateViewName(key: string): string {
   const names: Record<string, string> = {
+    // nowe nazwy kategorii
+    front_full: "Przód koszulki (pełny)",
+    back_full: "Tył koszulki (pełny)",
+    crest_or_brand_closeup: "Zbliżenie herbu / logo producenta",
+    identity_tag: "Metka identyfikacyjna",
+    material_closeup: "Zbliżenie materiału",
+    paper_sku_tag: "Metka / tag SKU",
+    patch_closeup: "Naszywka",
+    personalization_closeup: "Personalizacja (zbliżenie)",
+    sleeve_details: "Detale rękawów",
+    // kompatybilność wsteczna ze starymi raportami
     front: "Przód koszulki",
     back: "Tył koszulki",
     crest_logo_closeup: "Zbliżenie herbu/logo",
-    material_closeup: "Zbliżenie materiału",
     tag_sku: "Metka/SKU",
     personalization: "Personalizacja",
     sleeve_patch: "Naszywka na rękawie",

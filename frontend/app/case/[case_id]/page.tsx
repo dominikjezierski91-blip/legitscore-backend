@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FeedbackButtons } from "@/components/feedback/feedback-buttons";
 import { RatingBalls } from "@/components/feedback/rating-balls";
+import { AddToCollectionCta } from "@/components/collection/add-to-collection-cta";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,9 @@ export default async function CasePage({ params, searchParams }: Props) {
 
   const verdict = reportData?.verdict ?? {};
   const probs = reportData?.probabilities ?? {};
+  const pcc = reportData?.player_club_consistency as
+    | { status?: string; confidence?: string; reason?: string }
+    | undefined;
   const keyEvidence = (reportData?.key_evidence as any[]) || [];
   const mode = searchParams.mode;
   const reportId = reportData?.report_id as string | undefined;
@@ -236,6 +240,39 @@ export default async function CasePage({ params, searchParams }: Props) {
             )}
           </section>
 
+          {pcc && pcc.status && pcc.status !== "not_applicable" && (
+            <section className="glass-card space-y-2 p-5 md:p-6">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-200">
+                Zgodność personalizacji z klubem i sezonem
+                <span className="ml-2 text-[9px] font-normal normal-case text-slate-500">
+                  (pomocniczy check)
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span
+                  className={cn(
+                    "rounded-full px-2.5 py-0.5 font-medium",
+                    pcc.status === "consistent"
+                      ? "bg-emerald-500/20 text-emerald-300"
+                      : pcc.status === "inconsistent"
+                        ? "bg-red-500/20 text-red-300"
+                        : "bg-slate-700/40 text-slate-300"
+                  )}
+                >
+                  {getPccStatusLabel(pcc.status)}
+                </span>
+                {pcc.confidence && (
+                  <span className="text-slate-500">
+                    pewność oceny: {getPccConfidenceLabel(pcc.confidence)}
+                  </span>
+                )}
+              </div>
+              {pcc.reason && (
+                <p className="text-[11px] text-muted-foreground">{pcc.reason}</p>
+              )}
+            </section>
+          )}
+
           <section className="glass-card space-y-3 p-5 md:p-6">
             <FeedbackButtons caseId={case_id} />
           </section>
@@ -257,6 +294,9 @@ export default async function CasePage({ params, searchParams }: Props) {
             >
               Pobierz pełny raport PDF
             </a>
+          </div>
+          <div className="mt-4 border-t border-border/40 pt-4">
+            <AddToCollectionCta caseId={case_id} mode={mode} reportData={reportData} />
           </div>
           <div className="mt-4 border-t border-border/40 pt-4">
             <RatingBalls caseId={case_id} />
@@ -306,6 +346,21 @@ function getConfidenceLabel(level?: string) {
   return "POZIOM PEWNOŚCI";
 }
 
+function getPccStatusLabel(status?: string) {
+  const map: Record<string, string> = {
+    consistent: "Spójna",
+    inconsistent: "Niespójna",
+    uncertain: "Niejednoznaczna",
+    not_applicable: "Nie dotyczy",
+  };
+  return map[status ?? ""] ?? status ?? "—";
+}
+
+function getPccConfidenceLabel(confidence?: string) {
+  const map: Record<string, string> = { low: "niska", medium: "średnia", high: "wysoka" };
+  return map[confidence ?? ""] ?? confidence ?? "—";
+}
+
 function getProbabilityBarStyle(pct: number, key: string) {
   let barColor = "bg-slate-600";
 
@@ -324,7 +379,15 @@ function getProbabilityBarStyle(pct: number, key: string) {
     }
   }
 
-  const label = key.replace(/_/g, " ");
+  const CATEGORY_LABELS: Record<string, string> = {
+    oryginalna_sklepowa: "Oryginalna (sklepowa)",
+    meczowa: "Meczowa",
+    oficjalna_replika: "Oficjalna replika",
+    podrobka: "Podróbka",
+    edycja_limitowana: "Edycja limitowana",
+    treningowa_custom: "Treningowa / custom",
+  };
+  const label = CATEGORY_LABELS[key] ?? key.replace(/_/g, " ");
   return { barColor, label };
 }
 

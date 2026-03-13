@@ -1,3 +1,5 @@
+import { getToken } from "@/lib/auth";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 if (!API_BASE_URL) {
@@ -13,10 +15,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   const url = `${API_BASE_URL.replace(/\/$/, "")}${path}`;
+  const token = getToken();
   const res = await fetch(url, {
     ...init,
     headers: {
       ...(init && init.headers),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
 
@@ -139,5 +143,74 @@ export async function importFromUrl(
       body: JSON.stringify({ url }),
     }
   );
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+
+export async function authRegister(
+  email: string,
+  password: string,
+  passwordConfirm: string
+): Promise<{ token: string; user: { id: string; email: string; is_admin: boolean } }> {
+  return request("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, password_confirm: passwordConfirm }),
+  });
+}
+
+export async function authLogin(
+  email: string,
+  password: string
+): Promise<{ token: string; user: { id: string; email: string; is_admin: boolean } }> {
+  return request("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function authMe(): Promise<{ id: string; email: string; is_admin: boolean }> {
+  return request("/api/auth/me");
+}
+
+// ── Collection ───────────────────────────────────────────────
+
+export type CollectionItemPayload = {
+  case_id: string;
+  report_mode?: string;
+  club?: string;
+  season?: string;
+  model_type?: string;
+  brand?: string;
+  player_name?: string;
+  player_number?: string;
+  verdict_category?: string;
+  confidence_percent?: number;
+  confidence_level?: string;
+  sku?: string;
+  report_id?: string;
+  analysis_date?: string;
+  purchase_price?: string;
+  purchase_currency?: string;
+  purchase_date?: string;
+  purchase_source?: string;
+  notes?: string;
+};
+
+export async function addToCollection(data: CollectionItemPayload): Promise<unknown> {
+  return request("/api/collection", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getCollection(): Promise<CollectionItemPayload[]> {
+  return request("/api/collection");
+}
+
+export async function deleteFromCollection(itemId: string): Promise<{ ok: boolean }> {
+  return request(`/api/collection/${itemId}`, { method: "DELETE" });
 }
 

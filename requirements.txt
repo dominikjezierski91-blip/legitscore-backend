@@ -1,3 +1,5 @@
 google-genai
 Jinja2
 WeasyPrint
+passlib[bcrypt]
+python-jose[cryptography]
