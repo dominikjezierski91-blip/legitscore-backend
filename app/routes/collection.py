@@ -2,11 +2,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.services.database import get_db, CollectionItem
+from app.services.database import get_db, CollectionItem, SessionLocal
 from app.routes.auth import get_current_user
 from app.services.database import User
 from app.services.market_value_agent import estimate_market_value
@@ -42,9 +42,42 @@ class CollectionItemCreate(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────
 
+async def _auto_estimate_market_value(item_id: str) -> None:
+    """Background task: szacuje wartość rynkową tuż po dodaniu do kolekcji."""
+    from datetime import datetime, timezone
+    db = SessionLocal()
+    try:
+        item = db.query(CollectionItem).filter(CollectionItem.id == item_id).first()
+        if not item:
+            return
+        report_data = {
+            "subject": {
+                "club": item.club, "season": item.season, "brand": item.brand,
+                "player_name": item.player_name, "player_number": item.player_number,
+                "model": item.model_type,
+            },
+            "verdict": {"verdict_category": item.verdict_category},
+        }
+        result = await estimate_market_value(report_data)
+        if result.get("sample_size", 0) > 0:
+            item.market_value_pln = result.get("median_pln")
+            item.market_value_range_min = result.get("range_min_pln")
+            item.market_value_range_max = result.get("range_max_pln")
+            item.market_value_sample_size = result.get("sample_size")
+            item.market_value_source = result.get("source", "gemini")
+            item.market_value_updated_at = datetime.now(timezone.utc)
+            db.commit()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Auto market value failed for item %s", item_id)
+    finally:
+        db.close()
+
+
 @router.post("/collection")
 async def add_to_collection(
     data: CollectionItemCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -83,6 +116,8 @@ async def add_to_collection(
     db.add(item)
     db.commit()
     db.refresh(item)
+    # Auto-wycena w tle — nie blokuje odpowiedzi
+    background_tasks.add_task(_auto_estimate_market_value, item.id)
     return _serialize(item)
 
 

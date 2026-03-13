@@ -8,6 +8,7 @@ Market Value Agent — szacuje wartość rynkową koszulki piłkarskiej.
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from google import genai
@@ -25,6 +26,16 @@ _FX_TO_PLN: Dict[str, float] = {
 
 _SKIP_VALUES = {"nieustalone", "unknown", "brak", "—", "n/a", "", None}
 
+# Mapowanie verdict_category → frazy wyszukiwania
+_VERDICT_SEARCH_TERMS: dict = {
+    "oryginalna_sklepowa": "oryginalna sklepowa authentic retail",
+    "meczowa": "match worn player issue meczowa",
+    "oficjalna_replika": "oficjalna replika replica",
+    "edycja_limitowana": "limited edition edycja limitowana",
+    "treningowa_custom": "treningowa training",
+    "podrobka": "oryginalna",  # dla podróbek szukamy ceny oryginału jako punktu odniesienia
+}
+
 
 def _get_client() -> Optional[genai.Client]:
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -34,16 +45,38 @@ def _get_client() -> Optional[genai.Client]:
 
 
 def build_search_query(report_data: Dict[str, Any]) -> str:
-    """Buduje query wyszukiwania na podstawie danych z raportu."""
+    """
+    Buduje query wyszukiwania na podstawie wszystkich dostępnych parametrów raportu.
+    Uwzględnia: klub, sezon, markę, zawodnika, numer, model, typ koszulki (verdict).
+    """
     subject = report_data.get("subject") or {}
+    verdict = report_data.get("verdict") or {}
     parts: List[str] = []
+
+    # Podstawowe dane koszulki
     for field in ["club", "season", "brand"]:
         val = subject.get(field)
         if val and str(val).lower().strip() not in _SKIP_VALUES:
             parts.append(str(val).strip())
+
+    # Model (np. Vapor Match, Stadium, Authentic)
+    model = subject.get("model")
+    if model and str(model).lower().strip() not in _SKIP_VALUES:
+        parts.append(str(model).strip())
+
+    # Zawodnik + numer
     player = subject.get("player_name")
     if player and str(player).lower().strip() not in _SKIP_VALUES:
         parts.append(str(player).strip())
+    number = subject.get("player_number")
+    if number and str(number).lower().strip() not in _SKIP_VALUES:
+        parts.append(f"#{str(number).strip()}")
+
+    # Typ koszulki z werdyktu — kluczowe dla wyceny
+    verdict_cat = (verdict.get("verdict_category") or "").strip()
+    if verdict_cat and verdict_cat in _VERDICT_SEARCH_TERMS:
+        parts.append(_VERDICT_SEARCH_TERMS[verdict_cat])
+
     parts.append("koszulka piłkarska")
     return " ".join(parts)
 
@@ -68,10 +101,22 @@ async def estimate_via_gemini(report_data: Dict[str, Any]) -> Dict[str, Any]:
 
     model = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash")
 
+    verdict_cat = ((report_data.get("verdict") or {}).get("verdict_category") or "").strip()
+    verdict_context = {
+        "oryginalna_sklepowa": "Szukaj oryginalnych koszulek sklepowych (authentic retail). NIE szukaj replik ani podróbek.",
+        "meczowa": "Szukaj koszulek meczowych (match worn, match issued, player issue). To są najdroższe egzemplarze.",
+        "oficjalna_replika": "Szukaj oficjalnych replik (replica, fan version). NIE szukaj wersji player/authentic.",
+        "edycja_limitowana": "Szukaj edycji limitowanych (limited edition, special edition).",
+        "treningowa_custom": "Szukaj koszulek treningowych lub customowych.",
+        "podrobka": "Koszulka to prawdopodobnie podróbka. Szukaj cen ORYGINALNYCH koszulek jako punkt odniesienia dla wartości rynkowej autentycznego egzemplarza.",
+    }.get(verdict_cat, "Szukaj tej koszulki piłkarskiej.")
+
     prompt = f"""Jesteś ekspertem rynku koszulek piłkarskich.
 
 Przeszukaj aktualne aukcje i znajdź ceny sprzedaży koszulki:
 "{query}"
+
+Kontekst: {verdict_context}
 
 Szukaj na: Vinted.pl, Allegro.pl, eBay (cały świat).
 Preferuj zakończone transakcje (sold/sprzedane) nad aktywnymi ogłoszeniami.
@@ -133,6 +178,59 @@ async def estimate_via_ebay(query: str) -> List[Dict]:
         return []
     # TODO: implement eBay Finding API findCompletedItems
     return []
+
+
+async def refresh_stale_market_values(max_items: int = 50) -> int:
+    """
+    Odświeża wyceny dla pozycji kolekcji starszych niż 23h.
+    Wywoływana przez daily task o północy.
+    Zwraca liczbę odświeżonych pozycji.
+    """
+    from datetime import timedelta
+    from app.services.database import SessionLocal, CollectionItem
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=23)
+    db = SessionLocal()
+    refreshed = 0
+    try:
+        items = (
+            db.query(CollectionItem)
+            .filter(
+                (CollectionItem.market_value_updated_at == None) |  # noqa: E711
+                (CollectionItem.market_value_updated_at < cutoff)
+            )
+            .limit(max_items)
+            .all()
+        )
+        for item in items:
+            try:
+                report_data = {
+                    "subject": {
+                        "club": item.club,
+                        "season": item.season,
+                        "brand": item.brand,
+                        "player_name": item.player_name,
+                        "player_number": item.player_number,
+                        "model": item.model_type,
+                    },
+                    "verdict": {"verdict_category": item.verdict_category},
+                }
+                result = await estimate_market_value(report_data)
+                if result.get("sample_size", 0) > 0:
+                    item.market_value_pln = result.get("median_pln")
+                    item.market_value_range_min = result.get("range_min_pln")
+                    item.market_value_range_max = result.get("range_max_pln")
+                    item.market_value_sample_size = result.get("sample_size")
+                    item.market_value_source = result.get("source", "gemini")
+                    item.market_value_updated_at = datetime.now(timezone.utc)
+                    refreshed += 1
+            except Exception:
+                logger.exception("Daily refresh failed for item %s", item.id)
+        db.commit()
+    finally:
+        db.close()
+    logger.info("Daily market value refresh: %d items updated", refreshed)
+    return refreshed
 
 
 async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:

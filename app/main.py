@@ -1,8 +1,11 @@
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
+import asyncio
 import os
 import logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -24,10 +27,46 @@ logger = logging.getLogger(__name__)
 # Tryb produkcyjny
 PRODUCTION = os.getenv("PRODUCTION", "false").lower() == "true"
 
+
+async def _daily_market_value_refresh_loop():
+    """Odświeża wyceny kolekcji codziennie o północy."""
+    from app.services.market_value_agent import refresh_stale_market_values
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            # Następna północ UTC
+            next_midnight = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            wait_seconds = (next_midnight - now).total_seconds()
+            logger.info("Daily market refresh scheduled in %.0f seconds (next midnight UTC)", wait_seconds)
+            await asyncio.sleep(wait_seconds)
+            logger.info("Daily market value refresh started")
+            count = await refresh_stale_market_values()
+            logger.info("Daily market value refresh done: %d items updated", count)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Daily market value refresh error — retrying tomorrow")
+            await asyncio.sleep(3600)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_daily_market_value_refresh_loop())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
 app = FastAPI(
     title="LegitScore API",
     docs_url="/api/docs" if not PRODUCTION else None,  # Ukryj docs w produkcji
     redoc_url="/api/redoc" if not PRODUCTION else None,
+    lifespan=lifespan,
 )
 
 # Rate limiter
