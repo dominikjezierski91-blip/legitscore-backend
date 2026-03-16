@@ -104,12 +104,17 @@ class CollectionItem(Base):
     market_value_source = Column(String, nullable=True)
     market_value_updated_at = Column(DateTime, nullable=True)
 
+    # Ręczne dodawanie do kolekcji (bez analizy)
+    is_manual = Column(Boolean, default=False, nullable=True)
+    photo_path = Column(String, nullable=True)  # ścieżka do zdjęcia profilowego (manual lub override)
+
 
 def init_db():
     """Tworzy tabele jeśli nie istnieją + migruje nowe kolumny."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     _migrate_collection_market_value()
+    _migrate_collection_manual_fields()
 
 
 def _migrate_collection_market_value():
@@ -121,6 +126,24 @@ def _migrate_collection_market_value():
         ("market_value_sample_size", "INTEGER"),
         ("market_value_source", "TEXT"),
         ("market_value_updated_at", "TEXT"),
+    ]
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(collection_items)")
+        )}
+        for col_name, col_type in new_columns:
+            if col_name not in existing:
+                conn.execute(__import__("sqlalchemy").text(
+                    f"ALTER TABLE collection_items ADD COLUMN {col_name} {col_type}"
+                ))
+        conn.commit()
+
+
+def _migrate_collection_manual_fields():
+    """Dodaje kolumny is_manual i photo_path do collection_items."""
+    new_columns = [
+        ("is_manual", "INTEGER"),
+        ("photo_path", "TEXT"),
     ]
     with engine.connect() as conn:
         existing = {row[1] for row in conn.execute(

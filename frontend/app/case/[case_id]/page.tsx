@@ -100,8 +100,8 @@ export default async function CasePage({ params, searchParams }: Props) {
                 </h1>
                 <p className="mt-1 text-xs text-muted-foreground">
                   LegitScore przedstawia uporządkowany raport ryzyka
-                  autentyczności na podstawie przesłanych zdjęć. Nie jest to
-                  certyfikat ani gwarancja.
+                  autentyczności na podstawie przesłanych zdjęć lub linków do
+                  ofert marketplace. Nie jest to certyfikat ani gwarancja.
                 </p>
               </div>
             </div>

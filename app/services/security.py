@@ -18,15 +18,18 @@ RATE_LIMIT_UPLOAD = os.getenv("RATE_LIMIT_UPLOAD", "10/minute")
 RATE_LIMIT_ANALYSIS = os.getenv("RATE_LIMIT_ANALYSIS", "5/minute")
 
 # File upload
-MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "10"))
+MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "25"))
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 MAX_FILES_PER_UPLOAD = int(os.getenv("MAX_FILES_PER_UPLOAD", "12"))
 ALLOWED_MIME_TYPES = {
     "image/jpeg",
+    "image/jpg",        # niektóre przeglądarki mobilne
+    "image/pjpeg",      # IE legacy
     "image/png",
     "image/webp",
     "image/heic",
     "image/heif",
+    "application/octet-stream",  # iOS czasem nie ustawia MIME
 }
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 
@@ -56,19 +59,29 @@ limiter = Limiter(key_func=get_client_ip)
 
 async def validate_upload_file(file: UploadFile) -> None:
     """Waliduje pojedynczy plik - typ MIME, rozszerzenie, rozmiar."""
+    import logging
+    _log = logging.getLogger(__name__)
 
-    # Sprawdź rozszerzenie
+    # Sprawdź rozszerzenie i MIME type (oba muszą być OK, lub brak rozszerzenia gdy MIME jest OK)
     filename = file.filename or ""
     ext = os.path.splitext(filename.lower())[1]
-    if ext not in ALLOWED_EXTENSIONS:
+    content_type = (file.content_type or "").lower().split(";")[0].strip()
+
+    _log.info("UPLOAD_VALIDATE filename=%r ext=%r content_type=%r size_hint=%r", filename, ext, content_type, getattr(file, 'size', 'unknown'))
+
+    ext_ok = ext in ALLOWED_EXTENSIONS or ext == ""
+    mime_ok = content_type in ALLOWED_MIME_TYPES
+
+    if not ext_ok and not mime_ok:
+        _log.warning("UPLOAD_REJECT ext_ok=%s mime_ok=%s", ext_ok, mime_ok)
         raise HTTPException(
             status_code=400,
-            detail=f"Niedozwolone rozszerzenie pliku: {ext}. Dozwolone: {', '.join(ALLOWED_EXTENSIONS)}"
+            detail=f"Niedozwolony typ pliku: {content_type or ext}. Dozwolone: obrazy (JPEG, PNG, WebP, HEIC)"
         )
-
-    # Sprawdź MIME type
-    content_type = file.content_type or ""
-    if content_type not in ALLOWED_MIME_TYPES:
+    if not ext_ok and mime_ok:
+        pass  # brak/nieznane rozszerzenie, ale MIME jest OK — przepuszczamy
+    if ext_ok and not mime_ok and content_type != "":
+        _log.warning("UPLOAD_REJECT ext_ok=%s mime_ok=%s", ext_ok, mime_ok)
         raise HTTPException(
             status_code=400,
             detail=f"Niedozwolony typ pliku: {content_type}. Dozwolone: obrazy (JPEG, PNG, WebP, HEIC)"

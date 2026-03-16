@@ -15,33 +15,34 @@ logger = logging.getLogger(__name__)
 
 PLAYER_CLUB_CONSISTENCY_PROMPT = """You are a factual consistency checker for football jersey personalization.
 
+You have access to Google Search. Use it to verify player-club-number facts before answering.
+
 Your task is NOT to evaluate authenticity of the jersey.
 Your task is NOT to determine whether the shirt is fake or original.
 
 Your task is only to check whether the detected player personalization is factually consistent with the given club and season.
 
-You must be conservative.
-If you are not sufficiently sure, return "uncertain".
-Do not guess.
+Use web search to look up: which squad number did [player] wear at [club] during [season]?
+Search for reliable sources: official club records, Wikipedia, transfermarkt, BBC Sport, UEFA.
 
-Return JSON only:
+Rules:
+1. "consistent" means the player was at the given club in the given season AND wore the given number (if provided).
+2. "inconsistent" means the player was NOT at the club in that season, OR wore a DIFFERENT number.
+3. "uncertain" means search results are conflicting or inconclusive.
+4. Do not evaluate shirt authenticity.
+5. Do not infer counterfeit risk.
+6. Do not discuss SKU, patches, fabric, or materials.
+7. Keep the reason short, factual, and in Polish.
+8. If player_number is provided, you MUST verify it — a wrong number is "inconsistent".
+
+Return JSON only. No markdown. No extra text:
 
 {
   "status": "consistent | inconsistent | uncertain",
   "confidence": "low | medium | high",
   "reason": "",
   "notes": []
-}
-
-Rules:
-1. "consistent" means the player was plausibly associated with the given club in the given season.
-2. "inconsistent" means the player was not plausibly associated with the given club in the given season.
-3. "uncertain" means the information is too ambiguous or you are not confident enough.
-4. Do not evaluate shirt authenticity.
-5. Do not infer counterfeit risk.
-6. Do not discuss SKU, patches, fabric, or materials.
-7. Keep the reason short and factual.
-Return JSON only. No markdown. No extra text."""
+}"""
 
 _FALLBACK = {
     "status": "uncertain",
@@ -119,7 +120,8 @@ async def _call_gemini(
     if not api_key:
         return _fallback()
 
-    model = os.getenv("GEMINI_MODEL", "models/gemini-2.5-pro")
+    # Consistency check używa flash — pro zwraca parts=None przy grounding+JSON
+    model = os.getenv("CONSISTENCY_MODEL", "models/gemini-2.5-flash")
 
     input_lines = [
         f"Player name: {player_name}",
@@ -137,7 +139,7 @@ async def _call_gemini(
             config=types.GenerateContentConfig(
                 system_instruction=PLAYER_CLUB_CONSISTENCY_PROMPT,
                 temperature=0.1,
-                response_mime_type="application/json",
+                tools=[types.Tool(google_search=types.GoogleSearch())],
             ),
         )
     except Exception as e:

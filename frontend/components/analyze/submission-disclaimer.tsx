@@ -22,8 +22,8 @@ export function SubmissionDisclaimer({ accepted, onChange }: Props) {
           </span>
         </label>
         <p className="text-xs">
-          Dokładność raportu zależy od jakości i kompletności przesłanych
-          zdjęć.
+          Dokładność raportu zależy od jakości i kompletności przesłanych zdjęć
+          lub dostępności zdjęć w podanym ogłoszeniu.
         </p>
       </div>
     </section>

@@ -18,7 +18,7 @@ export function AnalyzeForm() {
   const [inputMode, setInputMode] = useState<InputMode>("photos");
   const [files, setFiles] = useState<File[]>([]);
   const [auctionUrl, setAuctionUrl] = useState("");
-  const [reportType, setReportType] = useState<ReportType>("basic");
+  const [reportType, setReportType] = useState<ReportType>("expert");
   const [email, setEmail] = useState("");
   const [context, setContext] = useState("");
   const [acceptedDisclaimer, setAcceptedDisclaimer] = useState(false);
@@ -75,15 +75,28 @@ export function AnalyzeForm() {
       setSubmitting(true);
       // 1) Tworzymy sprawę z emailem i kontekstem
       const { case_id } = await createCase(email, undefined, context);
-      // 2) Zapisujemy dane lokalne do dalszego przetwarzania na ekranie statusu.
+      // 2) Czytamy pliki jako ArrayBuffer TERAZ (iOS Safari invaliduje File objects po nawigacji)
+      //    Używamy FileReader (lepsza kompatybilność z iOS niż File.arrayBuffer())
+      let fileData: Array<{ name: string; type: string; buffer: ArrayBuffer }> | undefined;
+      if (inputMode === "photos" && files.length > 0) {
+        fileData = await Promise.all(
+          files.map((f) => new Promise<{ name: string; type: string; buffer: ArrayBuffer }>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve({ name: f.name, type: f.type || "image/jpeg", buffer: e.target!.result as ArrayBuffer });
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(f);
+          }))
+        );
+      }
+      // 3) Zapisujemy dane (z surowymi bajtami) do dalszego przetwarzania na ekranie statusu
       setPendingSubmission({
         caseId: case_id,
         mode: reportType,
         inputType: inputMode,
-        files: inputMode === "photos" ? files : undefined,
+        fileData,
         auctionUrl: inputMode === "url" ? auctionUrl : undefined,
       });
-      // 3) Od razu przechodzimy na stronę statusu, gdzie wykonujemy upload + analizę.
+      // 4) Przechodzimy natychmiast na stronę statusu
       const qs = new URLSearchParams();
       qs.set("case_id", case_id);
       qs.set("mode", reportType);
@@ -108,7 +121,8 @@ export function AnalyzeForm() {
           </h1>
           <p className="max-w-xl text-sm text-muted-foreground">
             LegitScore analizuje koszulki piłkarskie i generuje szczegółowy
-            raport ryzyka autentyczności na podstawie przesłanych zdjęć.
+            raport ryzyka autentyczności na podstawie przesłanych zdjęć lub
+            linków do ofert marketplace.
           </p>
           <div className="flex flex-wrap gap-2 text-[11px]">
             <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
@@ -215,15 +229,29 @@ export function AnalyzeForm() {
                     Link musi prowadzić do Vinted, Allegro lub eBay.
                   </p>
                 )}
-                <div className="rounded-xl border border-slate-700/50 bg-slate-900/40 p-3 text-xs text-slate-400 space-y-1.5">
-                  <p className="font-medium text-slate-300">Dla najlepszej analizy ogłoszenie powinno zawierać:</p>
+                <section className="rounded-2xl border border-emerald-500/20 bg-slate-900/60 p-4 text-xs text-muted-foreground">
+                  <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+                    Jakie zdjęcia powinno zawierać ogłoszenie?
+                  </h3>
                   <ul className="space-y-1">
-                    <li className="flex gap-2"><span className="text-emerald-400">·</span> Przód koszulki (pełne zdjęcie)</li>
-                    <li className="flex gap-2"><span className="text-emerald-400">·</span> Tył koszulki</li>
-                    <li className="flex gap-2"><span className="text-emerald-400">·</span> Zbliżenie herbu lub logo producenta</li>
-                    <li className="flex gap-2"><span className="text-slate-500">·</span> Zdjęcie metryczki lub nadruku szyjnego (opcjonalnie)</li>
+                    {[
+                      "przód koszulki",
+                      "tył koszulki",
+                      "metka wewnętrzna",
+                      "herb / emblemat",
+                      "logo producenta",
+                      "numer lub nazwisko",
+                      "szew / kołnierz",
+                    ].map((item) => (
+                      <li key={item} className="flex items-center gap-2">
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/15 text-[11px] text-emerald-300">
+                          ✓
+                        </span>
+                        <span className="text-xs text-slate-100">{item}</span>
+                      </li>
+                    ))}
                   </ul>
-                </div>
+                </section>
               </div>
             )}
           </div>

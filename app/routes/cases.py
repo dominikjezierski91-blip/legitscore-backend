@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.models.decision import Decision
 from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, coverage_check, quality_check, red_flag_check
 from app.services.consistency_check import run_player_club_consistency_check
+from app.services.sku_agent import run_sku_verification
 from app.services.storage import (
     create_case,
     load_case,
@@ -119,8 +120,16 @@ async def upload_assets(request: Request, case_id: str, files: List[UploadFile] 
     # Waliduj case_id
     case_id = validate_case_id(case_id)
 
+    import logging as _logging
+    _rlog = _logging.getLogger(__name__)
+    _rlog.info("UPLOAD_REQUEST case_id=%s files_count=%d filenames=%r", case_id, len(files), [f.filename for f in files])
+
     # Waliduj pliki (rozmiar, typ MIME, rozszerzenie)
-    await validate_upload_files(files)
+    try:
+        await validate_upload_files(files)
+    except HTTPException as _he:
+        _rlog.warning("UPLOAD_FAILED detail=%r status=%s", _he.detail, _he.status_code)
+        raise
 
     # Sprawdź czy case istnieje
     case_data = load_case(case_id)
@@ -444,6 +453,26 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "notes": [],
                         }
 
+                    # ============================================================
+                    # ETAP 5: Pomocnicza weryfikacja SKU.
+                    # Strictly non-fatal — nigdy nie przerywa flow, nie zmienia werdyktu.
+                    # ============================================================
+                    try:
+                        sku_result = await run_sku_verification(report_data)
+                        report_data["sku_verification"] = sku_result
+                        logger.info(
+                            "[SKU_VERIFICATION] case_id=%s status=%s confidence=%s",
+                            case_id, sku_result.get("status"), sku_result.get("confidence"),
+                        )
+                    except Exception:
+                        logger.exception("[SKU_VERIFICATION] Nieoczekiwany błąd (non-fatal), case_id=%s", case_id)
+                        report_data["sku_verification"] = {
+                            "status": "uncertain",
+                            "confidence": "low",
+                            "reason": "Nie udało się wykonać weryfikacji SKU.",
+                            "source_url": "",
+                        }
+
                     # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
                     try:
                         report_data_path.write_text(
@@ -641,7 +670,7 @@ async def get_case_thumbnail(case_id: str):
         full_path = Path("data") / rel_path
         if full_path.exists() and full_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
             mime = _mimetypes.guess_type(str(full_path))[0] or "image/jpeg"
-            return _FileResponse(str(full_path), media_type=mime)
+            return _FileResponse(str(full_path), media_type=mime, headers={"Cache-Control": "no-store, no-cache"})
     raise HTTPException(status_code=404, detail="No image assets found")
 
 

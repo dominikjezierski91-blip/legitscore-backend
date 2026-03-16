@@ -2,7 +2,7 @@ export type PendingSubmission = {
   caseId: string;
   mode: "basic" | "expert";
   inputType: "photos" | "url";
-  files?: File[];
+  fileData?: Array<{ name: string; type: string; buffer: ArrayBuffer }>;
   auctionUrl?: string;
 };
 

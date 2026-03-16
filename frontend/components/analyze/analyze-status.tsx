@@ -124,8 +124,12 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
             // Obsłuż dwa tryby: upload zdjęć lub import z URL
             if (submission.inputType === "url" && submission.auctionUrl) {
               await importFromUrl(id, submission.auctionUrl);
-            } else if (submission.files && submission.files.length > 0) {
-              await uploadAssets(id, submission.files);
+            } else if (submission.fileData && submission.fileData.length > 0) {
+              // Odtwarzamy File objects z ArrayBuffer (bezpieczne po nawigacji iOS Safari)
+              const files = submission.fileData.map(
+                ({ name, type, buffer }) => new File([buffer], name, { type })
+              );
+              await uploadAssets(id, files);
             }
             await runDecision(id, submission.mode);
             clearPendingSubmission();

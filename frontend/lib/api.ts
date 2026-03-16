@@ -218,3 +218,30 @@ export async function refreshMarketValue(itemId: string): Promise<any> {
   return request(`/api/collection/${itemId}/market-value`, { method: "POST" });
 }
 
+export async function updateCollectionItem(
+  itemId: string,
+  data: Partial<{
+    club: string; season: string; model_type: string; brand: string;
+    player_name: string; player_number: string; verdict_category: string;
+    purchase_price: string; purchase_currency: string;
+    purchase_date: string; purchase_source: string; notes: string;
+  }>
+): Promise<any> {
+  return request(`/api/collection/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function uploadCollectionPhoto(itemId: string, file: File): Promise<{ ok: boolean }> {
+  const form = new FormData();
+  form.append("file", file);
+  return request(`/api/collection/${itemId}/photo`, { method: "POST", body: form });
+}
+
+export function getCollectionThumbnailUrl(itemId: string): string {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+  return `${base}/api/collection/${itemId}/thumbnail`;
+}
+
