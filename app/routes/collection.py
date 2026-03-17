@@ -167,6 +167,12 @@ async def get_collection(
     return [_serialize(i) for i in items]
 
 
+FIELD_MAX_LENGTHS = {
+    "club": 80, "player_name": 60, "brand": 40,
+    "model_type": 40, "season": 20, "purchase_source": 60, "notes": 500,
+}
+
+
 @router.patch("/collection/{item_id}")
 async def update_collection_item(
     item_id: str,
@@ -183,6 +189,12 @@ async def update_collection_item(
         raise HTTPException(status_code=404, detail="Nie znaleziono pozycji w kolekcji.")
 
     update_dict = data.model_dump(exclude_unset=True)
+    for field, value in update_dict.items():
+        if value and field in FIELD_MAX_LENGTHS and len(str(value)) > FIELD_MAX_LENGTHS[field]:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Pole '{field}' przekracza maksymalną długość {FIELD_MAX_LENGTHS[field]} znaków.",
+            )
     for field, value in update_dict.items():
         if field in _EDITABLE_FIELDS:
             setattr(item, field, value)

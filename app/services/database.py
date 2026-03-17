@@ -65,6 +65,12 @@ class User(Base):
     is_admin = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # Profil użytkownika (opcjonalne — zbierany po rejestracji)
+    user_type = Column(String, nullable=True)                          # kolekcjoner / okazjonalny_kupujacy / sprzedajacy
+    collection_size_range = Column(String, nullable=True)              # 0-5 / 6-20 / 21-50 / 50+
+    profile_survey_completed_at = Column(DateTime, nullable=True)
+    profile_survey_skipped_at = Column(DateTime, nullable=True)
+
 
 class CollectionItem(Base):
     __tablename__ = "collection_items"
@@ -109,12 +115,48 @@ class CollectionItem(Base):
     photo_path = Column(String, nullable=True)  # ścieżka do zdjęcia profilowego (manual lub override)
 
 
+class SupportSubmission(Base):
+    __tablename__ = "support_submissions"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Status: nowe / w_trakcie / zamkniete
+    status = Column(String, default="nowe", nullable=False)
+
+    # Treść zgłoszenia
+    type = Column(String, nullable=False)       # pytanie / problem / sugestia / inne
+    message = Column(Text, nullable=False)
+    email = Column(String, nullable=True)
+    wants_reply = Column(Boolean, default=False, nullable=True)
+
+    # Kontekst użytkownika
+    user_id = Column(String, nullable=True)
+    auth_state = Column(String, nullable=True)  # logged_in / guest
+
+    # Kontekst strony
+    source_page = Column(String, nullable=True)
+    current_url = Column(String, nullable=True)
+    app_section = Column(String, nullable=True)  # report / analysis / collection
+
+    # Powiązane encje
+    report_id = Column(String, nullable=True)
+    analysis_id = Column(String, nullable=True)
+    shirt_id = Column(String, nullable=True)
+    collection_item_id = Column(String, nullable=True)
+
+    # Backoffice
+    internal_notes = Column(Text, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+
+
 def init_db():
     """Tworzy tabele jeśli nie istnieją + migruje nowe kolumny."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     _migrate_collection_market_value()
     _migrate_collection_manual_fields()
+    _migrate_user_profile_fields()
 
 
 def _migrate_collection_market_value():
@@ -153,6 +195,26 @@ def _migrate_collection_manual_fields():
             if col_name not in existing:
                 conn.execute(__import__("sqlalchemy").text(
                     f"ALTER TABLE collection_items ADD COLUMN {col_name} {col_type}"
+                ))
+        conn.commit()
+
+
+def _migrate_user_profile_fields():
+    """Dodaje kolumny profilu użytkownika do tabeli users."""
+    new_columns = [
+        ("user_type", "TEXT"),
+        ("collection_size_range", "TEXT"),
+        ("profile_survey_completed_at", "TEXT"),
+        ("profile_survey_skipped_at", "TEXT"),
+    ]
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(users)")
+        )}
+        for col_name, col_type in new_columns:
+            if col_name not in existing:
+                conn.execute(__import__("sqlalchemy").text(
+                    f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"
                 ))
         conn.commit()
 
@@ -247,11 +309,34 @@ def get_case_from_db(case_id: str) -> Optional[CaseRecord]:
         db.close()
 
 
-def get_all_cases_from_db() -> list:
-    """Pobiera wszystkie case'y z bazy."""
+def get_all_cases_from_db(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    auth_state_filter: Optional[str] = None,
+    verdict_filter: Optional[str] = None,
+) -> list:
+    """Pobiera case'y z bazy z opcjonalnym filtrowaniem."""
     db = SessionLocal()
     try:
-        records = db.query(CaseRecord).order_by(CaseRecord.created_at.desc()).all()
+        q = db.query(CaseRecord)
+        if date_from:
+            try:
+                q = q.filter(CaseRecord.created_at >= datetime.fromisoformat(date_from))
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                q = q.filter(CaseRecord.created_at <= datetime.fromisoformat(date_to))
+            except ValueError:
+                pass
+        if auth_state_filter == "logged_in":
+            q = q.filter(CaseRecord.email.isnot(None))
+        elif auth_state_filter == "guest":
+            q = q.filter(CaseRecord.email.is_(None))
+        if verdict_filter:
+            q = q.filter(CaseRecord.verdict_category == verdict_filter)
+
+        records = q.order_by(CaseRecord.created_at.desc()).all()
         return [
             {
                 "case_id": r.case_id,
@@ -270,6 +355,7 @@ def get_all_cases_from_db() -> list:
                 "rating": r.rating,
                 "rating_at": r.rating_at.isoformat() if r.rating_at else None,
                 "sku": r.sku,
+                "auth_state": "logged_in" if r.email else "guest",
             }
             for r in records
         ]
@@ -319,6 +405,177 @@ def save_rating_to_db(
 
         db.commit()
         return True
+    finally:
+        db.close()
+
+
+def get_user_stats() -> dict:
+    """Statystyki użytkowników dla dashboardu."""
+    from datetime import timedelta
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        day_ago = now - timedelta(days=1)
+        week_ago = now - timedelta(days=7)
+
+        total = db.query(User).count()
+        new_today = db.query(User).filter(User.created_at >= day_ago).count()
+        new_7d = db.query(User).filter(User.created_at >= week_ago).count()
+        # Aktywni = unikalni użytkownicy (user.id) z aktywnością w ostatnich 7 dniach
+        active_via_analysis = {
+            row[0]
+            for row in db.query(User.id)
+            .join(CaseRecord, CaseRecord.email == User.email)
+            .filter(CaseRecord.created_at >= week_ago)
+            .all()
+        }
+        active_via_collection = {
+            row[0]
+            for row in db.query(CollectionItem.user_id)
+            .filter(CollectionItem.added_at >= week_ago)
+            .all()
+        }
+        active_7d = len(active_via_analysis | active_via_collection)
+
+        return {
+            "total": total,
+            "new_today": new_today,
+            "new_7d": new_7d,
+            "active_7d": active_7d,
+        }
+    finally:
+        db.close()
+
+
+def get_user_list() -> list:
+    """Lista użytkowników ze statystykami aktywności."""
+    db = SessionLocal()
+    try:
+        users = db.query(User).order_by(User.created_at.desc()).all()
+        result = []
+        for u in users:
+            analysis_count = db.query(CaseRecord).filter(CaseRecord.email == u.email).count()
+            collection_count = db.query(CollectionItem).filter(CollectionItem.user_id == u.id).count()
+
+            last_case = db.query(CaseRecord.created_at).filter(
+                CaseRecord.email == u.email
+            ).order_by(CaseRecord.created_at.desc()).first()
+            last_col = db.query(CollectionItem.added_at).filter(
+                CollectionItem.user_id == u.id
+            ).order_by(CollectionItem.added_at.desc()).first()
+
+            candidates = []
+            if last_case and last_case[0]:
+                candidates.append(last_case[0])
+            if last_col and last_col[0]:
+                candidates.append(last_col[0])
+            last_activity = max(candidates).isoformat() if candidates else None
+
+            result.append({
+                "id": u.id,
+                "email": u.email,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "is_admin": u.is_admin,
+                "analysis_count": analysis_count,
+                "collection_count": collection_count,
+                "last_activity_at": last_activity,
+                "user_type": getattr(u, "user_type", None),
+                "collection_size_range": getattr(u, "collection_size_range", None),
+                "profile_survey_completed_at": (
+                    getattr(u, "profile_survey_completed_at", None).isoformat()
+                    if getattr(u, "profile_survey_completed_at", None) else None
+                ),
+                "profile_survey_skipped_at": (
+                    getattr(u, "profile_survey_skipped_at", None).isoformat()
+                    if getattr(u, "profile_survey_skipped_at", None) else None
+                ),
+            })
+        return result
+    finally:
+        db.close()
+
+
+def get_dashboard_metrics() -> dict:
+    """Metryki produktowe dla dashboardu."""
+    from datetime import timedelta
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        day_ago = now - timedelta(days=1)
+        week_ago = now - timedelta(days=7)
+
+        total_cases = db.query(CaseRecord).count()
+        total_users = db.query(User).count()
+        cases_today = db.query(CaseRecord).filter(CaseRecord.created_at >= day_ago).count()
+        cases_7d = db.query(CaseRecord).filter(CaseRecord.created_at >= week_ago).count()
+        logged_in_cases = db.query(CaseRecord).filter(CaseRecord.email.isnot(None)).count()
+        guest_cases = db.query(CaseRecord).filter(CaseRecord.email.is_(None)).count()
+
+        users_with_collection = db.query(CollectionItem.user_id).distinct().count()
+        collection_adoption = round(users_with_collection / total_users * 100, 1) if total_users > 0 else 0
+
+        # Aktywacja = zarejestrowani użytkownicy z ≥1 analizą (nie distinct emaile z case'ów)
+        users_with_analysis = (
+            db.query(User)
+            .filter(
+                User.email.in_(
+                    db.query(CaseRecord.email).filter(CaseRecord.email.isnot(None)).distinct()
+                )
+            )
+            .count()
+        )
+        activation_rate = (
+            round(min(users_with_analysis / total_users * 100, 100.0), 1)
+            if total_users > 0
+            else 0
+        )
+        # Średnia per aktywny użytkownik, nie per wszystkich zarejestrowanych
+        avg_analyses = (
+            round(logged_in_cases / users_with_analysis, 1)
+            if users_with_analysis > 0
+            else 0
+        )
+
+        # Segmenty profilu użytkownika
+        def count_user_type(ut: str) -> int:
+            return db.query(User).filter(User.user_type == ut).count()
+
+        def count_size_range(sr: str) -> int:
+            return db.query(User).filter(User.collection_size_range == sr).count()
+
+        survey_completed = db.query(User).filter(
+            User.profile_survey_completed_at.isnot(None)
+        ).count()
+        survey_skipped = db.query(User).filter(
+            User.profile_survey_skipped_at.isnot(None)
+        ).count()
+
+        return {
+            "total_cases": total_cases,
+            "cases_today": cases_today,
+            "cases_7d": cases_7d,
+            "logged_in_cases": logged_in_cases,
+            "guest_cases": guest_cases,
+            "collection_adoption_pct": collection_adoption,
+            "avg_analyses_per_user": avg_analyses,
+            "activation_rate_pct": activation_rate,
+            "users_with_analysis": users_with_analysis,
+            "segments": {
+                "user_type": {
+                    "kolekcjoner": count_user_type("kolekcjoner"),
+                    "okazjonalny_kupujacy": count_user_type("okazjonalny_kupujacy"),
+                    "sprzedajacy": count_user_type("sprzedajacy"),
+                },
+                "collection_size": {
+                    "0-5": count_size_range("0-5"),
+                    "6-20": count_size_range("6-20"),
+                    "21-50": count_size_range("21-50"),
+                    "50+": count_size_range("50+"),
+                },
+                "survey_completed": survey_completed,
+                "survey_skipped": survey_skipped,
+            },
+        }
     finally:
         db.close()
 

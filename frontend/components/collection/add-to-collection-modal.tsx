@@ -12,9 +12,10 @@ type Props = {
   mode?: string;
   reportData: any;
   onClose: () => void;
+  onSaved?: () => void;
 };
 
-export function AddToCollectionModal({ caseId, mode, reportData, onClose }: Props) {
+export function AddToCollectionModal({ caseId, mode, reportData, onClose, onSaved }: Props) {
   const { user } = useAuth();
   const router = useRouter();
 
@@ -117,6 +118,7 @@ export function AddToCollectionModal({ caseId, mode, reportData, onClose }: Prop
       };
       await addToCollection(payload);
       setSuccess(true);
+      onSaved?.();
     } catch (err: any) {
       setError(err.message || "Nie udało się zapisać do kolekcji.");
     } finally {

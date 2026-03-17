@@ -1,10 +1,12 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import Link from "next/link";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
+import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 
 type ShellProps = {
   children: ReactNode;
@@ -14,15 +16,21 @@ type ShellProps = {
 
 export function Shell({ children, className, subtitle }: ShellProps) {
   const { user, logout } = useAuth();
+  const [logoutOpen, setLogoutOpen] = useState(false);
+
+  function handleLogout() {
+    setLogoutOpen(false);
+    logout();
+  }
 
   return (
     <div className="min-h-screen gradient-bg">
       <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6 md:px-6 lg:px-8">
         <header className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Link href="/analyze" className="rounded-full bg-slate-900/80 px-3 py-1 text-xs font-semibold tracking-wide text-slate-100 shadow-lg shadow-emerald-500/20">
-              LegitScore
-            </Link>
+            <a href="https://legitscore.app" className="flex items-center">
+              <LegitScoreLogo size={80} className="h-6 w-auto md:h-7" />
+            </a>
             <Badge className="border-emerald-400/40 bg-emerald-500/10 text-emerald-300">
               BETA
             </Badge>
@@ -40,16 +48,21 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                   Konto
                 </Link>
                 <button
-                  onClick={logout}
+                  onClick={() => setLogoutOpen(true)}
                   className="text-slate-500 transition hover:text-slate-300"
                 >
                   Wyloguj
                 </button>
               </>
             ) : (
-              <Link href="/login" className="text-slate-400 transition hover:text-slate-200">
-                Zaloguj się
-              </Link>
+              <>
+                <Link href="/analyze" className="text-slate-400 transition hover:text-slate-200">
+                  Analiza
+                </Link>
+                <Link href="/login" className="text-slate-400 transition hover:text-slate-200">
+                  Zaloguj się
+                </Link>
+              </>
             )}
           </nav>
         </header>
@@ -64,6 +77,43 @@ export function Shell({ children, className, subtitle }: ShellProps) {
           </p>
         </footer>
       </div>
+
+      {/* Logout confirmation modal */}
+      {logoutOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          onClick={() => setLogoutOpen(false)}
+        >
+          <div
+            className="glass-card relative w-full max-w-sm space-y-4 rounded-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setLogoutOpen(false)}
+              className="absolute right-4 top-4 rounded-full p-1 text-slate-500 transition hover:text-slate-300"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <p className="pr-6 text-sm font-medium text-slate-100">
+              Czy na pewno chcesz się wylogować?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleLogout}
+                className="flex-1 rounded-full bg-red-500/80 py-2 text-sm font-medium text-white transition hover:bg-red-500"
+              >
+                Wyloguj się
+              </button>
+              <button
+                onClick={() => setLogoutOpen(false)}
+                className="flex-1 rounded-full border border-slate-600/60 py-2 text-sm font-medium text-slate-300 transition hover:text-slate-100"
+              >
+                Anuluj
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

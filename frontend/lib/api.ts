@@ -170,8 +170,44 @@ export async function authLogin(
   });
 }
 
-export async function authMe(): Promise<{ id: string; email: string; is_admin: boolean }> {
+export type AuthMeResponse = {
+  id: string;
+  email: string;
+  is_admin: boolean;
+  user_type: string | null;
+  collection_size_range: string | null;
+  profile_survey_completed_at: string | null;
+  profile_survey_skipped_at: string | null;
+};
+
+export async function authMe(): Promise<AuthMeResponse> {
   return request("/api/auth/me");
+}
+
+export async function submitProfileSurvey(
+  userType: string,
+  collectionSizeRange: string,
+): Promise<void> {
+  await request("/api/auth/profile-survey", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_type: userType, collection_size_range: collectionSizeRange }),
+  });
+}
+
+export async function skipProfileSurvey(): Promise<void> {
+  await request("/api/auth/profile-survey/skip", { method: "POST" });
+}
+
+export async function updateUserProfile(
+  userType: string | null,
+  collectionSizeRange: string | null,
+): Promise<void> {
+  await request("/api/auth/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_type: userType, collection_size_range: collectionSizeRange }),
+  });
 }
 
 // ── Collection ───────────────────────────────────────────────
@@ -245,3 +281,42 @@ export function getCollectionThumbnailUrl(itemId: string): string {
   return `${base}/api/collection/${itemId}/thumbnail`;
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return request("/api/auth/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+export async function deleteAccount(): Promise<void> {
+  return request("/api/auth/delete-account", { method: "DELETE" });
+}
+
+export async function exportUserData(): Promise<any> {
+  return request("/api/auth/export-data", { method: "GET" });
+}
+
+export interface SupportPayload {
+  type: string;
+  message: string;
+  email: string;
+  wants_reply?: boolean;
+  user_id?: string;
+  auth_state?: string;
+  source_page?: string;
+  current_url?: string;
+  app_section?: string;
+  report_id?: string;
+  analysis_id?: string;
+  shirt_id?: string;
+  collection_item_id?: string;
+}
+
+export async function submitSupport(data: SupportPayload): Promise<{ ok: boolean; id: string }> {
+  return request("/api/support", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}

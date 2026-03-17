@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
+import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 
 export default function LoginPage() {
   const { login, user } = useAuth();
@@ -37,13 +38,16 @@ export default function LoginPage() {
   return (
     <div className="flex flex-1 items-center justify-center py-10">
       <div className="glass-card w-full max-w-sm space-y-6 p-8">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-50">
-            Zaloguj się
-          </h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Zaloguj się, aby zapisywać koszulki do swojej kolekcji.
-          </p>
+        <div className="flex flex-col items-center gap-3">
+          <LegitScoreLogo size={100} className="h-16 w-auto" />
+          <div className="text-center">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-50">
+              Zaloguj się do LegitScore
+            </h1>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Analizuj autentyczność koszulek i zarządzaj swoją kolekcją w jednym miejscu.
+            </p>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

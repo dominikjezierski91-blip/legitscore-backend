@@ -208,8 +208,8 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
 
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[11px] text-slate-400">{label}</label>
+    <div className="flex min-w-0 flex-col gap-1">
+      <label className="text-[11px] text-slate-400 truncate">{label}</label>
       {children}
       {error && <p className="text-[10px] text-red-400">{error}</p>}
     </div>

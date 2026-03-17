@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 import { FeedbackButtons } from "@/components/feedback/feedback-buttons";
 import { RatingBalls } from "@/components/feedback/rating-balls";
 import { AddToCollectionCta } from "@/components/collection/add-to-collection-cta";
+import { BackButton } from "@/components/ui/back-button";
+import { SupportWidget } from "@/components/support/support-widget";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +94,7 @@ export default async function CasePage({ params, searchParams }: Props) {
   return (
     <div className="flex flex-1 flex-col gap-6 py-6 md:flex-row">
       <div className="flex-1 space-y-4">
+          <BackButton label="Wstecz" />
           <section className="glass-card space-y-3 p-5 md:p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -305,6 +308,13 @@ export default async function CasePage({ params, searchParams }: Props) {
           </div>
           <div className="mt-4 border-t border-border/40 pt-4">
             <RatingBalls caseId={case_id} />
+          </div>
+          <div className="mt-4 border-t border-border/40 pt-4">
+            <SupportWidget
+              reportId={reportId ?? undefined}
+              analysisId={case_id}
+              appSection="report"
+            />
           </div>
           <div className="mt-4 border-t border-border/40 pt-4">
             <Link

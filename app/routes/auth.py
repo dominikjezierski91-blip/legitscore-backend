@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from app.services.database import get_db, User
+from app.services.database import get_db, User, CollectionItem
 from app.services.auth_service import hash_password, verify_password, create_access_token, decode_access_token
 from app.services.security import limiter
 from fastapi import Request
@@ -91,7 +91,21 @@ async def login(data: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/auth/me")
 async def me(current_user: User = Depends(get_current_user)):
-    return {"id": current_user.id, "email": current_user.email, "is_admin": current_user.is_admin}
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "is_admin": current_user.is_admin,
+        "user_type": getattr(current_user, "user_type", None),
+        "collection_size_range": getattr(current_user, "collection_size_range", None),
+        "profile_survey_completed_at": (
+            getattr(current_user, "profile_survey_completed_at", None).isoformat()
+            if getattr(current_user, "profile_survey_completed_at", None) else None
+        ),
+        "profile_survey_skipped_at": (
+            getattr(current_user, "profile_survey_skipped_at", None).isoformat()
+            if getattr(current_user, "profile_survey_skipped_at", None) else None
+        ),
+    }
 
 
 # ── Admin: lista użytkowników ────────────────────────────────
@@ -111,6 +125,135 @@ async def admin_list_users(
         }
         for u in users
     ]
+
+
+VALID_USER_TYPES = {"kolekcjoner", "okazjonalny_kupujacy", "sprzedajacy"}
+VALID_COLLECTION_SIZES = {"0-5", "6-20", "21-50", "50+"}
+
+
+class ProfileSurveyRequest(BaseModel):
+    user_type: Optional[str] = None
+    collection_size_range: Optional[str] = None
+
+
+@router.post("/auth/profile-survey")
+async def submit_profile_survey(
+    data: ProfileSurveyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Zapisuje profil użytkownika zebrany po rejestracji."""
+    if data.user_type and data.user_type not in VALID_USER_TYPES:
+        raise HTTPException(status_code=400, detail="Nieprawidłowy typ użytkownika.")
+    if data.collection_size_range and data.collection_size_range not in VALID_COLLECTION_SIZES:
+        raise HTTPException(status_code=400, detail="Nieprawidłowy zakres kolekcji.")
+
+    if data.user_type:
+        current_user.user_type = data.user_type
+    if data.collection_size_range:
+        current_user.collection_size_range = data.collection_size_range
+    current_user.profile_survey_completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/auth/profile-survey/skip")
+async def skip_profile_survey(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Zapisuje pominięcie profilu użytkownika."""
+    current_user.profile_survey_skipped_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True}
+
+
+@router.patch("/auth/profile")
+async def update_profile(
+    data: ProfileSurveyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Aktualizuje profil użytkownika (edycja z poziomu konta)."""
+    if data.user_type is not None:
+        if data.user_type and data.user_type not in VALID_USER_TYPES:
+            raise HTTPException(status_code=400, detail="Nieprawidłowy typ użytkownika.")
+        current_user.user_type = data.user_type or None
+    if data.collection_size_range is not None:
+        if data.collection_size_range and data.collection_size_range not in VALID_COLLECTION_SIZES:
+            raise HTTPException(status_code=400, detail="Nieprawidłowy zakres kolekcji.")
+        current_user.collection_size_range = data.collection_size_range or None
+    if not current_user.profile_survey_completed_at:
+        current_user.profile_survey_completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/auth/change-password")
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Nieprawidłowe obecne hasło.")
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Nowe hasło musi mieć co najmniej 8 znaków.")
+    current_user.password_hash = hash_password(data.new_password)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/auth/delete-account")
+async def delete_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db.query(CollectionItem).filter(CollectionItem.user_id == current_user.id).delete()
+    db.delete(current_user)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/auth/export-data")
+async def export_data(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    items = db.query(CollectionItem).filter(CollectionItem.user_id == current_user.id).all()
+    return {
+        "user": {
+            "email": current_user.email,
+            "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+        },
+        "collection": [_serialize_for_export(i) for i in items],
+    }
+
+
+def _serialize_for_export(item: CollectionItem) -> dict:
+    return {
+        "id": item.id,
+        "club": item.club,
+        "season": item.season,
+        "brand": item.brand,
+        "model_type": item.model_type,
+        "player_name": item.player_name,
+        "player_number": item.player_number,
+        "verdict_category": item.verdict_category,
+        "purchase_price": item.purchase_price,
+        "purchase_currency": item.purchase_currency,
+        "purchase_date": item.purchase_date,
+        "purchase_source": item.purchase_source,
+        "notes": item.notes,
+        "market_value_pln": item.market_value_pln,
+        "added_at": item.added_at.isoformat() if item.added_at else None,
+        "is_manual": bool(item.is_manual),
+    }
 
 
 @router.delete("/admin/users/{user_id}")

@@ -28,7 +28,7 @@ from app.services.storage import (
 from app.services.auction_scraper import fetch_auction_images, AuctionScraperError
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db
+from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics
 from app.services.security import (
     limiter,
     validate_upload_files,
@@ -779,9 +779,20 @@ async def get_rating(case_id: str):
 
 @router.get("/dashboard/cases")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def list_all_cases(request: Request):
-    """Lista wszystkich case'ów z bazy (dla dashboardu)."""
-    return get_all_cases_from_db()
+async def list_all_cases(
+    request: Request,
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    auth_state: Optional[str] = Query(None),
+    verdict: Optional[str] = Query(None),
+):
+    """Lista wszystkich case'ów z bazy (dla dashboardu), z opcjonalnym filtrowaniem."""
+    return get_all_cases_from_db(
+        date_from=date_from,
+        date_to=date_to,
+        auth_state_filter=auth_state,
+        verdict_filter=verdict,
+    )
 
 
 @router.get("/dashboard/stats")
@@ -789,6 +800,27 @@ async def list_all_cases(request: Request):
 async def get_stats(request: Request):
     """Statystyki z bazy (dla dashboardu)."""
     return get_db_stats()
+
+
+@router.get("/dashboard/user-stats")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_user_stats_endpoint(request: Request):
+    """Statystyki użytkowników dla dashboardu."""
+    return get_user_stats()
+
+
+@router.get("/dashboard/users")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def list_users(request: Request):
+    """Lista użytkowników ze statystykami."""
+    return get_user_list()
+
+
+@router.get("/dashboard/metrics")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_metrics(request: Request):
+    """Metryki produktowe dla dashboardu."""
+    return get_dashboard_metrics()
 
 
 @router.delete("/cases/{case_id}/email")

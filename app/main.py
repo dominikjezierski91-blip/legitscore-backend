@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.routes import cases
 from app.routes import auth as auth_router
 from app.routes import collection as collection_router
+from app.routes import support as support_router
 from app.services.database import init_db
 from app.services.security import limiter, ALLOWED_ORIGINS, SECURITY_HEADERS
 
@@ -119,5 +120,6 @@ async def health():
 app.include_router(cases.router, prefix="/api")
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(collection_router.router, prefix="/api")
+app.include_router(support_router.router, prefix="/api")
 
 app.mount("/", StaticFiles(directory="data"), name="data")
