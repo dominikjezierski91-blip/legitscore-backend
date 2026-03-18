@@ -27,12 +27,23 @@ Rules:
 2. "mismatch" — search results show this SKU belongs to a DIFFERENT jersey (wrong club, season, or model).
 3. "not_found" — SKU not found in any reliable source.
 4. "uncertain" — conflicting or inconclusive search results.
-5. "invalid" — the SKU code was found in the photos BUT meets one or more of these conditions:
-   - format does not match any known brand pattern (Nike: AA0000-000, Adidas: AA0000, Puma: 000000-00)
-   - appears in search results ONLY on counterfeit/replica/fake sites
-   - format is clearly fabricated (random mix of letters and numbers with no brand logic)
-   - code returns zero results on any legitimate retailer or brand website
-   This is a STRONGER negative signal than "not_found" because the code actively doesn't belong.
+5. "invalid" — the SKU code was found in the photos BUT meets one or
+   more of these conditions:
+   - Format does not match ANY known brand pattern:
+     * Adidas authentic formats: AA0000 (e.g. GL3746), AA0000AA0
+       (e.g. BI1872S7T1), or similar alphanumeric with letters+numbers
+     * Nike authentic formats: AA0000-000 (e.g. DM1840-452)
+     * Puma authentic formats: 000000-00
+     * A code that is ALL digits with no letters, OR a single letter
+       followed by many digits (e.g. B118723771 = 1 letter + 9 digits)
+       does NOT match any major brand format → mark as "invalid"
+     * A code where letter/number pattern doesn't follow brand logic
+       → mark as "invalid"
+   - Appears in search results ONLY on counterfeit/replica/fake sites
+   - Format is clearly fabricated
+   - Code returns zero results on any legitimate retailer or brand site
+   IMPORTANT: When in doubt between "uncertain" and "invalid",
+   prefer "invalid" if the format clearly doesn't match brand patterns.
 6. Do not evaluate jersey authenticity.
 6. Do not discuss fabric, stitching, or physical properties.
 7. Keep the reason short, factual, and in Polish. Write only what was found — do not mention

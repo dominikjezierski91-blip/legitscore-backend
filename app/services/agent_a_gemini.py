@@ -594,6 +594,8 @@ def _compute_sku_effect(
         return "hard_conflict"
     elif sku_status in ("not_found", "uncertain") and verdict_category in _AUTHENTIC_LIKE:
         return "ceiling_reduced"
+    elif sku_status == "not_applicable" and verdict_category == "edycja_limitowana":
+        return "ceiling_reduced"
     else:
         return "none"
 
@@ -608,22 +610,26 @@ def _compute_manufacturing_quality(ms: Dict[str, Any]) -> str:
     if not ms:
         return "fallback"
 
-    quality_fields = ["seams_quality", "construction_quality",
-                      "panel_join_quality", "finish_quality", "material_quality",
-                      "neck_tag_quality"]
+    quality_fields = [
+        "seams_quality",
+        "construction_quality",
+        "panel_join_quality",
+        "finish_quality",
+        "material_quality",
+        "neck_tag_quality",
+        "print_application_quality",
+    ]
     values = [ms.get(f, "unclear") for f in quality_fields]
 
     poor_count  = sum(1 for v in values if v == "poor")
     good_count  = sum(1 for v in values if v == "good")
     unclear_count = sum(1 for v in values if v == "unclear")
 
-    if unclear_count == 6:
+    if unclear_count == 7:
         return "fallback"
-    # Przynajmniej 2 pola 'poor' → całościowo poor (teraz z 6 pól)
     if poor_count >= 2:
         return "poor"
-    # Przynajmniej 5 pól 'good' bez żadnego 'poor' → całościowo good
-    if good_count >= 5 and poor_count == 0:
+    if good_count >= 6 and poor_count == 0:
         return "good"
     return "mixed"
 
@@ -657,6 +663,11 @@ def _compute_confidence_ceiling(
     # SKU hard conflict: dla authentic → medium
     if sku_effect == "hard_conflict":
         if is_authentic_like:
+            if verdict_category == "edycja_limitowana":
+                return "low", (
+                    "Konflikt SKU dla edycji limitowanej — "
+                    "wysoki sygnał ryzyka"
+                )
             return "medium", "Niezgodność SKU ogranicza pewność dla werdyktu oryginalnego"
         else:
             return "medium", "Niezgodność SKU przy braku wyraźnych red flags"
@@ -667,6 +678,13 @@ def _compute_confidence_ceiling(
 
     # Brak potwierdzonego SKU dla authentic-like
     if is_authentic_like and sku_effect == "ceiling_reduced":
+        # edycja_limitowana z niepewnym SKU jest szczególnie podejrzana
+        # bo limitowane edycje ZAWSZE mają unikalny weryfikowalny SKU
+        if verdict_category == "edycja_limitowana":
+            return "low", (
+                "Edycja limitowana wymaga potwierdzenia SKU — "
+                "brak weryfikacji znacząco obniża pewność"
+            )
         return "medium", "Brak potwierdzonego SKU — ceiling ograniczony"
 
     # Dużo reasoning_limits = wiele braków
@@ -835,6 +853,13 @@ def _compute_hard_flags(
     if neck_tag == "poor":
         flags.append("neck_tag_poor")
 
+    print_app = (
+        manufacturing_signals.get("print_application_quality", "unclear")
+        if manufacturing_signals else "unclear"
+    )
+    if print_app == "poor":
+        flags.append("print_application_poor")
+
     return flags
 
 
@@ -984,6 +1009,38 @@ EVALUATION CRITERIA PER FIELD:
    UNCLEAR: neck area or inner tag is not visible in the provided photos —
    do NOT penalize for this, simply return "unclear"
 
+7. print_application_quality — Quality of ALL heat-transferred prints, sponsor logos,
+   numbers, letters, and iron-on applications on the jersey:
+   POOR: visible air bubbles or blistering under ANY print or application; lifting or
+   peeling edges on any letter, logo or number; uneven adhesion visible as
+   lighter/darker patches; print edges are rough, jagged or show glue residue; colors
+   faded or washed out; any element visibly not flat against fabric
+   MIXED: prints mostly flat but with minor imperfections — small bubble in one area,
+   slightly rough edge on one element, minor color inconsistency
+   GOOD: ALL prints and applications perfectly flat, zero bubbles anywhere, edges crisp
+   and clean throughout, colors vivid and consistent, zero lifting
+   UNCLEAR: no close-up of prints or sponsor logos available — do NOT penalize, return
+   "unclear"
+
+   CRITICAL: Even ONE visible bubble anywhere on ANY print = "poor". Do not average —
+   worst element wins.
+
+8. aging_indicators — Signs of natural aging and wear consistent with
+   the jersey's age (fading, pilling, wear at collar/cuffs, slight
+   discoloration, softening of prints over time):
+   PRESENT: visible signs of aging that are consistent with a genuine
+   old garment — faded colors, worn collar edges, softened or cracked
+   prints, slight pilling on fabric, general patina of use
+   ABSENT: no signs of aging visible — jersey looks new or near-new
+   UNCLEAR: cannot determine aging status from provided photos
+
+9. wear_level — Overall degree of wear and aging:
+   NONE: jersey looks unworn or brand new
+   LIGHT: minor signs of use — slight fading, minor wear at edges
+   MODERATE: clearly used — visible fading, worn areas, softened prints
+   HEAVY: heavily worn — significant fading, damage, major wear
+   UNCLEAR: cannot determine from photos
+
 ═══════════════════════════════════════════
 OUTPUT FORMAT:
 ═══════════════════════════════════════════
@@ -995,7 +1052,10 @@ Return ONLY valid JSON. No markdown. No explanation. No extra text. Just the JSO
   "panel_join_quality": "good | mixed | poor | unclear",
   "finish_quality": "good | mixed | poor | unclear",
   "material_quality": "good | mixed | poor | unclear",
-  "neck_tag_quality": "good | mixed | poor | unclear"
+  "neck_tag_quality": "good | mixed | poor | unclear",
+  "print_application_quality": "good | mixed | poor | unclear",
+  "aging_indicators": "present | absent | unclear",
+  "wear_level": "none | light | moderate | heavy | unclear"
 }"""
 
 _MFG_CHECK_FALLBACK = {
@@ -1005,6 +1065,9 @@ _MFG_CHECK_FALLBACK = {
     "finish_quality": "unclear",
     "material_quality": "unclear",
     "neck_tag_quality": "unclear",
+    "print_application_quality": "unclear",
+    "aging_indicators": "unclear",
+    "wear_level": "unclear",
 }
 
 
@@ -1037,8 +1100,20 @@ async def _run_mfg_check(
     # ETAP 6 używa zawsze gemini-2.5-pro — lepsze rozpoznawanie szczegółów wizualnych
     model = os.getenv("MFG_CHECK_MODEL", "models/gemini-2.5-pro")
 
+    # Przekaż sezon jako kontekst dla oceny starzenia
+    subject = report_data.get("subject") or {}
+    season = (subject.get("season") or "").strip()
+    brand = (subject.get("brand") or "").strip()
+
+    context_text = "Evaluate the physical manufacturing quality of this garment. Return JSON only."
+    if season:
+        context_text += f"\n\nCONTEXT: This jersey is from season {season}."
+        context_text += " Factor in natural aging when evaluating quality fields."
+    if brand:
+        context_text += f" Brand: {brand}."
+
     parts: List[types.Part] = [
-        types.Part(text="Evaluate the physical manufacturing quality of this garment. Return JSON only.")
+        types.Part(text=context_text)
     ]
 
     valid_images = 0
@@ -1093,20 +1168,133 @@ async def _run_mfg_check(
 
     # Walidacja — tylko dozwolone wartości
     allowed = {"good", "mixed", "poor", "unclear"}
-    quality_fields = ["seams_quality", "construction_quality", "panel_join_quality",
-                      "finish_quality", "material_quality", "neck_tag_quality"]
+    quality_fields = [
+        "seams_quality",
+        "construction_quality",
+        "panel_join_quality",
+        "finish_quality",
+        "material_quality",
+        "neck_tag_quality",
+        "print_application_quality",
+    ]
     validated = {}
     for field in quality_fields:
         val = result.get(field, "unclear")
         validated[field] = val if val in allowed else "unclear"
 
     logger.info(
-        "[MFG_CHECK] seams=%s construction=%s panel=%s finish=%s material=%s neck_tag=%s",
+        "[MFG_CHECK] seams=%s construction=%s panel=%s finish=%s material=%s neck_tag=%s print_application=%s",
         validated["seams_quality"], validated["construction_quality"],
         validated["panel_join_quality"], validated["finish_quality"],
         validated["material_quality"], validated["neck_tag_quality"],
+        validated["print_application_quality"],
     )
     return validated
+
+
+def _extract_year_from_season(season: str) -> Optional[int]:
+    """
+    Wyciąga rok z sezonu koszulki.
+    Obsługuje formaty: "2003-2004", "2003/04", "2003/2004", "2003"
+    Zwraca wcześniejszy rok (start sezonu).
+    """
+    if not season:
+        return None
+    import re as _re
+    match = _re.search(r'(19|20)(\d{2})', season)
+    if match:
+        return int(match.group(0))
+    return None
+
+
+def _build_override_key_evidence(
+    hard_flags: List[str],
+    manufacturing_signals: Dict[str, Any],
+    sku_verification: Dict[str, Any],
+    original_evidence: List[Any],
+) -> List[str]:
+    """
+    Buduje key_evidence spójne z hard override werdyktem.
+    Backend jest orkiestratorem — nie Agent A.
+    Zachowuje oryginalne obserwacje ale dodaje
+    wyjaśnienie dlaczego override nastąpił.
+    """
+    override_reasons = []
+
+    # SKU mismatch
+    if "sku_mismatch_hard_reject" in hard_flags:
+        raw_sku = (sku_verification.get("reason") or "")
+        override_reasons.append(
+            f"⚠ Kod SKU przypisany do innej koszulki — "
+            f"eliminuje autentyczność. {raw_sku}"
+        )
+
+    # Brak SKU + poor manufacturing
+    if "no_sku_plus_poor_manufacturing" in hard_flags:
+        poor_fields = [
+            f for f in [
+                "seams_quality", "construction_quality",
+                "panel_join_quality", "finish_quality",
+                "material_quality", "neck_tag_quality",
+                "print_application_quality",
+            ]
+            if manufacturing_signals.get(f) == "poor"
+        ]
+        fields_pl = {
+            "seams_quality": "szwy",
+            "construction_quality": "konstrukcja",
+            "panel_join_quality": "łączenia paneli",
+            "finish_quality": "wykończenie",
+            "material_quality": "materiał",
+            "neck_tag_quality": "metka wewnętrzna",
+            "print_application_quality": "nadruki/aplikacje",
+        }
+        poor_names = [fields_pl.get(f, f) for f in poor_fields]
+        if poor_names:
+            override_reasons.append(
+                f"⚠ Słaba jakość fizyczna wykonania "
+                f"({', '.join(poor_names)}) przy braku "
+                f"potwierdzenia SKU — sygnał podróbki."
+            )
+        else:
+            override_reasons.append(
+                "⚠ Brak kodu SKU oraz słaba jakość "
+                "fizyczna wykonania — sygnał podróbki."
+            )
+
+    # Print application poor
+    if "print_application_poor_override" in hard_flags:
+        override_reasons.append(
+            "⚠ Słaba jakość aplikacji nadruków "
+            "(bąbelki, odstawanie krawędzi) przy braku "
+            "potwierdzenia SKU — sygnał podróbki."
+        )
+
+    # Neck tag poor
+    if "neck_tag_poor_override" in hard_flags:
+        override_reasons.append(
+            "⚠ Słaba jakość wewnętrznej metki (neck tag) "
+            "przy braku potwierdzenia SKU — sygnał podróbki."
+        )
+
+    # Meczowa + poor manufacturing
+    if "match_issue_blocked_by_poor_manufacturing" in hard_flags:
+        override_reasons.append(
+            "⚠ Słaba jakość fizyczna wykonania "
+            "wyklucza klasyfikację jako wersja meczowa."
+        )
+
+    if not override_reasons:
+        return list(original_evidence)
+
+    # Zachowaj oryginalne obserwacje jako kontekst
+    # ale oznacz je jako "sygnały wizualne" (mogą być mylące)
+    context_note = (
+        "ℹ Poniższe obserwacje wizualne są pozytywne, "
+        "jednak sygnały weryfikacyjne wskazują na podróbkę:"
+    )
+
+    return override_reasons + [context_note] + list(original_evidence)
 
 
 def run_rule_engine(
@@ -1154,6 +1342,19 @@ def run_rule_engine(
     e_status = dm_statuses.get("E", "UNKNOWN")
 
     manufacturing_signals = report_data.get("manufacturing_signals") or {}
+
+    # Vintage detection — koszulki sprzed 2010 mają inne reguły
+    _season = (subject.get("season") or "").strip()
+    _jersey_year = _extract_year_from_season(_season)
+    _is_vintage = _jersey_year is not None and _jersey_year < 2010
+    _aging_present = (
+        manufacturing_signals.get("aging_indicators") == "present"
+        if manufacturing_signals else False
+    )
+    # Aging tylko zwalnia z hard reject gdy koszulka faktycznie jest vintage
+    # Dla nowych koszulek aging_indicators nie ma znaczenia
+    _is_aged_authentic = _is_vintage and _aging_present
+
     reasoning_limits_out = list(reasoning_limits)  # kopia — hard override może dopisać
     sku_effect = _compute_sku_effect(sku_verification, verdict_category, dm_statuses)
 
@@ -1179,6 +1380,15 @@ def run_rule_engine(
         probs["edycja_limitowana"] = 1
         probs["meczowa"] = 0
         report_data["probabilities"] = probs
+        # Backend aktualizuje key_evidence po hard override
+        _original_evidence = report_data.get("key_evidence") or []
+        _new_evidence = _build_override_key_evidence(
+            hard_flags=["sku_mismatch_hard_reject"],
+            manufacturing_signals=manufacturing_signals or {},
+            sku_verification=sku_verification,
+            original_evidence=_original_evidence,
+        )
+        report_data["key_evidence"] = _new_evidence
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -1228,6 +1438,7 @@ def run_rule_engine(
         and mfg_quality == "poor"
         and manufacturing_signals  # tylko gdy ETAP 6 dostarczył dane
         and verdict_category in _AUTHENTIC_LIKE
+        and not _is_aged_authentic  # vintage koszulki są zwolnione
     ):
         if isinstance(report_data.get("verdict"), dict):
             report_data["verdict"]["verdict_category"] = "podrobka"
@@ -1249,6 +1460,15 @@ def run_rule_engine(
         probs["meczowa"] = 0
         report_data["probabilities"] = probs
         verdict_category = "podrobka"
+        # Backend aktualizuje key_evidence po hard override
+        _original_evidence = report_data.get("key_evidence") or []
+        _new_evidence = _build_override_key_evidence(
+            hard_flags=["no_sku_plus_poor_manufacturing"],
+            manufacturing_signals=manufacturing_signals or {},
+            sku_verification=sku_verification,
+            original_evidence=_original_evidence,
+        )
+        report_data["key_evidence"] = _new_evidence
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -1305,6 +1525,8 @@ def run_rule_engine(
             (_c == "RED" and _d == "RED")
             or (_sku_mismatch and (_c == "RED" or _d == "RED"))
             or "material_and_crest_both_red" in hard_flags
+            or mfg_quality == "poor"
+            or mfg_quality == "mixed" and _sku_mismatch
         )
 
         if strong_fake_signal:
@@ -1332,9 +1554,13 @@ def run_rule_engine(
     _sku_confirmed = sku_verification.get("status") == "confirmed"
     _sku_not_applicable = sku_verification.get("status") == "not_applicable"
     _good_manufacturing = mfg_quality in ("good", "fallback")
+    _not_applicable_ok = (
+        _sku_not_applicable
+        and verdict_category != "edycja_limitowana"
+    )
     _no_ceiling_needed = (
         classification in ("likely_match_issue", "likely_authentic_retail")
-        and (_sku_confirmed or _sku_not_applicable)
+        and (_sku_confirmed or _not_applicable_ok)
         and _good_manufacturing
         and "sku_mismatch" not in hard_flags
         and "neck_tag_poor" not in hard_flags
@@ -1360,14 +1586,24 @@ def run_rule_engine(
             "Mieszana jakość wykonania i brak potwierdzenia SKU "
             "ograniczają wiarygodność wyniku meczowego."
         )
+    elif _is_aged_authentic and mfg_quality in ("poor", "mixed"):
+        confidence_explanation = (
+            "Oznaki naturalnego zużycia i starzenia materiału "
+            "są spójne z wiekiem koszulki. "
+            "Nie są traktowane jako sygnał podróbki."
+        )
 
     # Jeśli wszystkie sygnały są pozytywne — nie aplikuj ceiling
     _sku_confirmed = sku_verification.get("status") == "confirmed"
     _sku_not_applicable = sku_verification.get("status") == "not_applicable"
     _good_manufacturing = mfg_quality in ("good", "fallback")
+    _not_applicable_ok = (
+        _sku_not_applicable
+        and verdict_category != "edycja_limitowana"
+    )
     _no_ceiling_needed = (
         classification in ("likely_match_issue", "likely_authentic_retail")
-        and (_sku_confirmed or _sku_not_applicable)
+        and (_sku_confirmed or _not_applicable_ok)
         and _good_manufacturing
         and "sku_mismatch" not in hard_flags
         and "neck_tag_poor" not in hard_flags
@@ -1399,6 +1635,15 @@ def run_rule_engine(
         override = "podrobka"
         hard_flags = hard_flags + ["match_issue_blocked_by_poor_manufacturing"]
         reasoning_limits_out.append("poor_manufacturing_overrides_match_issue")
+        # Backend aktualizuje key_evidence po hard override
+        _original_evidence = report_data.get("key_evidence") or []
+        _new_evidence = _build_override_key_evidence(
+            hard_flags=hard_flags,
+            manufacturing_signals=manufacturing_signals or {},
+            sku_verification=sku_verification,
+            original_evidence=_original_evidence,
+        )
+        report_data["key_evidence"] = _new_evidence
 
     # HARD OVERRIDE: neck_tag poor + brak SKU → podrobka
     # Neck tag to jeden z najważniejszych sygnałów dla ekspertów
@@ -1408,6 +1653,7 @@ def run_rule_engine(
         neck_tag_val == "poor"
         and sku_status_now in ("not_found", "not_applicable", "uncertain", "invalid")
         and verdict_category != "podrobka"  # nie nadpisuj jeśli już podrobka
+        and not _is_aged_authentic
     ):
         verdict_category = "podrobka"
         if isinstance(report_data.get("verdict"), dict):
@@ -1430,6 +1676,61 @@ def run_rule_engine(
         probs["meczowa"] = 0
         report_data["probabilities"] = probs
         hard_flags = hard_flags + ["neck_tag_poor_override"]
+        # Backend aktualizuje key_evidence po hard override
+        _original_evidence = report_data.get("key_evidence") or []
+        _new_evidence = _build_override_key_evidence(
+            hard_flags=hard_flags,
+            manufacturing_signals=manufacturing_signals or {},
+            sku_verification=sku_verification,
+            original_evidence=_original_evidence,
+        )
+        report_data["key_evidence"] = _new_evidence
+
+    # HARD OVERRIDE: print_application poor + brak SKU
+    # Bąbelki/odstawanie nadruków = jednoznaczny sygnał taniej podróbki
+    print_app_val = (
+        manufacturing_signals.get("print_application_quality", "unclear")
+        if manufacturing_signals else "unclear"
+    )
+    if (
+        print_app_val == "poor"
+        and sku_status_now in (
+            "not_found", "not_applicable",
+            "uncertain", "invalid"
+        )
+        and verdict_category != "podrobka"
+        and not _is_aged_authentic
+    ):
+        verdict_category = "podrobka"
+        if isinstance(report_data.get("verdict"), dict):
+            report_data["verdict"]["verdict_category"] = "podrobka"
+            report_data["verdict"]["label"] = "Podróbka"
+            report_data["verdict"]["confidence_percent"] = 80
+            report_data["verdict"]["confidence_level"] = "wysoki"
+            report_data["verdict"]["confidence_explanation"] = (
+                "Słaba jakość aplikacji nadruków (bąbelki, odstawanie) "
+                "przy braku potwierdzenia SKU — sygnał podróbki."
+            )
+        probs = report_data.get("probabilities") or {}
+        for k in probs:
+            probs[k] = 0
+        probs["podrobka"] = 80
+        probs["oryginalna_sklepowa"] = 8
+        probs["oficjalna_replika"] = 6
+        probs["treningowa_custom"] = 4
+        probs["edycja_limitowana"] = 2
+        probs["meczowa"] = 0
+        report_data["probabilities"] = probs
+        hard_flags = hard_flags + ["print_application_poor_override"]
+        # Backend aktualizuje key_evidence po hard override
+        _original_evidence = report_data.get("key_evidence") or []
+        _new_evidence = _build_override_key_evidence(
+            hard_flags=hard_flags,
+            manufacturing_signals=manufacturing_signals or {},
+            sku_verification=sku_verification,
+            original_evidence=_original_evidence,
+        )
+        report_data["key_evidence"] = _new_evidence
 
     # Tone alignment: gdy werdykt to podrobka z wysoką pewnością,
     # złagodzone sformułowania w key_evidence są mylące — nadpisz je
@@ -1492,6 +1793,9 @@ def run_rule_engine(
         "data_completeness": data_completeness,
         "manufacturing_quality": mfg_quality,
         "match_issue_signal_strength": match_signal_strength,
+        "is_vintage": _is_aged_authentic,
+        "jersey_year": _jersey_year,
+        "aging_indicators": _aging_present,
     }
 
 

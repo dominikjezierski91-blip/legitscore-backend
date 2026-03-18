@@ -297,6 +297,12 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
     save_case(case_id, case_data)
     logger.info("run-decision started for case %s (mode=%s)", case_id, mode)
 
+    def _update_progress(stage: str, percent: int, label: str):
+        case_data["progress"] = {"stage": stage, "percent": percent, "label": label}
+        save_case(case_id, case_data)
+
+    _update_progress("starting", 3, "Przygotowywanie analizy...")
+
     try:
         asset_paths: List[str] = []
         for asset in assets:
@@ -316,6 +322,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
         # ETAP 1: Photo Coverage Check
         # ============================================================
         logger.info("[PRECHECK] case_id=%s stage=coverage coverage_assets_count=%d", case_id, len(asset_paths))
+        _update_progress("coverage", 8, "Sprawdzanie kompletności zdjęć...")
         coverage_result = await coverage_check(asset_paths)
 
         # Gating na podstawie twardych reguł REQUIRED_VIEWS — nie używamy can_continue z modelu.
@@ -350,6 +357,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
             case_id,
             list(detected_views.keys()),
         )
+        _update_progress("quality", 14, "Ocena jakości zdjęć...")
 
         # ============================================================
         # ETAP 2: Photo Quality Check
@@ -383,11 +391,13 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
             )
 
         logger.info("[PRECHECK] case_id=%s stage=quality precheck_result=PASSED", case_id)
+        _update_progress("agent_a", 20, "Analiza forensyczna (to zajmie chwilę)...")
 
         # ============================================================
         # ETAP 3: Agent A Forensic Analysis (bez zmian)
         # ============================================================
         logger.info("[AGENT_A] case_id=%s agent_a_started=true assets_count=%d", case_id, len(asset_paths))
+        _update_progress("agent_a_running", 25, "AI analizuje koszulkę...")
         decision_dict = await GeminiAgentA().analyze(case_id, asset_paths)
 
         try:
@@ -402,6 +412,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
             raise HTTPException(status_code=422, detail="Decision validation failed")
 
         artifact_path = save_artifact(case_id, "decision", decision_model.model_dump())
+        _update_progress("consistency", 55, "Weryfikacja personalizacji zawodnika...")
 
         # Generuj report.txt i report.pdf z report_data.json (non-fatal)
         artifacts_dir = CASES_DIR / case_id / "artifacts"
@@ -503,6 +514,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "[CONSISTENCY_CHECK] case_id=%s status=%s confidence=%s",
                             case_id, _pcc_result.get("status"), _pcc_result.get("confidence"),
                         )
+                        _update_progress("sku", 65, "Weryfikacja kodu SKU...")
 
                     # ETAP 5 — SKU
                     if isinstance(_sku_result, Exception):
@@ -517,6 +529,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "[SKU_VERIFICATION] case_id=%s status=%s confidence=%s",
                             case_id, _sku_result.get("status"), _sku_result.get("confidence"),
                         )
+                        _update_progress("mfg_check", 75, "Ocena jakości wykonania...")
 
                     # ETAP 6 — Manufacturing
                     if isinstance(_mfg_result, Exception):
@@ -531,9 +544,17 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "finish_quality": _mfg_result["finish_quality"],
                             "material_quality": _mfg_result.get("material_quality", "unclear"),
                             "neck_tag_quality": _mfg_result.get("neck_tag_quality", "unclear"),
+                            "print_application_quality": _mfg_result.get(
+                                "print_application_quality", "unclear"
+                            ),
+                            "aging_indicators": _mfg_result.get("aging_indicators", "unclear"),
+                            "wear_level": _mfg_result.get("wear_level", "unclear"),
                         }
+                        _update_progress("rule_engine", 88, "Obliczanie wyniku końcowego...")
                         logger.info(
-                            "[MFG_CHECK] case_id=%s seams=%s construction=%s panel=%s finish=%s material=%s neck_tag=%s",
+                            "[MFG_CHECK] case_id=%s seams=%s construction=%s "
+                            "panel=%s finish=%s material=%s neck_tag=%s "
+                            "print_application=%s aging=%s wear=%s",
                             case_id,
                             _mfg_result["seams_quality"],
                             _mfg_result["construction_quality"],
@@ -541,6 +562,9 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             _mfg_result["finish_quality"],
                             _mfg_result.get("material_quality", "unclear"),
                             _mfg_result.get("neck_tag_quality", "unclear"),
+                            _mfg_result.get("print_application_quality", "unclear"),
+                            _mfg_result.get("aging_indicators", "unclear"),
+                            _mfg_result.get("wear_level", "unclear"),
                         )
 
                     # ============================================================
@@ -562,6 +586,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             report_data["verdict"].get("confidence_percent"),
                             assessment_v2.get("hard_flags"),
                         )
+                        _update_progress("generating", 93, "Generowanie raportu PDF...")
                         agent_suggestion = (report_data.get("verdict") or {}).get("agent_suggestion")
                         if agent_suggestion:
                             logger.info(
@@ -631,6 +656,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
             logger.exception("Failed to save case %s to database (non-fatal)", case_id)
 
         # Dopiero po pełnej finalizacji artefaktów oznacz case jako zakończony.
+        _update_progress("done", 100, "Analiza zakończona!")
         case_data["status"] = "DECIDED"
         case_data.setdefault("artifacts", {})
         case_data["artifacts"]["decision"] = artifact_path

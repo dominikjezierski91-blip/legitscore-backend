@@ -31,6 +31,7 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [precheckError, setPrecheckError] = useState<PrecheckError | null>(null);
   const [tick, setTick] = useState(0);
+  const [progress, setProgress] = useState<{ stage: string; percent: number; label: string } | null>(null);
 
   const runDecisionStartedRef = useRef(false);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -61,13 +62,14 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
       stopPolling();
       if (DEBUG) console.debug("[AnalyzeStatus] polling started");
 
-      const POLL_INTERVAL_MS = 3000;
+      const POLL_INTERVAL_MS = 2000;
 
       const pollOnce = async () => {
         if (cancelled) return;
         try {
           const data: any = await getCase(id);
           if (cancelled) return;
+          if (data?.progress) setProgress(data.progress);
           const status: string | undefined = data?.status;
           if (status === "DECIDED") {
             stopPolling();
@@ -325,47 +327,68 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
     );
   }
 
-  // UI dla ładowania (spinner)
+  // UI dla ładowania (progress bar)
+  const progressPercent = progress?.percent ?? 0;
+  const progressLabel = progress?.label ?? "Trwa analiza...";
+
   return (
-    <div className="glass-card flex w-full max-w-md flex-col items-center justify-center gap-4 p-8 text-center">
-      <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
-      <div className="space-y-1">
+    <div className="glass-card flex w-full max-w-md flex-col gap-6 p-8">
+      <div className="flex items-center gap-3">
+        <Loader2 className="h-5 w-5 animate-spin text-emerald-400 shrink-0" />
         <h1 className="text-lg font-semibold tracking-tight text-slate-50">
           Analizujemy koszulkę
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Sprawdzamy detale, metki i spójność wykonania. Generujemy raport
-          ryzyka autentyczności.
-        </p>
       </div>
-      <ul className="space-y-1 text-left text-xs text-muted-foreground">
-        <StatusLine active={step === 0}>
-          Przesyłanie zdjęć...
-        </StatusLine>
-        <StatusLine active={step === 1}>
-          Sprawdzamy metki i nadruki szyjne...
-        </StatusLine>
-        <StatusLine active={step === 2}>
-          Analizujemy haft i herb producenta...
-        </StatusLine>
-        <StatusLine active={step === 3}>
-          Oceniamy materiał i technologię...
-        </StatusLine>
-        <StatusLine active={step === 4}>
-          Weryfikujemy personalizację...
-        </StatusLine>
-        <StatusLine active={step === 5}>
-          Sprawdzamy spójność wykonania...
-        </StatusLine>
-        <StatusLine active={step === 6}>
-          Budowanie raportu ryzyka...
-        </StatusLine>
-        <StatusLine active={step === 7}>
-          Finalizowanie analizy i generowanie PDF...
-        </StatusLine>
-      </ul>
-      <p className="text-xs text-slate-400">
-        Analiza zajmuje zwykle od 30 sekund do minuty. LegitScore dostarcza
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-slate-300 font-medium">{progressLabel}</span>
+          <span className="text-emerald-400 font-bold">{progressPercent}%</span>
+        </div>
+        <div className="relative w-full h-3 bg-slate-700 rounded-full overflow-hidden">
+          <div
+            className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-700 ease-out"
+            style={{ width: `${progressPercent}%` }}
+          />
+          {progressPercent > 0 && progressPercent < 100 && (
+            <div
+              className="absolute inset-y-0 rounded-full bg-white/20 animate-pulse"
+              style={{ width: `${progressPercent}%` }}
+            />
+          )}
+        </div>
+        <div className="grid grid-cols-7 gap-1 mt-2">
+          {[
+            { key: "coverage", label: "Zdjęcia", pct: 14 },
+            { key: "agent_a", label: "AI", pct: 55 },
+            { key: "consistency", label: "Zawodnik", pct: 65 },
+            { key: "sku", label: "SKU", pct: 75 },
+            { key: "mfg_check", label: "Jakość", pct: 88 },
+            { key: "rule_engine", label: "Wynik", pct: 93 },
+            { key: "generating", label: "PDF", pct: 100 },
+          ].map((step) => (
+            <div key={step.key} className="flex flex-col items-center gap-1">
+              <div
+                className={`w-2 h-2 rounded-full transition-all duration-500 ${
+                  progressPercent >= step.pct
+                    ? "bg-emerald-400 scale-125"
+                    : progressPercent >= step.pct - 15
+                    ? "bg-emerald-400/50 animate-pulse"
+                    : "bg-slate-600"
+                }`}
+              />
+              <span className={`text-[9px] text-center leading-tight ${
+                progressPercent >= step.pct ? "text-emerald-400" : "text-slate-500"
+              }`}>
+                {step.label}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-400 text-center">
+        Analiza zajmuje zwykle 3–4 minuty. LegitScore dostarcza
         raport ryzyka — nie certyfikat autentyczności.
       </p>
     </div>
