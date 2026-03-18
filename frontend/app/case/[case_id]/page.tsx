@@ -76,6 +76,9 @@ export default async function CasePage({ params, searchParams }: Props) {
 
   const verdict = reportData?.verdict ?? {};
   const probs = reportData?.probabilities ?? {};
+  const assessmentV2 = reportData?.assessment_v2 as any | undefined;
+  const isMixedSignals = assessmentV2?.classification === "mixed_signals";
+  const confidenceExplanation = verdict?.confidence_explanation as string | undefined;
   const pcc = reportData?.player_club_consistency as
     | { status?: string; confidence?: string; reason?: string }
     | undefined;
@@ -178,7 +181,23 @@ export default async function CasePage({ params, searchParams }: Props) {
                 {getConfidenceLabel(verdict.confidence_level)}
               </span>
             </div>
+            {confidenceExplanation && (
+              <p className="text-[11px] text-amber-300/80 leading-relaxed">
+                ⚠ {confidenceExplanation}
+              </p>
+            )}
           </section>
+
+          {isMixedSignals && (
+            <section className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 space-y-1">
+              <p className="text-xs font-semibold text-amber-300">
+                ⚠ Mieszane sygnały — wynik wymaga ostrożnej interpretacji
+              </p>
+              <p className="text-[11px] text-amber-200/70 leading-relaxed">
+                System wykrył niejednoznaczne sygnały jakości wykonania lub brak kluczowych danych weryfikacyjnych (SKU). Werdykt może być niedoszacowany lub zawyżony względem rzeczywistości. Zalecamy porównanie z PDF lub ponowną analizę z lepszymi zdjęciami.
+              </p>
+            </section>
+          )}
 
           {probs && typeof probs === "object" && Object.keys(probs).length > 0 && (
             <section className="glass-card space-y-3 p-5 md:p-6">

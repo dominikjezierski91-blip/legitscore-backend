@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from app.models.decision import Decision
-from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, coverage_check, quality_check, red_flag_check
+from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, coverage_check, quality_check, red_flag_check, run_rule_engine, run_manufacturing_quality_check
 from app.services.consistency_check import run_player_club_consistency_check
 from app.services.sku_agent import run_sku_verification
 from app.services.storage import (
@@ -170,7 +171,7 @@ async def import_from_url(request: Request, case_id: str, req: ImportFromUrlRequ
 
     try:
         # Pobierz zdjęcia z aukcji
-        images = await fetch_auction_images(req.url)
+        images, ingestion_meta = await fetch_auction_images(req.url)
 
         # Zapisz jako assets (używamy tej samej funkcji co upload)
         saved_assets = save_assets_from_bytes(case_id, images)
@@ -181,10 +182,23 @@ async def import_from_url(request: Request, case_id: str, req: ImportFromUrlRequ
         case_data["source_url"] = req.url  # Zapisz źródło dla informacji
         save_case(case_id, case_data)
 
+        # Zapisz metadane ingestii do artefaktów (non-fatal)
+        try:
+            ingestion_meta_path = CASES_DIR / case_id / "artifacts" / "ingestion_meta.json"
+            ingestion_meta_path.parent.mkdir(parents=True, exist_ok=True)
+            ingestion_meta_path.write_text(
+                json.dumps(ingestion_meta, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.exception("[IMPORT] Nie udało się zapisać ingestion_meta.json dla case %s (non-fatal)", case_id)
+
         logger.info(
-            "[IMPORT] case_id=%s case_asset_count_saved=%d source_url=%s",
+            "[IMPORT] case_id=%s case_asset_count_saved=%d assets_extracted=%d incomplete_image_set=%s source_url=%s",
             case_id,
             len(saved_assets),
+            ingestion_meta.get("assets_extracted_count", "?"),
+            ingestion_meta.get("incomplete_image_set", "?"),
             req.url[:100]
         )
 
@@ -192,6 +206,11 @@ async def import_from_url(request: Request, case_id: str, req: ImportFromUrlRequ
             "ok": True,
             "assets": saved_assets,
             "count": len(saved_assets),
+            "ingestion": {
+                "assets_extracted_count": ingestion_meta.get("assets_extracted_count"),
+                "assets_passed_to_model_count": ingestion_meta.get("assets_passed_to_model_count"),
+                "incomplete_image_set": ingestion_meta.get("incomplete_image_set"),
+            },
         }
 
     except AuctionScraperError as e:
@@ -387,6 +406,31 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
         # Generuj report.txt i report.pdf z report_data.json (non-fatal)
         artifacts_dir = CASES_DIR / case_id / "artifacts"
         raw_report_path = artifacts_dir / "report_data_raw.json"
+
+        # Wstrzyknij ingestion_meta do report_data_raw.json (non-fatal)
+        ingestion_meta_path = artifacts_dir / "ingestion_meta.json"
+        if raw_report_path.exists() and ingestion_meta_path.exists():
+            try:
+                with open(raw_report_path, "r", encoding="utf-8") as f:
+                    raw_wrapper = json.load(f)
+                with open(ingestion_meta_path, "r", encoding="utf-8") as f:
+                    ingestion_meta_loaded = json.load(f)
+                raw_wrapper["ingestion_meta"] = {
+                    k: ingestion_meta_loaded[k]
+                    for k in ("assets_extracted_count", "assets_passed_to_model_count",
+                              "incomplete_image_set", "drop_reasons_summary",
+                              "candidates_total", "dropped_count", "provider", "source_url")
+                    if k in ingestion_meta_loaded
+                }
+                raw_wrapper["incomplete_image_set"] = ingestion_meta_loaded.get("incomplete_image_set", False)
+                raw_report_path.write_text(
+                    json.dumps(raw_wrapper, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                logger.debug("[INGESTION] Injected ingestion_meta into report_data_raw.json for case %s", case_id)
+            except Exception:
+                logger.exception("[INGESTION] Nie udało się wstrzyknąć ingestion_meta (non-fatal), case_id=%s", case_id)
+
         report_data_path = artifacts_dir / "report_data.json"
         source_path: Path | None = None
         if raw_report_path.exists():
@@ -434,44 +478,92 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                         logger.exception("Failed to log normalized REPORT_DATA for case %s", case_id)
 
                     # ============================================================
-                    # ETAP 4: Pomocniczy factual check spójności personalizacji.
-                    # Strictly non-fatal — nigdy nie przerywa flow, nie zmienia werdyktu.
+                    # ETAP 4 + 5 + 6: Równoległe — niezależne od siebie, czytają
+                    # tylko z report_data wypełnionego przez Agent A.
+                    # Wszystkie strictly non-fatal.
                     # ============================================================
-                    try:
-                        pcc_result = await run_player_club_consistency_check(report_data)
-                        report_data["player_club_consistency"] = pcc_result
-                        logger.info(
-                            "[CONSISTENCY_CHECK] case_id=%s status=%s confidence=%s",
-                            case_id, pcc_result.get("status"), pcc_result.get("confidence"),
-                        )
-                    except Exception:
-                        logger.exception("[CONSISTENCY_CHECK] Nieoczekiwany błąd (non-fatal), case_id=%s", case_id)
+                    _pcc_result, _sku_result, _mfg_result = await asyncio.gather(
+                        run_player_club_consistency_check(report_data),
+                        run_sku_verification(report_data),
+                        run_manufacturing_quality_check(asset_paths, report_data),
+                        return_exceptions=True,
+                    )
+
+                    # ETAP 4 — PCC
+                    if isinstance(_pcc_result, Exception):
+                        logger.exception("[CONSISTENCY_CHECK] Błąd (non-fatal), case_id=%s: %s", case_id, _pcc_result)
                         report_data["player_club_consistency"] = {
-                            "status": "uncertain",
-                            "confidence": "low",
+                            "status": "uncertain", "confidence": "low",
                             "reason": "Nie udało się wykonać dodatkowego sprawdzenia zgodności personalizacji.",
                             "notes": [],
                         }
+                    else:
+                        report_data["player_club_consistency"] = _pcc_result
+                        logger.info(
+                            "[CONSISTENCY_CHECK] case_id=%s status=%s confidence=%s",
+                            case_id, _pcc_result.get("status"), _pcc_result.get("confidence"),
+                        )
 
-                    # ============================================================
-                    # ETAP 5: Pomocnicza weryfikacja SKU.
-                    # Strictly non-fatal — nigdy nie przerywa flow, nie zmienia werdyktu.
-                    # ============================================================
-                    try:
-                        sku_result = await run_sku_verification(report_data)
-                        report_data["sku_verification"] = sku_result
+                    # ETAP 5 — SKU
+                    if isinstance(_sku_result, Exception):
+                        logger.exception("[SKU_VERIFICATION] Błąd (non-fatal), case_id=%s: %s", case_id, _sku_result)
+                        report_data["sku_verification"] = {
+                            "status": "uncertain", "confidence": "low",
+                            "reason": "Nie udało się wykonać weryfikacji SKU.", "source_url": "",
+                        }
+                    else:
+                        report_data["sku_verification"] = _sku_result
                         logger.info(
                             "[SKU_VERIFICATION] case_id=%s status=%s confidence=%s",
-                            case_id, sku_result.get("status"), sku_result.get("confidence"),
+                            case_id, _sku_result.get("status"), _sku_result.get("confidence"),
+                        )
+
+                    # ETAP 6 — Manufacturing
+                    if isinstance(_mfg_result, Exception):
+                        logger.exception("[MFG_CHECK] Błąd (non-fatal), case_id=%s: %s", case_id, _mfg_result)
+                    else:
+                        existing_ms = report_data.get("manufacturing_signals") or {}
+                        report_data["manufacturing_signals"] = {
+                            **existing_ms,
+                            "seams_quality": _mfg_result["seams_quality"],
+                            "construction_quality": _mfg_result["construction_quality"],
+                            "panel_join_quality": _mfg_result["panel_join_quality"],
+                            "finish_quality": _mfg_result["finish_quality"],
+                            "material_quality": _mfg_result.get("material_quality", "unclear"),
+                            "neck_tag_quality": _mfg_result.get("neck_tag_quality", "unclear"),
+                        }
+                        logger.info(
+                            "[MFG_CHECK] case_id=%s seams=%s construction=%s panel=%s finish=%s material=%s neck_tag=%s",
+                            case_id,
+                            _mfg_result["seams_quality"],
+                            _mfg_result["construction_quality"],
+                            _mfg_result["panel_join_quality"],
+                            _mfg_result["finish_quality"],
+                            _mfg_result.get("material_quality", "unclear"),
+                            _mfg_result.get("neck_tag_quality", "unclear"),
+                        )
+
+                    # ============================================================
+                    # ETAP 6.5: Rule Engine v1 — deterministyczny post-processor.
+                    # Non-fatal. Nie przerywa flow. Nie zmienia verdict_category.
+                    # Może zmieniać confidence_percent i confidence_level.
+                    # ============================================================
+                    try:
+                        assessment_v2 = run_rule_engine(report_data, coverage_result=coverage_result)
+                        report_data["assessment_v2"] = assessment_v2
+                        logger.info(
+                            "[RULE_ENGINE] case_id=%s classification=%s override=%s "
+                            "ceiling=%s evidence_confidence=%s confidence_percent=%s hard_flags=%s",
+                            case_id,
+                            assessment_v2.get("classification"),
+                            assessment_v2.get("override_verdict_category_suggestion"),
+                            assessment_v2.get("confidence_ceiling"),
+                            assessment_v2.get("evidence_confidence"),
+                            report_data["verdict"].get("confidence_percent"),
+                            assessment_v2.get("hard_flags"),
                         )
                     except Exception:
-                        logger.exception("[SKU_VERIFICATION] Nieoczekiwany błąd (non-fatal), case_id=%s", case_id)
-                        report_data["sku_verification"] = {
-                            "status": "uncertain",
-                            "confidence": "low",
-                            "reason": "Nie udało się wykonać weryfikacji SKU.",
-                            "source_url": "",
-                        }
+                        logger.exception("[RULE_ENGINE] Nieoczekiwany błąd (non-fatal), case_id=%s", case_id)
 
                     # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
                     try:

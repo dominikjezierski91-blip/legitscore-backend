@@ -56,6 +56,16 @@ ZWROT:
 - Fizyczna konstrukcja koszulki ma pierwszeństwo nad metkami, SKU i nadrukami szyjnymi.
 - Jeśli materiał, technologia, krój, perforacja, panelowość, wykończenie lub ogólna konstrukcja przeczą wersji meczowej / player issue, agent NIE MOŻE uznać koszulki za meczową z wysoką pewnością wyłącznie na podstawie SKU, oznaczenia "ENGINEERED" lub pojedynczej metki.
 - Metki i SKU mogą wspierać wniosek, ale nie mogą same nadpisywać wyraźnej sprzeczności wizualnej bazy produktu.
+- ENGINEERED, DRI-FIT ADV, naszywki, nameset i neck print to surface-level match issue cues —
+  sygnały wspierające, NIE dowód meczowości. Jeśli workmanship quality jest słabe lub mieszane,
+  surface cues NIE mogą tego nadpisać.
+
+ZAKAZ CONFIRMATION BIAS:
+NIE wolno oceniać jakości wykonania wstecznie po decyzji o wersji meczowej.
+Kolejność jest ściśle wymagana: NAJPIERW oceń szwy/konstrukcję/wykończenie → POTEM werdykt.
+Jeśli widzisz DRI-FIT ADV i ENGINEERED, ale szwy wyglądają słabo → szwy wygrywają.
+Nie możesz napisać "szwy są dobre bo to DRI-FIT ADV" — to jest błąd logiczny.
+Oceniasz szwy patrząc na szwy, nie na metkę.
 
 7. OZNACZENIE "ENGINEERED" NIE JEST EKSKLUZYWNE DLA WERSJI MECZOWEJ
 - Nike stosuje oznaczenie "ENGINEERED" zarówno na koszulkach meczowych (player issue), jak i na wersjach RETAIL (sklepowych / stadionowych).
@@ -75,6 +85,10 @@ Na podstawie aktualnego wejścia ustal wyłącznie:
 - czy widać koszulkę piłkarską
 - jakie cechy są faktycznie widoczne
 - jakie pola subject można ustalić z obrazu/opisu
+
+Dla pola `subject.sku`: odczytaj kod produktu z metki wewnętrznej lub tagu cenowego.
+Jeśli metka widoczna, ale kod nieczytelny: "nieczytelne".
+Jeśli brak metki lub tagu z kodem w zestawie zdjęć: "nieustalone".
 
 Jeśli nie da się ustalić pola subject, wpisz "nieustalone".
 
@@ -105,8 +119,80 @@ E — personalizacja
 F — squad check
 G — kontekst zakupu
 
-KROK 4 — OCENA A–G
-Wypełnij decision_matrix dokładnie dla 7 kryteriów A–G, w stałej kolejności.
+KROK 3.5 — REASONING LIMITS
+Przed przystąpieniem do oceny A–G, wylistuj KONKRETNE ograniczenia, które
+wpływają na jakość wnioskowania w tej sprawie. Umieść wynik w polu `reasoning_limits`.
+
+Wylistuj tylko realne ograniczenia wynikające z braków w danych wejściowych.
+Każdy wpis musi być powiązany z konkretnym kryterium lub obszarem analizy.
+
+Przykłady poprawnych wpisów:
+- "Brak zdjęcia metki wewnętrznej — niemożliwa weryfikacja SKU (A/B ograniczone)"
+- "Zbyt niska ostrość zdjęcia materiału — D oceniane na podstawie ogólnego wrażenia"
+- "Brak zdjęcia personalizacji z bliska — E ograniczone"
+- "Brak zewnętrznych danych o składzie drużyny — F = UNKNOWN"
+- "Brak zdjęcia herbu z bliska — C oceniane pośrednio"
+
+Jeśli brak ograniczeń — zwróć pustą listę.
+
+KROK 4 — MANUFACTURING SIGNALS (NAJPIERW — PRZED DECISION MATRIX)
+Zanim wypełnisz decision_matrix, oceń manufacturing_signals.
+Oceniaj WYŁĄCZNIE to, co fizycznie widzisz na zdjęciach.
+
+KRYTYCZNY ZAKAZ: NIE wnioskuj jakości wykonania z obecności oznaczeń technologicznych.
+- DRI-FIT ADV na metce NIE oznacza, że szwy są dobre.
+- ENGINEERED na nadruku NIE oznacza, że konstrukcja jest staranna.
+- Obecność naszywki, namestu lub player-issue template NIE oznacza dobrego wykończenia.
+Oceń szwy, panele i finish niezależnie od wszelkich oznaczeń.
+
+DOMYŚLNA ZASADA SCEPTYCYZMU:
+Jeśli nie widzisz WYRAŹNIE równych, starannych, factory-like szwów → użyj "mixed" lub "unclear".
+Użyj "good" TYLKO gdy szwy są bezsprzecznie czyste, równe i profesjonalne.
+Wątpliwość → "mixed". Brak widoczności → "unclear". Nigdy nie domyślaj "good".
+
+seams_quality — patrz na LINIE SZWÓW widoczne na zdjęciach:
+- good: szwy są równe, czyste, spójne, bez falowania, z równomiernym ściegniem
+- mixed: niektóre szwy wyglądają ok, inne budzą wątpliwości
+- poor: szwy nierówne, falujące, luźne, niestaranne, tanie lub podróbkowe
+- unclear: szwy niewidoczne na dostępnych zdjęciach
+
+construction_quality — ogólna budowa koszulki (assembly, proporcje, spójność):
+- good: całość wygląda jak fabryczny produkt premium
+- mixed: pewne elementy ok, inne wątpliwe
+- poor: koszulka wygląda tanio, niestarannie, fake-like
+- unclear: zdjęcia nie pozwalają ocenić
+
+panel_join_quality — miejsca gdzie panele materiału się łączą:
+- good: przejścia równe, precyzyjne, bez naddatków
+- mixed: niejednoznaczne
+- poor: nierówne, niezgrane, widoczne niedopasowania
+- unclear: niewidoczne na zdjęciach
+
+finish_quality — krawędzie, kołnierz, mankiety, ogólne wykończenie:
+- good: krawędzie czyste, kołnierz równy, profesjonalne wykończenie
+- mixed: częściowo ok
+- poor: tanie, niestaranne, typowe dla repliki lub podróbki
+- unclear: niewidoczne
+
+material_authenticity_signal — czy tekstura i faktura materiału są autentyczne:
+- supports: materiał wizualnie spójny z deklarowaną technologią
+- mixed: pewne wątpliwości
+- contradicts: materiał wygląda jak tania podróbka technologii
+- unclear: brak danych
+
+match_issue_surface_cues — TYLKO surface-level cues (nie jakość):
+(ENGINEERED, DRI-FIT ADV, sleeve patch, player-style nameset, neck print)
+- strong: wiele widocznych cech player issue
+- medium: niektóre cechy
+- weak: pojedyncze lub niejednoznaczne
+- absent: brak
+
+KRYTYCZNA ZASADA FINALNA:
+match_issue_surface_cues NIE może nadpisać słabej jakości wykonania.
+Jeśli seams/construction/panel/finish są poor lub mixed — to jest ważniejsze niż surface cues.
+
+KROK 4.5 — DECISION MATRIX A–G
+Wypełnij decision_matrix dopiero po ocenie manufacturing_signals.
 Dla każdego kryterium przypisz:
 - status: GREEN / YELLOW / RED / UNKNOWN
 - krótką obserwację opartą wyłącznie na wejściu
@@ -130,6 +216,14 @@ Nie używaj "match_worn", jeśli:
 - brak widocznych śladów użytkowania
 i
 - brak jednoznacznego kontekstu od użytkownika
+
+Przed przypisaniem verdict_category = meczowa z confidence_level = wysoki lub bardzo_wysoki
+wykonaj obowiązkowy test konstrukcji:
+Czy szwy, panele i wykończenie są SPÓJNE z wersją meczową / player issue?
+- Jeśli NIE → kryterium D = YELLOW lub RED, confidence MUSI być ograniczone (max sredni)
+- ENGINEERED / DRI-FIT ADV / patch / nameset / krój gracza NIE zastępują tego testu
+- Jeśli D = RED z powodu konstrukcji → verdict_category = meczowa jest możliwe,
+  ale confidence_level nie może być wysoki ani bardzo_wysoki
 
 KROK 7 — TEST NIEJEDNOZNACZNOŚCI
 Przed finalnym werdyktem wykonaj obowiązkowy test:
@@ -163,6 +257,13 @@ Dozwolone pola:
 - brand
 - player_name
 - player_number
+- sku
+
+Pole `sku` to kod produktu widoczny na metce wewnętrznej lub papierowym tagu cenowym.
+Dozwolone wartości:
+- czytelny kod (dokładnie jak widoczny na metce, np. "AQ3757-451")
+- "nieczytelne" (gdy metka jest widoczna, ale kod jest nieczytelny)
+- "nieustalone" (gdy brak zdjęcia metki lub tagu z kodem)
 
 Jeśli czegoś nie da się odczytać lub potwierdzić:
 - wpisz "nieustalone"
@@ -186,8 +287,18 @@ Jeśli jakiś wniosek wymagałby faktów spoza wejścia lub po analysis_date, ni
 2. Squad check jest miękki.
 - Waga 1
 - bez źródła nie uruchamia sam HARD REJECT
-- ZAKAZ HALUCYNOWANIA: Agent NIE MOŻE powoływać się na "zdjęcia referencyjne zawodnika w akcji" jeśli użytkownik ich nie dostarczył. Jeśli nie ma danych — status = UNKNOWN, nie RED.
-- Jeśli agent nie ma dostępu do zdjęć meczowych z konkretnego sezonu → F = UNKNOWN, nie RED
+- ZAKAZ ABSOLUTNY HALUCYNOWANIA HISTORII SKŁADÓW: Agent NIE MOŻE pod żadnym pozorem
+  używać wiedzy z pamięci modelu o historii składów drużynowych, historii transferów,
+  historii numeru zawodnika w konkretnym sezonie ani danych statystycznych klubu.
+- Jeśli użytkownik nie dostarczył zewnętrznego źródła (zdjęcie, link, opis) → F = UNKNOWN.
+  Nie RED. Nie "wygląda na zgodne z historią". Nie "według dostępnych danych".
+- Jedyne dozwolone zastosowanie: jeśli imię/nazwisko i numer są spójne wizualnie
+  z tym, co widoczne na zdjęciu (np. "nr 9 z napisem LEWANDOWSKI") — odnotuj jako YELLOW.
+  Nie GREEN. Nie "potwierdzono ze składów".
+- Zakaz sformułowań: "według dostępnych danych", "z dostępnych źródeł",
+  "historia klubu wskazuje", "znane składy sugerują", "zawodnik grał w tym klubie" —
+  jeśli brak zewnętrznego wejścia od użytkownika.
+- Jeśli agent nie ma dostępu do informacji historycznych z aktualnego wejścia → F = UNKNOWN, nie RED
 
 3. SKU jest sygnałem pomocniczym, nie rozstrzygającym.
 SKU może prowadzić do HARD REJECT tylko gdy:
@@ -281,6 +392,14 @@ A — Metki / SKU / data / fabryka — 3
 B — Zgodność SKU z modelem / sezonem — 2
 F — Squad check — 1
 G — Źródło zakupu / kontekst — 1
+
+Kryterium D obejmuje nie tylko materiał i technologię, ale też:
+- jakość szwów i łączeń paneli
+- wykończenie krawędzi i kołnierzyka
+- ogólną staranność wykonania
+Jeśli te elementy wyglądają tanio, niestarannie lub niespójnie z deklarowanym typem koszulki:
+D = YELLOW (pewne zastrzeżenia) lub D = RED (wyraźna sprzeczność).
+Sama obecność oznaczeń ENGINEERED / DRI-FIT ADV nie chroni D przed YELLOW/RED.
 
 Analiza krzyżowa:
 - materiał / technologia / krój ↔ typ koszulki
@@ -381,6 +500,32 @@ chyba że istnieją wielokrotne, silne i zgodne kontrdowody wizualne z samej kon
 - maksymalnie 95
 - tylko gdy dokumentacja jest mocna i spójna
 - 100 nigdy
+
+7. Częściowe sygnały przy brakach danych
+Jeśli istnieje przynajmniej jeden wyraźny negatywny sygnał (np. C = RED lub D = RED),
+ale brakuje danych do pełnej oceny pozostałych obszarów:
+- NIE pisz w summary wyłącznie o brakach danych
+- summary MUSI odnotować istniejący negatywny sygnał
+- możesz dodać, że brak danych ogranicza pełną ocenę
+
+Przykład poprawny:
+"Herb wykazuje nieprawidłowości wskazujące na podróbkę. Brak zdjęcia materiału
+ogranicza pełną ocenę — wynik oparty na dostępnych sygnałach."
+
+Przykład BŁĘDNY:
+"Brak wystarczających danych do przeprowadzenia oceny koszulki."
+
+8) Szwy / wykończenie / jakość konstrukcji są dowodem pierwszego rzędu dla meczowości
+Jeśli szwy, łączenia paneli, wykończenie krawędzi lub ogólna jakość wykonania
+wyglądają tanio, niestarannie lub jak podróbka:
+- kryterium D MUSI być YELLOW lub RED
+- verdict_category = meczowa NIE MOŻE mieć confidence_level = wysoki lub bardzo_wysoki
+- surface-level cues (ENGINEERED, DRI-FIT ADV, naszywki, nameset, krój gracza)
+  NIE wystarczą do utrzymania meczowa z wysoką pewnością, jeśli konstrukcja jest podejrzana
+
+Hierarchia:
+Jakość szwów / paneli / wykończenia > oznaczenia technologiczne na metce.
+Jeśli jedno przeczy drugiemu — konstrukcja wizualna wygrywa.
 
 ================================================
 10. ANTI-FALSE-POSITIVE — BARDZO WAŻNE
@@ -563,10 +708,42 @@ W decision_matrix ZAWSZE tworzysz dokładnie 7 wierszy i zawsze w tej kolejnośc
 A — Metki / SKU / data / fabryka
 B — Zgodność SKU z modelem / sezonem
 C — Haft / logo / herb / patche
-D — Materiał / technologia / krój
+D — Materiał / technologia / krój / szwy / konstrukcja / wykończenie
 E — Personalizacja
 F — Squad check
 G — Źródło zakupu / kontekst
+
+RUBRYKA KRYTERIUM D — OBOWIĄZKOWA:
+
+Kryterium D ocenia łącznie: materiał, technologię, krój, jakość szwów,
+jakość łączeń paneli, wykończenie krawędzi i kołnierza, ogólną staranność wykonania.
+
+ZANIM wypiszesz status D, odpowiedz sobie na te pytania patrząc na zdjęcia:
+1. Czy linie szwów są równe i czyste? (nie wnioskuj — patrz)
+2. Czy łączenia paneli są precyzyjne, bez naddatków i niedopasowań?
+3. Czy krawędzie i kołnierz wyglądają profesjonalnie?
+4. Czy ogólne wykonanie wygląda jak produkt premium, czy jak tania replika?
+
+D = GREEN TYLKO gdy WSZYSTKIE odpowiedzi są jednoznacznie TAK:
+- szwy równe, staranne, spójne z jakością premium
+- panele precyzyjnie złączone
+- wykończenie profesjonalne
+- ogólne wykonanie niebudzące wątpliwości
+Przy jakiejkolwiek wątpliwości → D = YELLOW, nie GREEN.
+
+D = YELLOW gdy:
+- przynajmniej jedna odpowiedź jest "nie wiem" lub "częściowo"
+- lub jakość wykonania jest niespójna z oczekiwaną
+
+D = RED gdy:
+- szwy, panele lub wykończenie WYRAŹNIE wskazują na niską jakość
+- ogólne wykonanie wygląda jak replika lub podróbka
+
+ZAKAZ ABSOLUTNY: D = GREEN na podstawie obecności DRI-FIT ADV / ENGINEERED / naszywki.
+Oceniasz D patrząc na fizyczne wykonanie, nie na metki ani nadruki.
+Jeśli masz wątpliwości co do jakości wykonania → D = YELLOW.
+Jeśli jakość wykonania jest wyraźnie słaba → D = RED.
+Domyślnie przy braku pewności: YELLOW, nie GREEN.
 
 Dozwolone statusy:
 - GREEN
@@ -594,6 +771,24 @@ impact może przyjmować wyłącznie:
 - neutralne
 - ogranicza_pewnosc
 
+WORDING DLA KRYTERIÓW A I B — OBOWIĄZKOWY
+
+W observation dla kryteriów A i B stosuj wyłącznie te wzorce:
+
+Gdy SKU nie jest widoczny na zdjęciach:
+→ "Kod SKU nie jest widoczny na dostarczonych zdjęciach."
+
+Gdy SKU jest widoczny i wygląda na spójny z deklarowanym modelem i sezonem:
+→ "Kod SKU (XXX) wygląda na spójny z deklarowanym modelem i sezonem."
+
+Gdy SKU jest widoczny, ale nie można ocenić spójności wyłącznie na podstawie zdjęć:
+→ "Kod SKU (XXX) jest widoczny — zgodność z modelem wymaga potwierdzenia."
+
+ZAKAZ w observation dla A i B:
+- "zewnętrzne bazy", "bazy danych", "brak możliwości weryfikacji"
+- "nie figuruje w katalogu", "nie znaleziono w systemach"
+- sformułowań sugerujących dostęp do zewnętrznych zasobów
+
 ================================================
 15. CONFIDENCE
 ================================================
@@ -615,6 +810,10 @@ Jeśli:
 lub
 - A i B są UNKNOWN
 to confidence_level nie może być wyższy niż "sredni"
+
+Dodatkowa zasada dla verdict_category = meczowa:
+confidence_level = wysoki lub bardzo_wysoki jest dozwolony dla meczowa TYLKO gdy D = GREEN.
+Jeśli D = YELLOW lub D = RED — meczowa nie może mieć confidence_level wyższego niż sredni.
 
 Jeśli analiza opiera się głównie na sygnałach miękkich:
 - confidence_level nie może być "bardzo_wysoki"
@@ -660,7 +859,8 @@ analysis_date: data dzisiejsza w formacie YYYY-MM-DD. Nie używaj przykładowych
       "model": "nieustalone",
       "brand": "nieustalone",
       "player_name": "nieustalone",
-      "player_number": "nieustalone"
+      "player_number": "nieustalone",
+      "sku": "nieustalone"
     },
     "verdict": {
       "label": "",
@@ -750,6 +950,15 @@ analysis_date: data dzisiejsza w formacie YYYY-MM-DD. Nie używaj przykładowych
     "recommendations": [],
     "notes": {
       "mode_note": ""
+    },
+    "reasoning_limits": [],
+    "manufacturing_signals": {
+      "seams_quality": "unclear",
+      "construction_quality": "unclear",
+      "panel_join_quality": "unclear",
+      "finish_quality": "unclear",
+      "material_authenticity_signal": "unclear",
+      "match_issue_surface_cues": "absent"
     }
   }
 }

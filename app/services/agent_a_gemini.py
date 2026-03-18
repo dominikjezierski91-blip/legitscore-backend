@@ -469,6 +469,872 @@ def normalize_report_data(report_data: Dict[str, Any]) -> None:
 
 
 # ============================================================
+# RULE ENGINE v1
+# ============================================================
+
+_AUTHENTIC_LIKE = {"oryginalna_sklepowa", "meczowa", "edycja_limitowana"}
+_FAKE = {"podrobka"}
+_CEILING_MAP = {"high": 80, "medium": 60, "low": 40}
+
+
+def _round_to_10(n: int) -> int:
+    # round-half-up (nie banker's rounding domyślne w Pythonie)
+    return int((n + 5) // 10 * 10)
+
+
+def _map_percent_to_confidence_level(pct: int) -> str:
+    if pct <= 39:
+        return "ograniczony"
+    elif pct <= 69:
+        return "sredni"
+    elif pct <= 84:
+        return "wysoki"
+    else:
+        return "bardzo_wysoki"
+
+
+def _compute_data_completeness(
+    dm_statuses: Dict[str, str],
+    coverage_result: Optional[Dict[str, Any]],
+    missing_data: List[Any],
+) -> str:
+    identity_tag = (coverage_result or {}).get("detected_views", {}).get("identity_tag", False)
+    unknowns = sum(1 for code in ["A", "B", "C", "D", "E"] if dm_statuses.get(code) == "UNKNOWN")
+    if unknowns <= 1 and identity_tag and len(missing_data) == 0:
+        return "high"
+    elif unknowns <= 3:
+        return "medium"
+    else:
+        return "low"
+
+
+def _compute_evidence_confidence(
+    dm_statuses: Dict[str, str],
+    missing_data: List[Any],
+    coverage_result: Optional[Dict[str, Any]],
+    sku_effect: str,
+    verdict_category: str,
+) -> str:
+    c_status = dm_statuses.get("C", "UNKNOWN")
+    d_status = dm_statuses.get("D", "UNKNOWN")
+    c_red = c_status == "RED"
+    d_red = d_status == "RED"
+    c_green = c_status == "GREEN"
+    d_green = d_status == "GREEN"
+    is_fake = verdict_category in _FAKE
+    identity_tag = (coverage_result or {}).get("detected_views", {}).get("identity_tag", False)
+
+    # Asymetria: mocne red flags → high evidence dla fake (bez względu na brak danych)
+    if is_fake:
+        if c_red and d_red:
+            return "high"
+        elif c_red or d_red:
+            return "medium"
+        else:
+            return "low"
+
+    # Dla authentic-like i innych: kompletność danych ma znaczenie
+    unknowns = sum(1 for code in ["C", "D", "A"] if dm_statuses.get(code) == "UNKNOWN")
+    if unknowns >= 2 or not identity_tag or len(missing_data) >= 3:
+        return "low"
+    elif c_green and d_green and dm_statuses.get("A") == "GREEN":
+        return "high"
+    else:
+        return "medium"
+
+
+def _compute_sku_effect(
+    sku_verification: Dict[str, Any],
+    verdict_category: str,
+    dm_statuses: Dict[str, str],
+) -> str:
+    sku_status = sku_verification.get("status", "uncertain")
+    if sku_status == "confirmed":
+        return "supports_authentic"
+    elif sku_status == "mismatch":
+        return "hard_conflict"
+    elif sku_status == "invalid":
+        return "hard_conflict"
+    elif sku_status in ("not_found", "uncertain") and verdict_category in _AUTHENTIC_LIKE:
+        return "ceiling_reduced"
+    else:
+        return "none"
+
+
+def _compute_manufacturing_quality(ms: Dict[str, Any]) -> str:
+    """
+    Zwraca 'good' | 'mixed' | 'poor' | 'fallback'.
+    'fallback' = brak manufacturing_signals lub wszystkie pola 'unclear'.
+    Pojedynczy 'poor' bez żadnego 'good' → 'mixed' (nie 'poor').
+    Dwa lub więcej 'poor' → 'poor'.
+    """
+    if not ms:
+        return "fallback"
+
+    quality_fields = ["seams_quality", "construction_quality",
+                      "panel_join_quality", "finish_quality", "material_quality",
+                      "neck_tag_quality"]
+    values = [ms.get(f, "unclear") for f in quality_fields]
+
+    poor_count  = sum(1 for v in values if v == "poor")
+    good_count  = sum(1 for v in values if v == "good")
+    unclear_count = sum(1 for v in values if v == "unclear")
+
+    if unclear_count == 6:
+        return "fallback"
+    # Przynajmniej 2 pola 'poor' → całościowo poor (teraz z 6 pól)
+    if poor_count >= 2:
+        return "poor"
+    # Przynajmniej 5 pól 'good' bez żadnego 'poor' → całościowo good
+    if good_count >= 5 and poor_count == 0:
+        return "good"
+    return "mixed"
+
+
+def _compute_match_issue_signal_strength(ms: Dict[str, Any]) -> str:
+    """Zwraca 'strong' | 'medium' | 'weak'. Oparty na match_issue_surface_cues."""
+    cues = (ms or {}).get("match_issue_surface_cues", "absent")
+    if cues == "strong":
+        return "strong"
+    elif cues == "medium":
+        return "medium"
+    return "weak"
+
+
+def _compute_confidence_ceiling(
+    sku_effect: str,
+    dm_statuses: Dict[str, str],
+    missing_data: List[Any],
+    verdict_category: str,
+    coverage_result: Optional[Dict[str, Any]],
+    reasoning_limits: List[Any],
+    construction_flagged: bool = False,
+    mfg_quality: str = "fallback",
+) -> tuple:
+    """Zwraca (ceiling_level: str, ceiling_reason: str)."""
+    is_authentic_like = verdict_category in _AUTHENTIC_LIKE
+    c_status = dm_statuses.get("C", "UNKNOWN")
+    d_status = dm_statuses.get("D", "UNKNOWN")
+    identity_tag = (coverage_result or {}).get("detected_views", {}).get("identity_tag", False)
+
+    # SKU hard conflict: dla authentic → medium
+    if sku_effect == "hard_conflict":
+        if is_authentic_like:
+            return "medium", "Niezgodność SKU ogranicza pewność dla werdyktu oryginalnego"
+        else:
+            return "medium", "Niezgodność SKU przy braku wyraźnych red flags"
+
+    # Brak identity_tag: obniża ceiling dla authentic-like
+    if not identity_tag and is_authentic_like:
+        return "medium", "Brak identity_tag ogranicza pewność dla werdyktu oryginalnego"
+
+    # Brak potwierdzonego SKU dla authentic-like
+    if is_authentic_like and sku_effect == "ceiling_reduced":
+        return "medium", "Brak potwierdzonego SKU — ceiling ograniczony"
+
+    # Dużo reasoning_limits = wiele braków
+    if len(reasoning_limits) >= 4:
+        return "medium", "Wiele ograniczeń wnioskowania w danych wejściowych"
+
+    # Ogólny niedobór danych
+    unknowns = sum(1 for code in ["C", "D", "A", "E"] if dm_statuses.get(code) == "UNKNOWN")
+    if unknowns >= 3:
+        return "low", "Zbyt wiele nieznanych kryteriów"
+
+    # Meczowa: hard quality gate na podstawie manufacturing_signals (lub fallback D-status)
+    if verdict_category == "meczowa":
+        if mfg_quality == "poor":
+            return "medium", "Słaba jakość wykonania blokuje high confidence meczowej"
+        elif mfg_quality == "mixed":
+            # brak potwierdzonego SKU + mieszana jakość → niski ceiling
+            if sku_effect != "supports_authentic":
+                return "low", "Mieszana jakość wykonania + brak potwierdzonego SKU — ceiling niski"
+            return "medium", "Mieszana jakość wykonania ogranicza ceiling meczowej"
+        elif mfg_quality == "fallback":
+            # ścieżka legacy: D status + construction_flagged
+            if d_status in ("RED", "YELLOW") or construction_flagged:
+                return "medium", f"Kryterium D={d_status} ogranicza ceiling dla werdyktu meczowego"
+        # mfg_quality == "good": brak blokady — przechodzi do return "high"
+
+    return "high", ""
+
+
+def _compute_classification(
+    verdict_category: str,
+    dm_statuses: Dict[str, str],
+    pcc: Dict[str, Any],
+    sku_verification: Dict[str, Any],
+    construction_flagged: bool = False,
+    mfg_quality: str = "fallback",
+) -> str:
+    c_red = dm_statuses.get("C") == "RED"
+    d_red = dm_statuses.get("D") == "RED"
+    d_not_clean = dm_statuses.get("D") in ("RED", "YELLOW")
+    has_visual_conflict = c_red or d_red
+    sku_mismatch = sku_verification.get("status") == "mismatch"
+    pcc_inconsistent = pcc.get("status") == "inconsistent"
+    e_status = dm_statuses.get("E", "UNKNOWN")
+
+    if verdict_category in _FAKE:
+        return "likely_fake"
+    elif verdict_category == "meczowa":
+        # poor = hard push
+        if mfg_quality == "poor":
+            return "mixed_signals"
+        # mixed alone wystarczy — dedykowany ETAP 6 eliminuje confirmation bias,
+        # więc mixed jest już po bezstronnej ocenie jakości fizycznej
+        if mfg_quality == "mixed":
+            return "mixed_signals"
+        # fallback: legacy D-status logic
+        fallback_concern = mfg_quality == "fallback" and (d_not_clean or construction_flagged)
+        if has_visual_conflict or fallback_concern or sku_mismatch:
+            return "mixed_signals"
+        return "likely_match_issue"
+    elif verdict_category in {"oryginalna_sklepowa", "edycja_limitowana"}:
+        if sku_mismatch or has_visual_conflict:
+            return "mixed_signals"
+        elif pcc_inconsistent and e_status not in ("UNKNOWN", "GREEN"):
+            return "likely_authentic_base_with_later_modifications"
+        return "likely_authentic_retail"
+    else:  # oficjalna_replika, treningowa_custom, niejednoznaczna
+        if has_visual_conflict:
+            return "mixed_signals"
+        return "inconclusive"
+
+
+def _compute_base_shirt_assessment(
+    dm_statuses: Dict[str, str],
+    verdict_category: str,
+    hard_flags: List[str],
+    construction_flagged: bool = False,
+) -> Dict[str, Any]:
+    c_status = dm_statuses.get("C", "UNKNOWN")
+    d_status = dm_statuses.get("D", "UNKNOWN")
+
+    if c_status == "RED" or d_status == "RED" or "material_and_crest_both_red" in hard_flags:
+        result = "likely_fake"
+    elif c_status == "GREEN" and d_status == "GREEN" and not construction_flagged:
+        result = "likely_authentic"
+    else:
+        result = "uncertain"
+
+    key_criteria = [
+        code for code in ["C", "D", "A"]
+        if dm_statuses.get(code) not in (None, "UNKNOWN")
+    ]
+    return {"result": result, "key_criteria": key_criteria, "notes": ""}
+
+
+def _compute_personalization_assessment_v2(
+    pa_legacy: Dict[str, Any],
+    pcc: Dict[str, Any],
+    e_status: str,
+) -> Dict[str, Any]:
+    STATUS_MAP = {
+        "brak": "absent",
+        "fabryczna": "factory",
+        "pozniejsza": "aftermarket",
+        "niezweryfikowana": "unverified",
+    }
+    legacy_status = pa_legacy.get("status", "brak")
+    result = STATUS_MAP.get(legacy_status, "unverified")
+
+    # Niezgodność z PCC zawsze nadpisuje na inconsistent
+    if pcc.get("status") == "inconsistent":
+        result = "inconsistent"
+
+    confidence_map = {"niska": "low", "srednia": "medium", "wysoka": "high"}
+    confidence = confidence_map.get(pa_legacy.get("confidence", "niska"), "low")
+
+    return {
+        "result": result,
+        "confidence": confidence,
+        "notes": pa_legacy.get("notes", ""),
+    }
+
+
+def _compute_consistency_effect(pcc: Dict[str, Any], verdict_category: str) -> str:
+    pcc_status = pcc.get("status", "uncertain")
+    if pcc_status == "inconsistent":
+        if verdict_category in _AUTHENTIC_LIKE:
+            return "personalization_flagged"
+        else:
+            return "historical_claim_limited"
+    return "none"
+
+
+def _compute_hard_flags(
+    dm_statuses: Dict[str, str],
+    sku_effect: str,
+    pcc_status: str,
+    missing_data: List[Any],
+    pa_result: Optional[str],
+    coverage_result: Optional[Dict[str, Any]],
+) -> List[str]:
+    flags: List[str] = []
+    c_red = dm_statuses.get("C") == "RED"
+    d_red = dm_statuses.get("D") == "RED"
+    c_yellow_or_red = dm_statuses.get("C") in ("RED", "YELLOW")
+    d_yellow_or_red = dm_statuses.get("D") in ("RED", "YELLOW")
+    sku_mismatch = sku_effect == "hard_conflict"
+    identity_tag = (coverage_result or {}).get("detected_views", {}).get("identity_tag", True)
+
+    if c_red and d_red:
+        flags.append("material_and_crest_both_red")
+    if sku_mismatch:
+        flags.append("sku_mismatch")
+    if sku_mismatch and (c_red or d_red):
+        flags.append("sku_mismatch_plus_visual_issues")
+    if pcc_status == "inconsistent" or pa_result == "inconsistent":
+        flags.append("personalization_inconsistent")
+    if not identity_tag:
+        flags.append("critical_evidence_missing")
+    if sku_mismatch and (c_yellow_or_red or d_yellow_or_red):
+        flags.append("visual_external_conflict")
+
+    return flags
+
+
+def _compute_override_verdict_suggestion(
+    sku_effect: str,
+    dm_statuses: Dict[str, str],
+    classification: str,
+    verdict_category: str,
+    construction_flagged: bool = False,
+    mfg_quality: str = "fallback",
+) -> str:
+    sku_mismatch = sku_effect == "hard_conflict"
+    c_red = dm_statuses.get("C") == "RED"
+    d_red = dm_statuses.get("D") == "RED"
+    d_not_clean = dm_statuses.get("D") in ("RED", "YELLOW")
+
+    if (sku_mismatch and (c_red or d_red)) or (c_red and d_red):
+        return "podrobka"
+    # Meczowa: sprawdź construction concern przez mfg_quality lub fallback D-status
+    if verdict_category == "meczowa":
+        construction_concern = (
+            mfg_quality == "poor"
+            or (mfg_quality == "mixed" and (d_not_clean or c_red or sku_mismatch))
+            or (mfg_quality == "fallback" and (d_red or construction_flagged))
+        )
+        if construction_concern:
+            if c_red or sku_mismatch:
+                return "podrobka"
+            return "manual_review"
+    if verdict_category in _AUTHENTIC_LIKE and classification in ("mixed_signals", "inconclusive"):
+        return "manual_review"
+    return "none"
+
+
+_CONSTRUCTION_NEGATIVE_KW = [
+    "niestarann", "nierówn", "słab", "tani", "tanio", "kiepsk",
+    "podejrzan", "niska jakość", "niskiej jakości", "nieprawidłow",
+    "poor", "cheap", "suspicious", "uneven", "inconsistent",
+]
+
+
+def _construction_quality_flagged(
+    dm_statuses: Dict[str, str],
+    dm_observations: Dict[str, str],
+    reasoning_limits: List[Any],
+) -> bool:
+    """
+    Zwraca True gdy jakość konstrukcji / szwów / wykończenia budzi zastrzeżenia.
+    Heurystyka oparta na statusie D, słowach kluczowych w obserwacji D i reasoning_limits.
+    """
+    d_status = dm_statuses.get("D", "UNKNOWN")
+    # D=YELLOW lub D=RED → zawsze flagged
+    if d_status in ("RED", "YELLOW"):
+        return True
+    # D=GREEN ale observation D zawiera negatywne sygnały konstrukcji
+    d_obs = (dm_observations.get("D") or "").lower()
+    if any(kw in d_obs for kw in _CONSTRUCTION_NEGATIVE_KW):
+        return True
+    # reasoning_limits wspominające problemy z konstrukcją / szwami
+    rl_text = " ".join(str(x) for x in reasoning_limits).lower()
+    if any(kw in rl_text for kw in ["szwy", "konstrukcja", "panel", "wykończ", "seam", "finish"]):
+        return True
+    return False
+
+
+def _build_sku_observation_text(
+    subject: Dict[str, Any],
+    sku_verification: Dict[str, Any],
+) -> str:
+    """
+    Buduje znormalizowany tekst obserwacji SKU dla assessment_v2.
+    Nie zawiera odniesień do zewnętrznych baz ani ograniczeń systemu.
+    """
+    raw_sku = (subject.get("sku") or "").strip()
+    sku_lower = raw_sku.lower()
+    if not raw_sku or sku_lower in ("nieustalone", "nieczytelne", "unknown", "—", "n/a", "brak"):
+        return "Kod SKU nie jest widoczny na dostarczonych zdjęciach."
+    sku_status = (sku_verification.get("status") or "uncertain")
+    if sku_status == "confirmed":
+        return "Kod SKU jest zgodny z tym modelem koszulki."
+    elif sku_status == "mismatch":
+        return f"Kod SKU ({raw_sku}) nie odpowiada opisowi tej koszulki."
+    else:  # not_found, uncertain, not_applicable
+        return f"Kod SKU ({raw_sku}) nie został potwierdzony jako odpowiadający tej koszulce."
+
+
+_MFG_CHECK_PROMPT = """You are a forensic garment quality control inspector.
+
+Your SOLE task: evaluate the PHYSICAL MANUFACTURING QUALITY of the garment in the provided photos.
+
+═══════════════════════════════════════════
+CRITICAL RULES — READ BEFORE EVALUATING:
+═══════════════════════════════════════════
+1. IGNORE ALL branding, logos, technology names (DRI-FIT, HEAT.RDY, ENGINEERED, AUTHENTIC, VAPORKNIT, etc.), player names, numbers, patches, sponsor prints. These carry ZERO information about actual manufacturing quality.
+2. You are judging RAW WORKMANSHIP only: seams, stitching, panel assembly, fabric, finish.
+3. STRONG BIAS TOWARD POOR: Football jersey counterfeits are extremely common. When in doubt about seam quality, always lean toward "poor" or "mixed". NEVER default to "good" without seeing perfectly clean, factory-precision stitching with zero visible irregularities.
+4. "good" requires ALL of the following: perfectly even stitch density, perfectly straight seam lines, zero loose threads, zero puckering or waviness, stitching rows that are precisely parallel throughout. If even ONE of these is missing → "mixed" or "poor".
+5. "poor" applies when ANY of the following is visible: uneven stitch spacing anywhere on the garment, wavy seam lines anywhere, ANY loose or frayed thread ends, ANY puckering or pulling of fabric at seams, seam lines that curve or wobble, thick or lumpy seam joins.
+6. Evaluate each field INDEPENDENTLY. Do not let overall appearance influence individual seam assessment.
+7. ZOOM IN MENTALLY: Treat every visible seam as if you are examining it under magnification. Small irregularities count as defects.
+
+═══════════════════════════════════════════
+EVALUATION CRITERIA PER FIELD:
+═══════════════════════════════════════════
+
+1. seams_quality — Examine EVERY visible seam line and stitch:
+   POOR: uneven stitch density (gaps between stitches), wavy or wobbly seam lines, loose or skipped stitches, seams pulling or puckering away from fabric, visible loose thread ends, stitch rows that aren't parallel, seams that curve when they should be straight
+   MIXED: mostly even stitching but with some visible irregularities, slightly wavy in places, minor puckering
+   GOOD: perfectly consistent stitch density throughout, seam lines are straight and flat, no loose threads, no puckering, stitching rows are precisely parallel
+   UNCLEAR: seams not visible enough to judge
+
+2. construction_quality — Overall garment assembly and structure:
+   POOR: visible panel misalignment, asymmetric panels (one side different from the other), collar sitting unevenly or twisted, garment shape distorted, elements clearly not centered or balanced
+   MIXED: mostly aligned but with small asymmetries or minor distortions
+   GOOD: perfect panel symmetry, all elements precisely centered and balanced, structure is crisp
+   UNCLEAR: not enough views to judge overall assembly
+
+3. panel_join_quality — Examine where different fabric panels meet:
+   POOR: visible gaps or overlaps between panels, panel edges not meeting cleanly, fabric bunching at joins, misaligned patterns at seam lines, visible glue residue or messy join edges
+   MIXED: panels meet but with slight irregularities or minor misalignment
+   GOOD: panels join seamlessly, clean flush transitions, patterns align perfectly at seams
+   UNCLEAR: panel joins not clearly visible
+
+4. finish_quality — Collar, cuffs, sleeve hem, bottom hem:
+   POOR: rough or frayed edges, elastic pulling or bunching unevenly, collar shape uneven or distorted, hemline not straight, iron-on elements applied crookedly or with air bubbles, visible adhesive
+   MIXED: edges mostly clean but with some roughness, minor unevenness in elastic or hem
+   GOOD: all edges perfectly finished, elastic lies flat and even, collar crisp, hemline straight throughout
+   UNCLEAR: edges not clearly visible
+
+5. material_quality — Fabric texture, weave structure, weight:
+   POOR: fabric looks thin or flimsy, shiny plasticky surface without depth of texture, visible inconsistencies in weave pattern, cheap-looking mesh with irregular holes or uneven spacing, fabric appears to lack structural integrity
+   MIXED: material looks acceptable but not premium — some areas look thin or the weave is slightly uneven
+   GOOD: uniform weave pattern throughout, solid fabric construction with consistent weight, premium texture, mesh holes are uniform and structured
+   UNCLEAR: fabric texture not clearly visible
+
+6. neck_tag_quality — Inner neck tag / neck label / neck print:
+   POOR: tag is printed on cheap material, fonts are blurry or pixelated, washing instructions are hard to read, tag is crooked or poorly attached, material of tag feels/looks thin and cheap, tag design doesn't match premium brand standards
+   MIXED: tag looks mostly acceptable but has some quality concerns — slight blurriness, minor misalignment, or fonts that are slightly off
+   GOOD: tag is clean, crisp, fonts are sharp and legible, material looks premium, tag sits flat and straight, all information is clearly printed
+   UNCLEAR: neck area / inner tag not visible in photos
+
+═══════════════════════════════════════════
+OUTPUT FORMAT:
+═══════════════════════════════════════════
+Return ONLY valid JSON. No markdown. No explanation. No extra text. Just the JSON object:
+
+{
+  "seams_quality": "good | mixed | poor | unclear",
+  "construction_quality": "good | mixed | poor | unclear",
+  "panel_join_quality": "good | mixed | poor | unclear",
+  "finish_quality": "good | mixed | poor | unclear",
+  "material_quality": "good | mixed | poor | unclear",
+  "neck_tag_quality": "good | mixed | poor | unclear"
+}"""
+
+_MFG_CHECK_FALLBACK = {
+    "seams_quality": "unclear",
+    "construction_quality": "unclear",
+    "panel_join_quality": "unclear",
+    "finish_quality": "unclear",
+    "material_quality": "unclear",
+    "neck_tag_quality": "unclear",
+}
+
+
+async def run_manufacturing_quality_check(
+    asset_paths: List[str],
+    report_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Etap 6: Dedykowany pass oceny jakości fizycznej wykonania.
+    Wysyła zdjęcia bez kontekstu o typie koszulki — eliminuje confirmation bias.
+    Nadpisuje manufacturing_signals.seams/construction/panel/finish_quality.
+    Non-fatal — przy błędzie zwraca fallback bez zmiany report_data.
+    """
+    try:
+        return await _run_mfg_check(asset_paths, report_data)
+    except Exception as e:
+        logger.warning("[MFG_CHECK] Nieoczekiwany błąd (non-fatal): %s", e)
+        return _MFG_CHECK_FALLBACK.copy()
+
+
+async def _run_mfg_check(
+    asset_paths: List[str],
+    report_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    client = _get_client()
+    if client is None:
+        logger.warning("[MFG_CHECK] Brak klienta Gemini")
+        return _MFG_CHECK_FALLBACK.copy()
+
+    # ETAP 6 używa zawsze gemini-2.5-pro — lepsze rozpoznawanie szczegółów wizualnych
+    model = os.getenv("MFG_CHECK_MODEL", "models/gemini-2.5-pro")
+
+    parts: List[types.Part] = [
+        types.Part(text="Evaluate the physical manufacturing quality of this garment. Return JSON only.")
+    ]
+
+    valid_images = 0
+    for p in asset_paths:
+        path = Path(p)
+        if not path.exists():
+            continue
+        suffix = path.suffix.lower()
+        mime = "image/jpeg"
+        if suffix == ".png":
+            mime = "image/png"
+        elif suffix == ".webp":
+            mime = "image/webp"
+        try:
+            image_bytes = path.read_bytes()
+            parts.append(types.Part(inline_data=types.Blob(mime_type=mime, data=image_bytes)))
+            valid_images += 1
+        except Exception:
+            continue
+
+    if valid_images == 0:
+        logger.warning("[MFG_CHECK] Brak czytelnych zdjęć")
+        return _MFG_CHECK_FALLBACK.copy()
+
+    try:
+        resp = await client.aio.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=parts)],
+            config=types.GenerateContentConfig(
+                system_instruction=_MFG_CHECK_PROMPT,
+                temperature=0.1,
+            ),
+        )
+    except Exception as e:
+        logger.warning("[MFG_CHECK] Błąd API Gemini: %s", e)
+        return _MFG_CHECK_FALLBACK.copy()
+
+    text = (resp.text or "").strip()
+    if not text:
+        return _MFG_CHECK_FALLBACK.copy()
+
+    try:
+        result = json.loads(text)
+    except Exception:
+        try:
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            result = json.loads(text[start:end])
+        except Exception:
+            logger.warning("[MFG_CHECK] Nieprawidłowy JSON: %r", text[:200])
+            return _MFG_CHECK_FALLBACK.copy()
+
+    # Walidacja — tylko dozwolone wartości
+    allowed = {"good", "mixed", "poor", "unclear"}
+    quality_fields = ["seams_quality", "construction_quality", "panel_join_quality", "finish_quality"]
+    validated = {}
+    for field in quality_fields:
+        val = result.get(field, "unclear")
+        validated[field] = val if val in allowed else "unclear"
+
+    logger.info(
+        "[MFG_CHECK] seams=%s construction=%s panel=%s finish=%s",
+        validated["seams_quality"], validated["construction_quality"],
+        validated["panel_join_quality"], validated["finish_quality"],
+    )
+    return validated
+
+
+def run_rule_engine(
+    report_data: Dict[str, Any],
+    coverage_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Deterministyczny rule engine v1.
+
+    Czyta: verdict, decision_matrix, missing_data, subject, reasoning_limits,
+           sku_verification, player_club_consistency, coverage_result.
+    Mutuje: report_data["verdict"]["confidence_percent"], ["confidence_level"],
+            opcjonalnie ["confidence_explanation"].
+    Zwraca: assessment_v2 dict.
+
+    Non-fatal — wywołujący powinien owrapować try/except.
+    NIE zmienia verdict_category, label, summary.
+    """
+    verdict = report_data.get("verdict") or {}
+    dm = report_data.get("decision_matrix") or []
+    missing_data = report_data.get("missing_data") or []
+    reasoning_limits = report_data.get("reasoning_limits") or []
+    sku_verification = report_data.get("sku_verification") or {}
+    pcc = report_data.get("player_club_consistency") or {}
+    pa_legacy = report_data.get("personalization_assessment") or {}
+    subject = report_data.get("subject") or {}
+
+    verdict_category = (verdict.get("verdict_category") or "").strip()
+    try:
+        confidence_percent = int(round(float(verdict.get("confidence_percent") or 0)))
+    except (TypeError, ValueError):
+        confidence_percent = 0
+
+    dm_statuses: Dict[str, str] = {
+        row["code"]: row["status"]
+        for row in dm
+        if isinstance(row, dict) and "code" in row and "status" in row
+    }
+    dm_observations: Dict[str, str] = {
+        row["code"]: row.get("observation", "")
+        for row in dm
+        if isinstance(row, dict) and "code" in row
+    }
+    pcc_status = (pcc.get("status") or "uncertain")
+    e_status = dm_statuses.get("E", "UNKNOWN")
+
+    manufacturing_signals = report_data.get("manufacturing_signals") or {}
+    reasoning_limits_out = list(reasoning_limits)  # kopia — hard override może dopisać
+    sku_effect = _compute_sku_effect(sku_verification, verdict_category, dm_statuses)
+
+    # HARD REJECT: SKU mismatch → natychmiastowy override na podrobkę
+    if sku_verification.get("status") == "mismatch":
+        if isinstance(report_data.get("verdict"), dict):
+            report_data["verdict"]["verdict_category"] = "podrobka"
+            report_data["verdict"]["label"] = "Podróbka"
+            report_data["verdict"]["confidence_percent"] = 90
+            report_data["verdict"]["confidence_level"] = "bardzo_wysoki"
+            report_data["verdict"]["confidence_explanation"] = (
+                "Kod SKU przypisany do innej koszulki — jednoznaczny sygnał podróbki."
+            )
+        probs = report_data.get("probabilities") or {}
+        for k in probs:
+            probs[k] = 0
+        probs["podrobka"] = 90
+        probs["oryginalna_sklepowa"] = 10
+        report_data["probabilities"] = probs
+        raw_sku = (report_data.get("subject") or {}).get("sku", "")
+        return {
+            "engine_version": "1.0",
+            "classification": "likely_fake",
+            "override_verdict_category_suggestion": "podrobka",
+            "evidence_confidence": "high",
+            "confidence_ceiling": "high",
+            "ceiling_reason": "SKU przypisany do innej koszulki",
+            "base_shirt_assessment": {"result": "likely_fake", "key_criteria": ["B"], "notes": ""},
+            "personalization_assessment": {"result": "unverified", "confidence": "low", "notes": ""},
+            "external_checks_effect": {
+                "sku_effect": "hard_conflict",
+                "consistency_effect": "none",
+                "sku_note": f"Kod SKU ({raw_sku}) nie odpowiada tej koszulce — przypisany do innego modelu.",
+            },
+            "hard_flags": ["sku_mismatch_hard_reject"],
+            "reasoning_limits": ["sku_mismatch_overrides_all"],
+            "data_completeness": "high",
+            "manufacturing_quality": "unknown",
+            "match_issue_signal_strength": "weak",
+        }
+
+    construction_flagged = _construction_quality_flagged(dm_statuses, dm_observations, reasoning_limits)
+    mfg_quality = _compute_manufacturing_quality(manufacturing_signals)
+
+    # HARD REJECT: brak SKU + poor manufacturing → podrobka 80%
+    sku_status = sku_verification.get("status", "uncertain")
+    if (
+        sku_status in ("not_found", "not_applicable")
+        and mfg_quality == "poor"
+        and manufacturing_signals  # tylko gdy ETAP 6 dostarczył dane
+        and verdict_category in _AUTHENTIC_LIKE
+    ):
+        if isinstance(report_data.get("verdict"), dict):
+            report_data["verdict"]["verdict_category"] = "podrobka"
+            report_data["verdict"]["label"] = "Podróbka"
+            report_data["verdict"]["confidence_percent"] = 80
+            report_data["verdict"]["confidence_level"] = "wysoki"
+            report_data["verdict"]["confidence_explanation"] = (
+                "Brak kodu SKU oraz słaba jakość fizyczna wykonania — "
+                "kombinacja jednoznacznie wskazuje na podróbkę."
+            )
+        probs = report_data.get("probabilities") or {}
+        for k in probs:
+            probs[k] = 0
+        probs["podrobka"] = 80
+        probs["oryginalna_sklepowa"] = 20
+        report_data["probabilities"] = probs
+        verdict_category = "podrobka"
+        return {
+            "engine_version": "1.0",
+            "classification": "likely_fake",
+            "override_verdict_category_suggestion": "podrobka",
+            "evidence_confidence": "high",
+            "confidence_ceiling": "high",
+            "ceiling_reason": "Brak SKU + poor manufacturing",
+            "base_shirt_assessment": {"result": "likely_fake", "key_criteria": ["A", "D"], "notes": ""},
+            "personalization_assessment": {"result": "unverified", "confidence": "low", "notes": ""},
+            "external_checks_effect": {
+                "sku_effect": "ceiling_reduced",
+                "consistency_effect": "none",
+                "sku_note": "Kod SKU nie jest widoczny na dostarczonych zdjęciach.",
+            },
+            "hard_flags": ["no_sku_plus_poor_manufacturing"],
+            "reasoning_limits": ["no_sku_and_poor_mfg_overrides_authentic_verdict"],
+            "data_completeness": "medium",
+            "manufacturing_quality": "poor",
+            "match_issue_signal_strength": "weak",
+        }
+
+    match_signal_strength = _compute_match_issue_signal_strength(manufacturing_signals)
+    pa_v2 = _compute_personalization_assessment_v2(pa_legacy, pcc, e_status)
+    hard_flags = _compute_hard_flags(
+        dm_statuses, sku_effect, pcc_status, missing_data, pa_v2.get("result"), coverage_result
+    )
+    classification = _compute_classification(
+        verdict_category, dm_statuses, pcc, sku_verification, construction_flagged, mfg_quality
+    )
+    override = _compute_override_verdict_suggestion(
+        sku_effect, dm_statuses, classification, verdict_category, construction_flagged, mfg_quality
+    )
+    consistency_effect = _compute_consistency_effect(pcc, verdict_category)
+    data_completeness = _compute_data_completeness(dm_statuses, coverage_result, missing_data)
+    evidence_confidence = _compute_evidence_confidence(
+        dm_statuses, missing_data, coverage_result, sku_effect, verdict_category
+    )
+    confidence_ceiling, ceiling_reason = _compute_confidence_ceiling(
+        sku_effect, dm_statuses, missing_data, verdict_category, coverage_result, reasoning_limits,
+        construction_flagged, mfg_quality
+    )
+    base_assessment = _compute_base_shirt_assessment(
+        dm_statuses, verdict_category, hard_flags, construction_flagged
+    )
+
+    # Fake ceiling logic — pełna kontrola ceiling dla podróbki
+    if verdict_category in _FAKE:
+        _c = dm_statuses.get("C", "UNKNOWN")
+        _d = dm_statuses.get("D", "UNKNOWN")
+        _sku_mismatch = sku_verification.get("status") == "mismatch"
+
+        strong_fake_signal = (
+            (_c == "RED" and _d == "RED")
+            or (_sku_mismatch and (_c == "RED" or _d == "RED"))
+            or "material_and_crest_both_red" in hard_flags
+        )
+
+        if strong_fake_signal:
+            confidence_ceiling = "high"
+            ceiling_reason = "Mocne wizualne sygnały podróbki"
+        else:
+            # Brak mocnych sygnałów → max medium
+            if confidence_ceiling == "high":
+                confidence_ceiling = "medium"
+                ceiling_reason = "Brak mocnych sygnałów wizualnych — ceiling ograniczony"
+
+        # Krok 4: YELLOW lub UNKNOWN w krytycznych kryteriach blokuje high
+        _c_weak = _c == "YELLOW"
+        _d_weak = _d in ("YELLOW", "UNKNOWN")
+        if (_c_weak or _d_weak) and confidence_ceiling == "high":
+            confidence_ceiling = "medium"
+            ceiling_reason = "Niejednoznaczne sygnały wizualne — ceiling ograniczony do medium"
+
+    # confidence_percent = prawdopodobieństwo kategorii z rozkładu modelu, ograniczone ceilingiem.
+    # Ceiling wyraża jakość dowodów (brak SKU, mieszana jakość) — obniża wynik gdy pewność nieuzasadniona.
+    probs = report_data.get("probabilities") or {}
+    ceiling_value = _CEILING_MAP.get(confidence_ceiling, 80)
+    verdict_prob = int(probs.get(verdict_category) or confidence_percent)
+    # Ceiling jest aplikowany zawsze — wyjątek tylko gdy wszystkie sygnały pozytywne
+    _sku_confirmed = sku_verification.get("status") == "confirmed"
+    _no_ceiling_needed = (
+        classification == "likely_match_issue"
+        and _sku_confirmed
+        and mfg_quality == "good"
+    )
+    if _no_ceiling_needed:
+        new_confidence_percent = _round_to_10(verdict_prob)
+    else:
+        new_confidence_percent = _round_to_10(min(verdict_prob, ceiling_value))
+    new_confidence_level = _map_percent_to_confidence_level(new_confidence_percent)
+
+    # confidence_explanation gdy ceiling znacząco niżej niż probability (do wyświetlenia w UI)
+    podrobka_prob = int(probs.get("podrobka") or 0)
+    meczowa_prob = int(probs.get("meczowa") or 0)
+    confidence_explanation = ""
+    if verdict_category in _FAKE and confidence_ceiling in ("low", "medium"):
+        confidence_explanation = (
+            "Prawdopodobieństwo podróbki na podstawie analizy wizualnej. "
+            "Ograniczone dane mogą wpływać na dokładność oceny."
+        )
+    elif verdict_category == "meczowa" and confidence_ceiling == "low":
+        confidence_explanation = (
+            "Mieszana jakość wykonania i brak potwierdzenia SKU "
+            "ograniczają wiarygodność wyniku meczowego."
+        )
+
+    # Jeśli wszystkie sygnały są pozytywne — nie aplikuj ceiling
+    _sku_confirmed = sku_verification.get("status") == "confirmed"
+    _no_ceiling_needed = (
+        classification == "likely_match_issue"
+        and _sku_confirmed
+        and mfg_quality == "good"
+    )
+    if _no_ceiling_needed:
+        final_confidence_percent = _round_to_10(verdict_prob)
+    else:
+        final_confidence_percent = new_confidence_percent
+
+    if isinstance(report_data.get("verdict"), dict):
+        report_data["verdict"]["confidence_percent"] = final_confidence_percent
+        report_data["verdict"]["confidence_level"] = _map_percent_to_confidence_level(final_confidence_percent)
+        if confidence_explanation:
+            report_data["verdict"]["confidence_explanation"] = confidence_explanation
+
+    # HARD BUSINESS OVERRIDE: meczowa + poor manufacturing → podrobka
+    # Tylko gdy manufacturing_signals jawnie dostarczone (nie fallback ze starych raportów)
+    if (
+        verdict_category == "meczowa"
+        and mfg_quality == "poor"
+        and manufacturing_signals
+    ):
+        verdict_category = "podrobka"
+        if isinstance(report_data.get("verdict"), dict):
+            report_data["verdict"]["verdict_category"] = "podrobka"
+            report_data["verdict"]["label"] = "Podróbka"
+        classification = "likely_fake"
+        override = "podrobka"
+        hard_flags = hard_flags + ["match_issue_blocked_by_poor_manufacturing"]
+        reasoning_limits_out.append("poor_manufacturing_overrides_match_issue")
+
+    # Problem 1: znormalizowany tekst obserwacji SKU
+    sku_note = _build_sku_observation_text(subject, sku_verification)
+
+    return {
+        "engine_version": "1.0",
+        "classification": classification,
+        "override_verdict_category_suggestion": override,
+        "evidence_confidence": evidence_confidence,
+        "confidence_ceiling": confidence_ceiling,
+        "ceiling_reason": ceiling_reason,
+        "base_shirt_assessment": base_assessment,
+        "personalization_assessment": pa_v2,
+        "external_checks_effect": {
+            "sku_effect": sku_effect,
+            "consistency_effect": consistency_effect,
+            "sku_note": sku_note,
+        },
+        "hard_flags": hard_flags,
+        "reasoning_limits": reasoning_limits_out,
+        "data_completeness": data_completeness,
+        "manufacturing_quality": mfg_quality,
+        "match_issue_signal_strength": match_signal_strength,
+    }
+
+
+# ============================================================
 # PRECHECK FUNCTIONS
 # ============================================================
 
@@ -494,7 +1360,7 @@ async def coverage_check(asset_paths: List[str]) -> Dict[str, Any]:
     if client is None:
         raise HTTPException(status_code=503, detail="Gemini API key missing")
 
-    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    model = os.getenv("GEMINI_FAST_MODEL", "models/gemini-2.5-flash")
 
     # Przygotuj części z obrazami
     parts: List[types.Part] = [
@@ -593,7 +1459,7 @@ async def quality_check(
     if client is None:
         raise HTTPException(status_code=503, detail="Gemini API key missing")
 
-    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    model = os.getenv("GEMINI_FAST_MODEL", "models/gemini-2.5-flash")
 
     # Buduj kontekst detected_views żeby model nie mylił "brak zdjęcia" z "złą jakością"
     coverage_context = "Evaluate the quality of the attached images. Return ONLY the JSON as specified."
@@ -710,7 +1576,7 @@ async def red_flag_check(asset_paths: List[str]) -> Dict[str, Any]:
     if client is None:
         return fallback
 
-    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    model = os.getenv("GEMINI_FAST_MODEL", "models/gemini-2.5-flash")
 
     parts: List[types.Part] = [
         types.Part(text="Analyze the attached jersey images for counterfeit red flags.")

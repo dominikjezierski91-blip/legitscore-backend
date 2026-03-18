@@ -25,6 +25,12 @@ Your task is only to check whether the detected player personalization is factua
 Use web search to look up: which squad number did [player] wear at [club] during [season]?
 Search for reliable sources: official club records, Wikipedia, transfermarkt, BBC Sport, UEFA.
 
+CRITICAL: You have access to Google Search. You MUST use it to verify player-club-season consistency.
+NEVER say you lack external data or cannot verify — always search first.
+If search returns no results for a specific season, state what you found and what season the jersey appears to be from based on visual cues.
+NEVER include phrases like "wymagałoby zewnętrznych danych", "nie posiadam danych", "cannot verify without external data" in your response.
+Instead: search, find the answer, and report what you found confidently.
+
 Rules:
 1. "consistent" means the player was at the given club in the given season AND wore the given number (if provided).
 2. "inconsistent" means the player was NOT at the club in that season, OR wore a DIFFERENT number.

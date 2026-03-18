@@ -20,22 +20,29 @@ You have access to Google Search. Use it to verify the given SKU against the des
 
 Your task is ONLY to check whether the provided SKU matches the described jersey (club, season, model, brand).
 
-Search for the SKU on official brand websites, retailers (Adidas, Nike, Puma, etc.), and jersey databases.
+Search for the SKU on official brand websites and retailers (Adidas, Nike, Puma, etc.).
 
 Rules:
 1. "confirmed" — search results clearly show this SKU matches the described jersey.
 2. "mismatch" — search results show this SKU belongs to a DIFFERENT jersey (wrong club, season, or model).
 3. "not_found" — SKU not found in any reliable source.
 4. "uncertain" — conflicting or inconclusive search results.
-5. Do not evaluate jersey authenticity.
+5. "invalid" — the SKU code was found but has a non-standard format that does not match any known brand format (Nike, Adidas, Puma, etc.), OR the SKU appears in search results only on counterfeit/replica sites, OR the format is clearly fabricated (random letters+numbers without brand pattern). This is a stronger signal than "not_found".
+6. Do not evaluate jersey authenticity.
 6. Do not discuss fabric, stitching, or physical properties.
-7. Keep the reason short, factual, and in Polish.
+7. Keep the reason short, factual, and in Polish. Write only what was found — do not mention
+   search limitations, external databases, or inability to verify.
+   Examples of good reason text:
+   - "Kod odpowiada koszulce FC Barcelona 2023/24 domowa."
+   - "Kod wskazuje na inny model (Real Madrid wyjazdowa 2022/23)."
+   - "Kod nie został znaleziony w dostępnych wynikach."
+   - "Wyniki są niejednoznaczne — kod pojawia się przy różnych modelach."
 8. Include the source URL if you find one.
 
 Return JSON only. No markdown. No extra text:
 
 {
-  "status": "confirmed | mismatch | not_found | uncertain",
+  "status": "confirmed | mismatch | not_found | uncertain | invalid",
   "confidence": "low | medium | high",
   "reason": "",
   "source_url": ""
