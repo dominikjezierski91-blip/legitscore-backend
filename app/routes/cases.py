@@ -562,6 +562,13 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             report_data["verdict"].get("confidence_percent"),
                             assessment_v2.get("hard_flags"),
                         )
+                        agent_suggestion = (report_data.get("verdict") or {}).get("agent_suggestion")
+                        if agent_suggestion:
+                            logger.info(
+                                "[RULE_ENGINE] agent_suggestion=%s final_verdict=%s",
+                                agent_suggestion,
+                                (report_data.get("verdict") or {}).get("verdict_category"),
+                            )
                     except Exception:
                         logger.exception("[RULE_ENGINE] Nieoczekiwany błąd (non-fatal), case_id=%s", case_id)
 

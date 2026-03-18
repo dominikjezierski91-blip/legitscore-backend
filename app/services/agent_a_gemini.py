@@ -451,6 +451,35 @@ def _normalize_verdict_from_probabilities(report_data: Dict[str, Any]) -> None:
             verdict_obj["confidence_level"] = level
             report_data["verdict"] = verdict_obj
 
+        # Backend oblicza verdict_category z argmax probabilities
+        # Model może sugerować ale backend ma ostatnie słowo
+        # Zachowaj oryginalny verdict modelu jako agent_suggestion
+        if cat:
+            agent_suggestion = verdict_obj.get("verdict_category", "")
+            if agent_suggestion:
+                verdict_obj["agent_suggestion"] = agent_suggestion
+
+        # Oblicz verdict_category z argmax probabilities
+        if rounded:
+            argmax_category = max(rounded, key=lambda k: rounded[k])
+            argmax_value = rounded[argmax_category]
+            # Tylko override gdy argmax jest jednoznaczny (różnica >= 10pp)
+            # i gdy model się myli względem danych
+            current_cat = verdict_obj.get("verdict_category", "")
+            current_prob = rounded.get(current_cat, 0)
+            if (
+                argmax_category != current_cat
+                and argmax_value >= 40
+                and argmax_value - current_prob >= 10
+            ):
+                verdict_obj["verdict_category"] = argmax_category
+                verdict_obj["label"] = _LABEL_MAP.get(argmax_category, argmax_category)
+                report_data["verdict"] = verdict_obj
+                logger.info(
+                    "normalize: argmax override %s→%s (prob %d vs %d)",
+                    current_cat, argmax_category, argmax_value, current_prob
+                )
+
 
 def normalize_report_data(report_data: Dict[str, Any]) -> None:
     """
@@ -474,6 +503,14 @@ def normalize_report_data(report_data: Dict[str, Any]) -> None:
 
 _AUTHENTIC_LIKE = {"oryginalna_sklepowa", "meczowa", "edycja_limitowana"}
 _FAKE = {"podrobka"}
+_LABEL_MAP = {
+    "meczowa": "Meczowa / Player Issue",
+    "oryginalna_sklepowa": "Oryginalna (Sklepowa)",
+    "oficjalna_replika": "Oficjalna Replika",
+    "podrobka": "Podróbka",
+    "edycja_limitowana": "Edycja Limitowana",
+    "treningowa_custom": "Treningowa / Custom",
+}
 _CEILING_MAP = {"high": 80, "medium": 60, "low": 40}
 
 
@@ -770,6 +807,7 @@ def _compute_hard_flags(
     missing_data: List[Any],
     pa_result: Optional[str],
     coverage_result: Optional[Dict[str, Any]],
+    manufacturing_signals: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
     flags: List[str] = []
     c_red = dm_statuses.get("C") == "RED"
@@ -791,6 +829,11 @@ def _compute_hard_flags(
         flags.append("critical_evidence_missing")
     if sku_mismatch and (c_yellow_or_red or d_yellow_or_red):
         flags.append("visual_external_conflict")
+
+    # Neck tag poor to silny sygnał podróbki niezależnie od innych kryteriów
+    neck_tag = manufacturing_signals.get("neck_tag_quality", "unclear") if manufacturing_signals else "unclear"
+    if neck_tag == "poor":
+        flags.append("neck_tag_poor")
 
     return flags
 
@@ -927,11 +970,19 @@ EVALUATION CRITERIA PER FIELD:
    GOOD: uniform weave pattern throughout, solid fabric construction with consistent weight, premium texture, mesh holes are uniform and structured
    UNCLEAR: fabric texture not clearly visible
 
-6. neck_tag_quality — Inner neck tag / neck label / neck print:
-   POOR: tag is printed on cheap material, fonts are blurry or pixelated, washing instructions are hard to read, tag is crooked or poorly attached, material of tag feels/looks thin and cheap, tag design doesn't match premium brand standards
-   MIXED: tag looks mostly acceptable but has some quality concerns — slight blurriness, minor misalignment, or fonts that are slightly off
-   GOOD: tag is clean, crisp, fonts are sharp and legible, material looks premium, tag sits flat and straight, all information is clearly printed
-   UNCLEAR: neck area / inner tag not visible in photos
+6. neck_tag_quality — Inner neck tag / neck label / neck print (the tag or print
+   inside the collar):
+   POOR: fonts are blurry, pixelated or smeared; tag material looks thin or cheap;
+   washing instructions are hard to read; tag is crooked, bubbling or poorly attached;
+   print registration is off (colors misaligned); tag design clearly doesn't match
+   premium brand standards; QR code (if present) looks printed rather than crisp
+   MIXED: tag looks mostly acceptable but has some concerns — slight blurriness,
+   minor misalignment, fonts slightly off but readable, minor quality issues
+   GOOD: tag is clean and crisp; all fonts are sharp and perfectly legible; tag
+   material looks premium; tag sits flat and straight; all text and icons are
+   precisely printed; QR code (if present) is sharp and scannable
+   UNCLEAR: neck area or inner tag is not visible in the provided photos —
+   do NOT penalize for this, simply return "unclear"
 
 ═══════════════════════════════════════════
 OUTPUT FORMAT:
@@ -1042,16 +1093,18 @@ async def _run_mfg_check(
 
     # Walidacja — tylko dozwolone wartości
     allowed = {"good", "mixed", "poor", "unclear"}
-    quality_fields = ["seams_quality", "construction_quality", "panel_join_quality", "finish_quality"]
+    quality_fields = ["seams_quality", "construction_quality", "panel_join_quality",
+                      "finish_quality", "material_quality", "neck_tag_quality"]
     validated = {}
     for field in quality_fields:
         val = result.get(field, "unclear")
         validated[field] = val if val in allowed else "unclear"
 
     logger.info(
-        "[MFG_CHECK] seams=%s construction=%s panel=%s finish=%s",
+        "[MFG_CHECK] seams=%s construction=%s panel=%s finish=%s material=%s neck_tag=%s",
         validated["seams_quality"], validated["construction_quality"],
         validated["panel_join_quality"], validated["finish_quality"],
+        validated["material_quality"], validated["neck_tag_quality"],
     )
     return validated
 
@@ -1104,8 +1157,10 @@ def run_rule_engine(
     reasoning_limits_out = list(reasoning_limits)  # kopia — hard override może dopisać
     sku_effect = _compute_sku_effect(sku_verification, verdict_category, dm_statuses)
 
-    # HARD REJECT: SKU mismatch → natychmiastowy override na podrobkę
+    # HARD REJECT: SKU mismatch → natychmiastowy override
+    # Jeśli SKU istnieje ale należy do innej koszulki — eliminuje autentyczność
     if sku_verification.get("status") == "mismatch":
+        raw_sku = (report_data.get("subject") or {}).get("sku", "")
         if isinstance(report_data.get("verdict"), dict):
             report_data["verdict"]["verdict_category"] = "podrobka"
             report_data["verdict"]["label"] = "Podróbka"
@@ -1118,9 +1173,12 @@ def run_rule_engine(
         for k in probs:
             probs[k] = 0
         probs["podrobka"] = 90
-        probs["oryginalna_sklepowa"] = 10
+        probs["oryginalna_sklepowa"] = 4
+        probs["oficjalna_replika"] = 3
+        probs["treningowa_custom"] = 2
+        probs["edycja_limitowana"] = 1
+        probs["meczowa"] = 0
         report_data["probabilities"] = probs
-        raw_sku = (report_data.get("subject") or {}).get("sku", "")
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -1128,8 +1186,16 @@ def run_rule_engine(
             "evidence_confidence": "high",
             "confidence_ceiling": "high",
             "ceiling_reason": "SKU przypisany do innej koszulki",
-            "base_shirt_assessment": {"result": "likely_fake", "key_criteria": ["B"], "notes": ""},
-            "personalization_assessment": {"result": "unverified", "confidence": "low", "notes": ""},
+            "base_shirt_assessment": {
+                "result": "likely_fake",
+                "key_criteria": ["B"],
+                "notes": "SKU mismatch is an absolute counterfeit indicator",
+            },
+            "personalization_assessment": {
+                "result": "unverified",
+                "confidence": "low",
+                "notes": "",
+            },
             "external_checks_effect": {
                 "sku_effect": "hard_conflict",
                 "consistency_effect": "none",
@@ -1147,8 +1213,18 @@ def run_rule_engine(
 
     # HARD REJECT: brak SKU + poor manufacturing → podrobka 80%
     sku_status = sku_verification.get("status", "uncertain")
+    logger.info(
+        "[HARD_REJECT_DEBUG] sku_status=%s mfg_quality=%s "
+        "manufacturing_signals_present=%s verdict_category=%s "
+        "in_authentic_like=%s",
+        sku_status,
+        mfg_quality,
+        bool(manufacturing_signals),
+        verdict_category,
+        verdict_category in _AUTHENTIC_LIKE,
+    )
     if (
-        sku_status in ("not_found", "not_applicable")
+        sku_status in ("not_found", "not_applicable", "uncertain", "invalid")
         and mfg_quality == "poor"
         and manufacturing_signals  # tylko gdy ETAP 6 dostarczył dane
         and verdict_category in _AUTHENTIC_LIKE
@@ -1166,7 +1242,11 @@ def run_rule_engine(
         for k in probs:
             probs[k] = 0
         probs["podrobka"] = 80
-        probs["oryginalna_sklepowa"] = 20
+        probs["oryginalna_sklepowa"] = 8
+        probs["oficjalna_replika"] = 6
+        probs["treningowa_custom"] = 4
+        probs["edycja_limitowana"] = 2
+        probs["meczowa"] = 0
         report_data["probabilities"] = probs
         verdict_category = "podrobka"
         return {
@@ -1193,7 +1273,8 @@ def run_rule_engine(
     match_signal_strength = _compute_match_issue_signal_strength(manufacturing_signals)
     pa_v2 = _compute_personalization_assessment_v2(pa_legacy, pcc, e_status)
     hard_flags = _compute_hard_flags(
-        dm_statuses, sku_effect, pcc_status, missing_data, pa_v2.get("result"), coverage_result
+        dm_statuses, sku_effect, pcc_status, missing_data, pa_v2.get("result"), coverage_result,
+        manufacturing_signals=manufacturing_signals,
     )
     classification = _compute_classification(
         verdict_category, dm_statuses, pcc, sku_verification, construction_flagged, mfg_quality
@@ -1249,10 +1330,15 @@ def run_rule_engine(
     verdict_prob = int(probs.get(verdict_category) or confidence_percent)
     # Ceiling jest aplikowany zawsze — wyjątek tylko gdy wszystkie sygnały pozytywne
     _sku_confirmed = sku_verification.get("status") == "confirmed"
+    _sku_not_applicable = sku_verification.get("status") == "not_applicable"
+    _good_manufacturing = mfg_quality in ("good", "fallback")
     _no_ceiling_needed = (
-        classification == "likely_match_issue"
-        and _sku_confirmed
-        and mfg_quality == "good"
+        classification in ("likely_match_issue", "likely_authentic_retail")
+        and (_sku_confirmed or _sku_not_applicable)
+        and _good_manufacturing
+        and "sku_mismatch" not in hard_flags
+        and "neck_tag_poor" not in hard_flags
+        and "no_sku_plus_poor_manufacturing" not in hard_flags
     )
     if _no_ceiling_needed:
         new_confidence_percent = _round_to_10(verdict_prob)
@@ -1277,10 +1363,15 @@ def run_rule_engine(
 
     # Jeśli wszystkie sygnały są pozytywne — nie aplikuj ceiling
     _sku_confirmed = sku_verification.get("status") == "confirmed"
+    _sku_not_applicable = sku_verification.get("status") == "not_applicable"
+    _good_manufacturing = mfg_quality in ("good", "fallback")
     _no_ceiling_needed = (
-        classification == "likely_match_issue"
-        and _sku_confirmed
-        and mfg_quality == "good"
+        classification in ("likely_match_issue", "likely_authentic_retail")
+        and (_sku_confirmed or _sku_not_applicable)
+        and _good_manufacturing
+        and "sku_mismatch" not in hard_flags
+        and "neck_tag_poor" not in hard_flags
+        and "no_sku_plus_poor_manufacturing" not in hard_flags
     )
     if _no_ceiling_needed:
         final_confidence_percent = _round_to_10(verdict_prob)
@@ -1308,6 +1399,76 @@ def run_rule_engine(
         override = "podrobka"
         hard_flags = hard_flags + ["match_issue_blocked_by_poor_manufacturing"]
         reasoning_limits_out.append("poor_manufacturing_overrides_match_issue")
+
+    # HARD OVERRIDE: neck_tag poor + brak SKU → podrobka
+    # Neck tag to jeden z najważniejszych sygnałów dla ekspertów
+    neck_tag_val = manufacturing_signals.get("neck_tag_quality", "unclear") if manufacturing_signals else "unclear"
+    sku_status_now = sku_verification.get("status", "uncertain")
+    if (
+        neck_tag_val == "poor"
+        and sku_status_now in ("not_found", "not_applicable", "uncertain", "invalid")
+        and verdict_category != "podrobka"  # nie nadpisuj jeśli już podrobka
+    ):
+        verdict_category = "podrobka"
+        if isinstance(report_data.get("verdict"), dict):
+            report_data["verdict"]["verdict_category"] = "podrobka"
+            report_data["verdict"]["label"] = "Podróbka"
+            report_data["verdict"]["confidence_percent"] = 80
+            report_data["verdict"]["confidence_level"] = "wysoki"
+            report_data["verdict"]["confidence_explanation"] = (
+                "Słaba jakość wewnętrznej metki (neck tag) przy braku "
+                "potwierdzenia SKU — sygnał podróbki."
+            )
+        probs = report_data.get("probabilities") or {}
+        for k in probs:
+            probs[k] = 0
+        probs["podrobka"] = 80
+        probs["oryginalna_sklepowa"] = 8
+        probs["oficjalna_replika"] = 6
+        probs["treningowa_custom"] = 4
+        probs["edycja_limitowana"] = 2
+        probs["meczowa"] = 0
+        report_data["probabilities"] = probs
+        hard_flags = hard_flags + ["neck_tag_poor_override"]
+
+    # Tone alignment: gdy werdykt to podrobka z wysoką pewnością,
+    # złagodzone sformułowania w key_evidence są mylące — nadpisz je
+    if (
+        isinstance(report_data.get("verdict"), dict)
+        and report_data["verdict"].get("verdict_category") == "podrobka"
+        and report_data["verdict"].get("confidence_percent", 0) >= 70
+    ):
+        key_evidence = report_data.get("key_evidence") or []
+        cleaned = []
+        replacements = {
+            "drobne nierówności": "wyraźne nierówności",
+            "niewielkie wątpliwości": "poważne zastrzeżenia",
+            "pewne wątpliwości": "istotne zastrzeżenia",
+            "budzi wątpliwości": "wskazuje na podróbkę",
+            "może wskazywać": "wskazuje",
+            "sugeruje możliwość": "wskazuje na",
+            "nieznaczne": "wyraźne",
+            "minimalne": "widoczne",
+            "lekkie": "wyraźne",
+        }
+        for item in key_evidence:
+            if isinstance(item, str):
+                text = item
+                for weak, strong in replacements.items():
+                    text = text.replace(weak, strong)
+                cleaned.append(text)
+            else:
+                cleaned.append(item)
+        if cleaned:
+            report_data["key_evidence"] = cleaned
+
+    # Zawsze synchronizuj label z aktualnym verdict_category po wszystkich overrides
+    final_verdict = report_data.get("verdict") or {}
+    if isinstance(final_verdict, dict):
+        final_cat = final_verdict.get("verdict_category", "")
+        if final_cat and final_cat in _LABEL_MAP:
+            final_verdict["label"] = _LABEL_MAP[final_cat]
+            report_data["verdict"] = final_verdict
 
     # Problem 1: znormalizowany tekst obserwacji SKU
     sku_note = _build_sku_observation_text(subject, sku_verification)
