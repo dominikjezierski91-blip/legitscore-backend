@@ -586,11 +586,25 @@ def _compute_sku_effect(
     dm_statuses: Dict[str, str],
 ) -> str:
     sku_status = sku_verification.get("status", "uncertain")
+    sku_confidence = sku_verification.get("confidence", "low")
+
+    # Nowe statusy faktyczne (found_official, found_authorized, found_unofficial, not_found, format_invalid)
+    if sku_status == "found_official":
+        return "supports_authentic"
+    elif sku_status == "found_authorized":
+        if sku_confidence == "high":
+            return "supports_authentic"
+        else:
+            return "ceiling_reduced"
+    elif sku_status == "found_unofficial":
+        return "hard_conflict"
+    elif sku_status == "format_invalid":
+        return "hard_conflict"
+
+    # Stare statusy (legacy / fallback)
     if sku_status == "confirmed":
         return "supports_authentic"
-    elif sku_status == "mismatch":
-        return "hard_conflict"
-    elif sku_status == "invalid":
+    elif sku_status in ("mismatch", "invalid"):
         return "hard_conflict"
     elif sku_status in ("not_found", "uncertain") and verdict_category in _AUTHENTIC_LIKE:
         return "ceiling_reduced"
@@ -688,7 +702,9 @@ def _compute_confidence_ceiling(
         return "medium", "Brak potwierdzonego SKU — ceiling ograniczony"
 
     # Dużo reasoning_limits = wiele braków
-    if len(reasoning_limits) >= 4:
+    # ALE: potwierdzone SKU jest silniejszym sygnałem
+    # niż liczba reasoning_limits — nie obniżaj ceiling
+    if len(reasoning_limits) >= 4 and sku_effect != "supports_authentic":
         return "medium", "Wiele ograniczeń wnioskowania w danych wejściowych"
 
     # Ogólny niedobór danych
@@ -955,11 +971,26 @@ CRITICAL RULES — READ BEFORE EVALUATING:
 ═══════════════════════════════════════════
 1. IGNORE ALL branding, logos, technology names (DRI-FIT, HEAT.RDY, ENGINEERED, AUTHENTIC, VAPORKNIT, etc.), player names, numbers, patches, sponsor prints. These carry ZERO information about actual manufacturing quality.
 2. You are judging RAW WORKMANSHIP only: seams, stitching, panel assembly, fabric, finish.
-3. STRONG BIAS TOWARD POOR: Football jersey counterfeits are extremely common. When in doubt about seam quality, always lean toward "poor" or "mixed". NEVER default to "good" without seeing perfectly clean, factory-precision stitching with zero visible irregularities.
-4. "good" requires ALL of the following: perfectly even stitch density, perfectly straight seam lines, zero loose threads, zero puckering or waviness, stitching rows that are precisely parallel throughout. If even ONE of these is missing → "mixed" or "poor".
-5. "poor" applies when ANY of the following is visible: uneven stitch spacing anywhere on the garment, wavy seam lines anywhere, ANY loose or frayed thread ends, ANY puckering or pulling of fabric at seams, seam lines that curve or wobble, thick or lumpy seam joins.
-6. Evaluate each field INDEPENDENTLY. Do not let overall appearance influence individual seam assessment.
-7. ZOOM IN MENTALLY: Treat every visible seam as if you are examining it under magnification. Small irregularities count as defects.
+3. BE PRECISE, NOT BIASED: Do not default to "poor" just because you are uncertain. Use this decision tree:
+   - Clear visible defects → "poor"
+   - Visible but minor issues → "mixed"
+   - Cannot clearly see / photo angle doesn't show → "unclear"
+   - Clearly clean and precise → "good"
+   NEVER use "poor" when you cannot clearly see the defect.
+   "unclear" is the honest answer when photos don't show enough.
+4. "poor" requires CLEAR, UNAMBIGUOUS, VISIBLE evidence of the specific defect described in each field.
+   If you can see the area but it looks acceptable → "mixed"
+   If you cannot clearly see the area → "unclear"
+   If photos show perfect workmanship → "good"
+   Do NOT assume poor quality without direct visual evidence.
+5. "unclear" is NOT a failure — it means the photos don't show enough to judge. This is better than a wrong "poor".
+   Use "unclear" when:
+   - The relevant area is not visible in any photo
+   - Photo angle/distance doesn't allow clear assessment
+   - Image quality prevents reliable judgment of that area
+6. "good" requires ALL of the following: perfectly even stitch density, perfectly straight seam lines, zero loose threads, zero puckering or waviness, stitching rows that are precisely parallel throughout. If even ONE of these is missing → "mixed" or "poor".
+7. "poor" applies when ANY of the following is CLEARLY AND VISIBLY present: uneven stitch spacing, wavy seam lines, loose or frayed thread ends, puckering or pulling of fabric at seams, seam lines that curve or wobble, thick or lumpy seam joins.
+8. Evaluate each field INDEPENDENTLY. Do not let overall appearance influence individual seam assessment.
 
 ═══════════════════════════════════════════
 EVALUATION CRITERIA PER FIELD:
@@ -969,31 +1000,31 @@ EVALUATION CRITERIA PER FIELD:
    POOR: uneven stitch density (gaps between stitches), wavy or wobbly seam lines, loose or skipped stitches, seams pulling or puckering away from fabric, visible loose thread ends, stitch rows that aren't parallel, seams that curve when they should be straight
    MIXED: mostly even stitching but with some visible irregularities, slightly wavy in places, minor puckering
    GOOD: perfectly consistent stitch density throughout, seam lines are straight and flat, no loose threads, no puckering, stitching rows are precisely parallel
-   UNCLEAR: seams not visible enough to judge
+   UNCLEAR: seams not clearly visible in any photo, or photo angle/distance prevents reliable assessment. USE THIS when in doubt — do not guess "poor".
 
 2. construction_quality — Overall garment assembly and structure:
    POOR: visible panel misalignment, asymmetric panels (one side different from the other), collar sitting unevenly or twisted, garment shape distorted, elements clearly not centered or balanced
    MIXED: mostly aligned but with small asymmetries or minor distortions
    GOOD: perfect panel symmetry, all elements precisely centered and balanced, structure is crisp
-   UNCLEAR: not enough views to judge overall assembly
+   UNCLEAR: not enough views to judge overall assembly, or photos don't show the full garment structure. USE THIS when in doubt — do not guess "poor".
 
 3. panel_join_quality — Examine where different fabric panels meet:
    POOR: visible gaps or overlaps between panels, panel edges not meeting cleanly, fabric bunching at joins, misaligned patterns at seam lines, visible glue residue or messy join edges
    MIXED: panels meet but with slight irregularities or minor misalignment
    GOOD: panels join seamlessly, clean flush transitions, patterns align perfectly at seams
-   UNCLEAR: panel joins not clearly visible
+   UNCLEAR: panel joins not clearly visible in any photo, or the relevant areas are not shown. USE THIS when in doubt — do not guess "poor".
 
 4. finish_quality — Collar, cuffs, sleeve hem, bottom hem:
    POOR: rough or frayed edges, elastic pulling or bunching unevenly, collar shape uneven or distorted, hemline not straight, iron-on elements applied crookedly or with air bubbles, visible adhesive
    MIXED: edges mostly clean but with some roughness, minor unevenness in elastic or hem
    GOOD: all edges perfectly finished, elastic lies flat and even, collar crisp, hemline straight throughout
-   UNCLEAR: edges not clearly visible
+   UNCLEAR: edges not clearly visible in any photo, or no close-up of collar/cuffs/hem available. USE THIS when in doubt — do not guess "poor".
 
 5. material_quality — Fabric texture, weave structure, weight:
    POOR: fabric looks thin or flimsy, shiny plasticky surface without depth of texture, visible inconsistencies in weave pattern, cheap-looking mesh with irregular holes or uneven spacing, fabric appears to lack structural integrity
    MIXED: material looks acceptable but not premium — some areas look thin or the weave is slightly uneven
    GOOD: uniform weave pattern throughout, solid fabric construction with consistent weight, premium texture, mesh holes are uniform and structured
-   UNCLEAR: fabric texture not clearly visible
+   UNCLEAR: fabric texture not clearly visible in any photo, or no close-up showing fabric structure. USE THIS when in doubt — do not guess "poor".
 
 6. neck_tag_quality — Inner neck tag / neck label / neck print (the tag or print
    inside the collar):
@@ -1006,8 +1037,9 @@ EVALUATION CRITERIA PER FIELD:
    GOOD: tag is clean and crisp; all fonts are sharp and perfectly legible; tag
    material looks premium; tag sits flat and straight; all text and icons are
    precisely printed; QR code (if present) is sharp and scannable
-   UNCLEAR: neck area or inner tag is not visible in the provided photos —
-   do NOT penalize for this, simply return "unclear"
+   UNCLEAR: neck area or inner tag is not visible in the provided photos, or
+   photo quality prevents reliable assessment — do NOT penalize for this,
+   simply return "unclear". USE THIS when in doubt — do not guess "poor".
 
 7. print_application_quality — Quality of ALL heat-transferred prints, sponsor logos,
    numbers, letters, and iron-on applications on the jersey:
@@ -1019,11 +1051,12 @@ EVALUATION CRITERIA PER FIELD:
    slightly rough edge on one element, minor color inconsistency
    GOOD: ALL prints and applications perfectly flat, zero bubbles anywhere, edges crisp
    and clean throughout, colors vivid and consistent, zero lifting
-   UNCLEAR: no close-up of prints or sponsor logos available — do NOT penalize, return
-   "unclear"
+   UNCLEAR: no close-up of prints or sponsor logos available, or photo quality
+   prevents reliable assessment — do NOT penalize, return "unclear".
+   USE THIS when in doubt — do not guess "poor".
 
-   CRITICAL: Even ONE visible bubble anywhere on ANY print = "poor". Do not average —
-   worst element wins.
+   CRITICAL: Even ONE CLEARLY VISIBLE bubble anywhere on ANY print = "poor".
+   If you are not sure whether it is a bubble or a photo artifact → "mixed" or "unclear".
 
 8. aging_indicators — Signs of natural aging and wear consistent with
    the jersey's age (fading, pilling, wear at collar/cuffs, slight
@@ -1221,13 +1254,25 @@ def _build_override_key_evidence(
     """
     override_reasons = []
 
-    # SKU mismatch
+    # SKU hard reject (mismatch / found_unofficial / format_invalid)
     if "sku_mismatch_hard_reject" in hard_flags:
-        raw_sku = (sku_verification.get("reason") or "")
-        override_reasons.append(
-            f"⚠ Kod SKU przypisany do innej koszulki — "
-            f"eliminuje autentyczność. {raw_sku}"
-        )
+        sku_status = (sku_verification.get("status") or "mismatch")
+        raw_reason = (sku_verification.get("reason") or "")
+        if sku_status == "found_unofficial":
+            override_reasons.append(
+                f"⚠ Kod SKU znaleziony wyłącznie na nieautoryzowanych/podróbkowych stronach — "
+                f"eliminuje autentyczność. {raw_reason}"
+            )
+        elif sku_status == "format_invalid":
+            override_reasons.append(
+                f"⚠ Kod SKU ma nieprawidłowy format — "
+                f"nie odpowiada żadnemu wzorcowi oryginalnego producenta. {raw_reason}"
+            )
+        else:
+            override_reasons.append(
+                f"⚠ Kod SKU przypisany do innej koszulki — "
+                f"eliminuje autentyczność. {raw_reason}"
+            )
 
     # Brak SKU + poor manufacturing
     if "no_sku_plus_poor_manufacturing" in hard_flags:
@@ -1279,10 +1324,36 @@ def _build_override_key_evidence(
 
     # Meczowa + poor manufacturing
     if "match_issue_blocked_by_poor_manufacturing" in hard_flags:
-        override_reasons.append(
-            "⚠ Słaba jakość fizyczna wykonania "
-            "wyklucza klasyfikację jako wersja meczowa."
-        )
+        poor_fields = [
+            f for f in [
+                "seams_quality", "construction_quality",
+                "panel_join_quality", "finish_quality",
+                "material_quality", "neck_tag_quality",
+                "print_application_quality",
+            ]
+            if manufacturing_signals.get(f) == "poor"
+        ]
+        fields_pl = {
+            "seams_quality": "szwy",
+            "construction_quality": "konstrukcja",
+            "panel_join_quality": "łączenia paneli",
+            "finish_quality": "wykończenie",
+            "material_quality": "materiał",
+            "neck_tag_quality": "metka wewnętrzna",
+            "print_application_quality": "nadruki/aplikacje",
+        }
+        poor_names = [fields_pl.get(f, f) for f in poor_fields]
+        if poor_names:
+            override_reasons.append(
+                f"⚠ Słaba jakość fizyczna wykonania "
+                f"({', '.join(poor_names)}) — "
+                f"wyklucza wersję meczową i wskazuje na podróbkę."
+            )
+        else:
+            override_reasons.append(
+                "⚠ Słaba jakość fizyczna wykonania — "
+                "wyklucza wersję meczową i wskazuje na podróbkę."
+            )
 
     if not override_reasons:
         return list(original_evidence)
@@ -1290,8 +1361,8 @@ def _build_override_key_evidence(
     # Zachowaj oryginalne obserwacje jako kontekst
     # ale oznacz je jako "sygnały wizualne" (mogą być mylące)
     context_note = (
-        "ℹ Poniższe obserwacje wizualne są pozytywne, "
-        "jednak sygnały weryfikacyjne wskazują na podróbkę:"
+        "ℹ Obserwacje wizualne ze zdjęć (mogą być niewystarczające "
+        "bez weryfikacji fizycznej i SKU):"
     )
 
     return override_reasons + [context_note] + list(original_evidence)
@@ -1358,9 +1429,10 @@ def run_rule_engine(
     reasoning_limits_out = list(reasoning_limits)  # kopia — hard override może dopisać
     sku_effect = _compute_sku_effect(sku_verification, verdict_category, dm_statuses)
 
-    # HARD REJECT: SKU mismatch → natychmiastowy override
-    # Jeśli SKU istnieje ale należy do innej koszulki — eliminuje autentyczność
-    if sku_verification.get("status") == "mismatch":
+    # HARD REJECT: SKU mismatch / found_unofficial / format_invalid → natychmiastowy override
+    # Jeśli SKU istnieje ale należy do innej koszulki lub jest nieautoryzowany — eliminuje autentyczność
+    _sku_hard_statuses = {"mismatch", "found_unofficial", "format_invalid", "invalid"}
+    if sku_verification.get("status") in _sku_hard_statuses:
         raw_sku = (report_data.get("subject") or {}).get("sku", "")
         if isinstance(report_data.get("verdict"), dict):
             report_data["verdict"]["verdict_category"] = "podrobka"
@@ -1434,7 +1506,11 @@ def run_rule_engine(
         verdict_category in _AUTHENTIC_LIKE,
     )
     if (
-        sku_status in ("not_found", "not_applicable", "uncertain", "invalid")
+        sku_status in (
+            "not_found", "not_applicable",
+            "uncertain", "invalid",
+            "format_invalid",
+        )
         and mfg_quality == "poor"
         and manufacturing_signals  # tylko gdy ETAP 6 dostarczył dane
         and verdict_category in _AUTHENTIC_LIKE
@@ -1526,7 +1602,8 @@ def run_rule_engine(
             or (_sku_mismatch and (_c == "RED" or _d == "RED"))
             or "material_and_crest_both_red" in hard_flags
             or mfg_quality == "poor"
-            or mfg_quality == "mixed" and _sku_mismatch
+            or (mfg_quality == "mixed" and _sku_mismatch)
+            or (mfg_quality == "poor" and verdict_category in _FAKE)
         )
 
         if strong_fake_signal:
@@ -1545,36 +1622,10 @@ def run_rule_engine(
             confidence_ceiling = "medium"
             ceiling_reason = "Niejednoznaczne sygnały wizualne — ceiling ograniczony do medium"
 
-    # confidence_percent = prawdopodobieństwo kategorii z rozkładu modelu, ograniczone ceilingiem.
-    # Ceiling wyraża jakość dowodów (brak SKU, mieszana jakość) — obniża wynik gdy pewność nieuzasadniona.
-    probs = report_data.get("probabilities") or {}
-    ceiling_value = _CEILING_MAP.get(confidence_ceiling, 80)
-    verdict_prob = int(probs.get(verdict_category) or confidence_percent)
-    # Ceiling jest aplikowany zawsze — wyjątek tylko gdy wszystkie sygnały pozytywne
-    _sku_confirmed = sku_verification.get("status") == "confirmed"
-    _sku_not_applicable = sku_verification.get("status") == "not_applicable"
-    _good_manufacturing = mfg_quality in ("good", "fallback")
-    _not_applicable_ok = (
-        _sku_not_applicable
-        and verdict_category != "edycja_limitowana"
-    )
-    _no_ceiling_needed = (
-        classification in ("likely_match_issue", "likely_authentic_retail")
-        and (_sku_confirmed or _not_applicable_ok)
-        and _good_manufacturing
-        and "sku_mismatch" not in hard_flags
-        and "neck_tag_poor" not in hard_flags
-        and "no_sku_plus_poor_manufacturing" not in hard_flags
-    )
-    if _no_ceiling_needed:
-        new_confidence_percent = _round_to_10(verdict_prob)
-    else:
-        new_confidence_percent = _round_to_10(min(verdict_prob, ceiling_value))
-    new_confidence_level = _map_percent_to_confidence_level(new_confidence_percent)
-
-    # confidence_explanation gdy ceiling znacząco niżej niż probability (do wyświetlenia w UI)
-    podrobka_prob = int(probs.get("podrobka") or 0)
-    meczowa_prob = int(probs.get("meczowa") or 0)
+    # confidence_explanation — obliczana tu, aplikowana po overrides
+    _probs_early = report_data.get("probabilities") or {}
+    podrobka_prob = int(_probs_early.get("podrobka") or 0)
+    meczowa_prob = int(_probs_early.get("meczowa") or 0)
     confidence_explanation = ""
     if verdict_category in _FAKE and confidence_ceiling in ("low", "medium"):
         confidence_explanation = (
@@ -1593,39 +1644,19 @@ def run_rule_engine(
             "Nie są traktowane jako sygnał podróbki."
         )
 
-    # Jeśli wszystkie sygnały są pozytywne — nie aplikuj ceiling
-    _sku_confirmed = sku_verification.get("status") == "confirmed"
-    _sku_not_applicable = sku_verification.get("status") == "not_applicable"
-    _good_manufacturing = mfg_quality in ("good", "fallback")
-    _not_applicable_ok = (
-        _sku_not_applicable
-        and verdict_category != "edycja_limitowana"
-    )
-    _no_ceiling_needed = (
-        classification in ("likely_match_issue", "likely_authentic_retail")
-        and (_sku_confirmed or _not_applicable_ok)
-        and _good_manufacturing
-        and "sku_mismatch" not in hard_flags
-        and "neck_tag_poor" not in hard_flags
-        and "no_sku_plus_poor_manufacturing" not in hard_flags
-    )
-    if _no_ceiling_needed:
-        final_confidence_percent = _round_to_10(verdict_prob)
-    else:
-        final_confidence_percent = new_confidence_percent
-
-    if isinstance(report_data.get("verdict"), dict):
-        report_data["verdict"]["confidence_percent"] = final_confidence_percent
-        report_data["verdict"]["confidence_level"] = _map_percent_to_confidence_level(final_confidence_percent)
-        if confidence_explanation:
-            report_data["verdict"]["confidence_explanation"] = confidence_explanation
-
     # HARD BUSINESS OVERRIDE: meczowa + poor manufacturing → podrobka
     # Tylko gdy manufacturing_signals jawnie dostarczone (nie fallback ze starych raportów)
+    # SKU confirmed jest silniejszym sygnałem autentyczności — blokuje override
+    _sku_status_for_override = sku_verification.get("status", "uncertain")
     if (
         verdict_category == "meczowa"
         and mfg_quality == "poor"
         and manufacturing_signals
+        and _sku_status_for_override not in (
+            "confirmed",
+            "found_official",
+            "found_authorized",
+        )
     ):
         verdict_category = "podrobka"
         if isinstance(report_data.get("verdict"), dict):
@@ -1651,7 +1682,11 @@ def run_rule_engine(
     sku_status_now = sku_verification.get("status", "uncertain")
     if (
         neck_tag_val == "poor"
-        and sku_status_now in ("not_found", "not_applicable", "uncertain", "invalid")
+        and sku_status_now in (
+            "not_found", "not_applicable",
+            "uncertain", "invalid",
+            "format_invalid",
+        )
         and verdict_category != "podrobka"  # nie nadpisuj jeśli już podrobka
         and not _is_aged_authentic
     ):
@@ -1696,7 +1731,8 @@ def run_rule_engine(
         print_app_val == "poor"
         and sku_status_now in (
             "not_found", "not_applicable",
-            "uncertain", "invalid"
+            "uncertain", "invalid",
+            "format_invalid",
         )
         and verdict_category != "podrobka"
         and not _is_aged_authentic
@@ -1731,6 +1767,46 @@ def run_rule_engine(
             original_evidence=_original_evidence,
         )
         report_data["key_evidence"] = _new_evidence
+
+    # Oblicz confidence_percent PO wszystkich hard overrides
+    # ceiling_value, verdict_prob i probs odzwierciedlają aktualny stan po overrides
+    probs = report_data.get("probabilities") or {}
+    ceiling_value = _CEILING_MAP.get(confidence_ceiling, 80)
+    verdict_prob = int(probs.get(verdict_category) or confidence_percent)
+    _sku_confirmed = sku_verification.get("status") == "confirmed"
+    _sku_not_applicable = sku_verification.get("status") == "not_applicable"
+    _good_manufacturing = mfg_quality in ("good", "fallback")
+    _not_applicable_ok = (
+        _sku_not_applicable
+        and verdict_category != "edycja_limitowana"
+    )
+    _no_ceiling_needed = (
+        classification in ("likely_match_issue", "likely_authentic_retail")
+        and (_sku_confirmed or _not_applicable_ok)
+        and _good_manufacturing
+        and "sku_mismatch" not in hard_flags
+        and "neck_tag_poor" not in hard_flags
+        and "no_sku_plus_poor_manufacturing" not in hard_flags
+    )
+    if _no_ceiling_needed:
+        new_confidence_percent = _round_to_10(verdict_prob)
+    else:
+        new_confidence_percent = _round_to_10(
+            min(verdict_prob, ceiling_value)
+        )
+    new_confidence_level = _map_percent_to_confidence_level(
+        new_confidence_percent
+    )
+    final_confidence_percent = new_confidence_percent
+
+    if isinstance(report_data.get("verdict"), dict):
+        # Nadpisz tylko gdy hard override nie ustawił już explicite wyższej wartości
+        current_conf = report_data["verdict"].get("confidence_percent", 0)
+        if verdict_category not in _FAKE or current_conf < new_confidence_percent:
+            report_data["verdict"]["confidence_percent"] = final_confidence_percent
+            report_data["verdict"]["confidence_level"] = _map_percent_to_confidence_level(final_confidence_percent)
+        if confidence_explanation:
+            report_data["verdict"]["confidence_explanation"] = confidence_explanation
 
     # Tone alignment: gdy werdykt to podrobka z wysoką pewnością,
     # złagodzone sformułowania w key_evidence są mylące — nadpisz je

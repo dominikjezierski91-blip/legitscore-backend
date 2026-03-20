@@ -14,59 +14,66 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-SKU_VERIFICATION_PROMPT = """You are a football jersey SKU (product code) verification specialist.
+SKU_VERIFICATION_PROMPT = """You are a football jersey SKU (product code) lookup specialist.
 
-You have access to Google Search. Use it to verify the given SKU against the described jersey.
+Your ONLY task: search the web for the provided SKU code and report EXACTLY what you find.
+Do NOT interpret or judge authenticity. Only report facts.
 
-Your task is ONLY to check whether the provided SKU matches the described jersey (club, season, model, brand).
+Search strategy:
+1. Search the SKU on official brand sites first:
+   nike.com, adidas.com, puma.com, umbro.com, macron.com
+2. Search on official club stores:
+   store.fcbarcelona.com, store.juventus.com, etc.
+3. Search on major authorized retailers:
+   unisportstore.com, kitbag.com, prodirectsoccer.com,
+   footballkit.com, soccerpro.com
+4. Note if SKU appears on counterfeit/replica sites only.
 
-Search for the SKU on official brand websites and retailers (Adidas, Nike, Puma, etc.).
+Report what you find using these exact status values:
+
+"found_official" — SKU found on official brand website
+   OR official club store. Include exact product name found.
+
+"found_authorized" — SKU found ONLY on authorized retailers
+   (not on official brand/club site). Include product name.
+
+"found_unofficial" — SKU found ONLY on replica/fake/
+   unauthorized sites. This is a red flag.
+
+"not_found" — SKU not found anywhere in search results.
+
+"format_invalid" — SKU format does not match any known
+   brand pattern before even searching:
+   * Nike: XXXXXX-XXX (e.g. FN8680-456) — 6 chars + 3 digits
+   * Adidas: XXXXXXX (e.g. BI1872S7T1) — alphanumeric mix
+   * Puma: XXXXXX-XX — 6 digits + 2 digits
+   * ALL digits only (e.g. 123456789) → format_invalid
+   * Single letter + 9+ digits (e.g. B118723771) → format_invalid
 
 Rules:
-1. "confirmed" — search results clearly show this SKU matches the described jersey.
-2. "mismatch" — search results show this SKU belongs to a DIFFERENT jersey (wrong club, season, or model).
-3. "not_found" — SKU not found in any reliable source.
-4. "uncertain" — conflicting or inconclusive search results.
-5. "invalid" — the SKU code was found in the photos BUT meets one or
-   more of these conditions:
-   - Format does not match ANY known brand pattern:
-     * Adidas authentic formats: AA0000 (e.g. GL3746), AA0000AA0
-       (e.g. BI1872S7T1), or similar alphanumeric with letters+numbers
-     * Nike authentic formats: AA0000-000 (e.g. DM1840-452)
-     * Puma authentic formats: 000000-00
-     * A code that is ALL digits with no letters, OR a single letter
-       followed by many digits (e.g. B118723771 = 1 letter + 9 digits)
-       does NOT match any major brand format → mark as "invalid"
-     * A code where letter/number pattern doesn't follow brand logic
-       → mark as "invalid"
-   - Appears in search results ONLY on counterfeit/replica/fake sites
-   - Format is clearly fabricated
-   - Code returns zero results on any legitimate retailer or brand site
-   IMPORTANT: When in doubt between "uncertain" and "invalid",
-   prefer "invalid" if the format clearly doesn't match brand patterns.
-6. Do not evaluate jersey authenticity.
-6. Do not discuss fabric, stitching, or physical properties.
-7. Keep the reason short, factual, and in Polish. Write only what was found — do not mention
-   search limitations, external databases, or inability to verify.
-   Examples of good reason text:
-   - "Kod odpowiada koszulce FC Barcelona 2023/24 domowa."
-   - "Kod wskazuje na inny model (Real Madrid wyjazdowa 2022/23)."
-   - "Kod nie został znaleziony w dostępnych wynikach."
-   - "Wyniki są niejednoznaczne — kod pojawia się przy różnych modelach."
-8. Include the source URL if you find one.
+1. ALWAYS search before reporting — never guess from format alone
+   unless clearly format_invalid.
+2. Report the EXACT product name/description you found.
+3. Report the source URL.
+4. Keep description factual — what product does this SKU
+   describe according to the source?
+5. Write reason in Polish. Be specific about what was found.
+6. Never say "I cannot verify" — always search first.
 
 Return JSON only. No markdown. No extra text:
 
 {
-  "status": "confirmed | mismatch | not_found | uncertain | invalid",
+  "status": "found_official | found_authorized | found_unofficial | not_found | format_invalid",
   "confidence": "low | medium | high",
-  "reason": "",
-  "source_url": ""
+  "found_product_name": "exact product name from source or empty string",
+  "reason": "co dokładnie znaleziono i gdzie",
+  "source_url": "URL źródła lub pusty string"
 }"""
 
 _FALLBACK = {
     "status": "uncertain",
     "confidence": "low",
+    "found_product_name": "",
     "reason": "Nie udało się wykonać weryfikacji SKU.",
     "source_url": "",
 }
