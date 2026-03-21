@@ -132,3 +132,11 @@ When debugging issues:
 - Code comments and logs are in Polish
 - User-facing content is in Polish
 - Communicate with user in Polish unless they switch to English
+
+## Releases
+
+### v1.0 — 2026-03-21
+- manufacturing signals wyświetlane w key_evidence
+- fix komunikatu SKU przy braku metki
+- synchronizacja confidence_percent z probabilities
+- testy: Pedri (podróbka ✓), Juventus x Palace (edycja limitowana ✓), Yamal (✓)
