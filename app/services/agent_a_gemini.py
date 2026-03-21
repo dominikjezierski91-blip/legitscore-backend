@@ -1421,6 +1421,23 @@ def _build_override_key_evidence(
     return override_reasons + [context_note] + list(original_evidence)
 
 
+def _update_decision_matrix_row(
+    dm: list,
+    code: str,
+    status: str,
+    observation: str = "",
+    impact: str = "obniza",
+) -> None:
+    """Aktualizuje wiersz decision_matrix po code. In-place, non-fatal."""
+    for row in dm:
+        if isinstance(row, dict) and row.get("code") == code:
+            row["status"] = status
+            if observation:
+                row["observation"] = observation
+            row["impact"] = impact
+            return
+
+
 def run_rule_engine(
     report_data: Dict[str, Any],
     coverage_result: Optional[Dict[str, Any]] = None,
@@ -1514,6 +1531,8 @@ def run_rule_engine(
             original_evidence=_original_evidence,
         )
         report_data["key_evidence"] = _new_evidence
+        _update_decision_matrix_row(dm, "A", "RED", "Kod SKU przypisany do innej koszulki — jednoznaczny sygnał podróbki.")
+        _update_decision_matrix_row(dm, "B", "RED", "Kod SKU niezgodny z tym modelem i sezonem.")
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -1598,6 +1617,7 @@ def run_rule_engine(
             original_evidence=_original_evidence,
         )
         report_data["key_evidence"] = _new_evidence
+        _update_decision_matrix_row(dm, "A", "RED", "Brak kodu SKU przy słabej jakości fizycznej wykonania.")
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -1738,6 +1758,7 @@ def run_rule_engine(
             sku_verification=sku_verification,
             original_evidence=_orig_ev,
         )
+        _update_decision_matrix_row(dm, "D", "RED", "Słaba jakość fizyczna wykonania wyklucza wersję meczową.")
 
     # HARD OVERRIDE: neck_tag poor + brak SKU → podrobka
     # Neck tag to jeden z najważniejszych sygnałów dla ekspertów
@@ -1830,6 +1851,7 @@ def run_rule_engine(
             original_evidence=_original_evidence,
         )
         report_data["key_evidence"] = _new_evidence
+        _update_decision_matrix_row(dm, "D", "RED", "Słaba jakość aplikacji nadruków — widoczne bąbelki i odstawanie krawędzi.")
 
     # Oblicz confidence_percent PO wszystkich hard overrides
     # ceiling_value, verdict_prob i probs odzwierciedlają aktualny stan po overrides
