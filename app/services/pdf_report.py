@@ -10,7 +10,10 @@ from weasyprint import HTML
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"  # app/templates
 
-_DEV_NOTE_PATTERNS = ["Agenta A", "Agent B", "BASIC/EXPERT", "prezentacja BASIC", "prezentacja EXPERT"]
+_DEV_NOTE_PATTERNS = [
+    "Agenta A", "Agent B", "BASIC/EXPERT", "prezentacja BASIC", "prezentacja EXPERT",
+    "zewnętrznych baz danych", "external databases", "bez użycia zewnętrznych", "without external",
+]
 
 
 def _sanitize_report_data(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -55,9 +58,14 @@ def _sanitize_report_data(data: Dict[str, Any]) -> Dict[str, Any]:
     d["missing_data"] = missing
 
     # 4. SKU format — heurystyka dla Nike
+    # Nie pokazuj ostrzeżenia jeśli SKU zweryfikowany jako autentyczny
+    sku_verification = d.get("sku_verification") or {}
+    sku_verified_status = sku_verification.get("status", "")
+    _sku_verified = sku_verified_status in ("found_official", "found_authorized", "confirmed")
+
     d["sku_format_warning"] = None
-    if sku and "nike" in brand:
-        if not re.match(r"^\d{6}-\d{3}$", sku):
+    if sku and "nike" in brand and not _sku_verified:
+        if not re.match(r"^[A-Z0-9]{6}-\d{3}$", sku):
             d["sku_format_warning"] = (
                 f"Kod produktu ({sku}) nie odpowiada standardowemu formatowi kodów Nike (XXXXXX-XXX)."
             )

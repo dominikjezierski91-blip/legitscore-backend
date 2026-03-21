@@ -261,9 +261,16 @@ async def upload_collection_photo(
         except Exception:
             pass
 
-    item.photo_path = str(photo_path)
+    # Zapisuj ścieżkę relatywną zamiast absolutnej
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        relative_path = photo_path.relative_to(repo_root)
+        item.photo_path = str(relative_path)
+    except ValueError:
+        # Jeśli nie można zrelatywizować — zapisz absolutną
+        item.photo_path = str(photo_path)
     db.commit()
-    return {"ok": True, "photo_path": str(photo_path)}
+    return {"ok": True, "photo_path": item.photo_path}
 
 
 @router.get("/collection/{item_id}/thumbnail")
@@ -278,7 +285,26 @@ async def get_collection_thumbnail(
     if not item or not item.photo_path:
         raise HTTPException(status_code=404, detail="Brak zdjęcia.")
 
-    path = Path(item.photo_path)
+    raw_path = item.photo_path
+    path = Path(raw_path)
+    # Jeśli ścieżka relatywna — rozwiąż względem repo root
+    if not path.is_absolute():
+        repo_root = Path(__file__).resolve().parents[2]
+        path = repo_root / path
+    # Jeśli ścieżka absolutna ale nie istnieje —
+    # spróbuj jako relatywna od repo root
+    if not path.exists() and Path(raw_path).is_absolute():
+        repo_root = Path(__file__).resolve().parents[2]
+        try:
+            parts = Path(raw_path).parts
+            data_idx = next(
+                i for i, p in enumerate(parts)
+                if p == "data"
+            )
+            relative = Path(*parts[data_idx:])
+            path = repo_root / relative
+        except (StopIteration, Exception):
+            pass
     if not path.exists():
         raise HTTPException(status_code=404, detail="Plik zdjęcia nie istnieje.")
 

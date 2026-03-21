@@ -447,7 +447,7 @@ def _normalize_verdict_from_probabilities(report_data: Dict[str, Any]) -> None:
             else:
                 level = "bardzo_wysoki"
 
-            verdict_obj["confidence_percent"] = pct
+            verdict_obj["confidence_percent"] = min(pct, 95)
             verdict_obj["confidence_level"] = level
             report_data["verdict"] = verdict_obj
 
@@ -511,7 +511,7 @@ _LABEL_MAP = {
     "edycja_limitowana": "Edycja Limitowana",
     "treningowa_custom": "Treningowa / Custom",
 }
-_CEILING_MAP = {"high": 80, "medium": 60, "low": 40}
+_CEILING_MAP = {"high": 100, "medium": 60, "low": 40}
 
 
 def _round_to_10(n: int) -> int:
@@ -715,12 +715,20 @@ def _compute_confidence_ceiling(
     # Meczowa: hard quality gate na podstawie manufacturing_signals (lub fallback D-status)
     if verdict_category == "meczowa":
         if mfg_quality == "poor":
+            # Poor mfg zawsze blokuje high confidence
+            # chyba że SKU jest oficjalnie potwierdzony
+            if sku_effect == "supports_authentic":
+                return "medium", "Słaba jakość wykonania mimo potwierdzonego SKU"
             return "medium", "Słaba jakość wykonania blokuje high confidence meczowej"
         elif mfg_quality == "mixed":
-            # brak potwierdzonego SKU + mieszana jakość → niski ceiling
-            if sku_effect != "supports_authentic":
+            if sku_effect == "supports_authentic":
+                # SKU potwierdzony + mixed mfg → high ceiling
+                # Mixed mfg przy autentycznej meczowej jest normalne
+                return "high", ""
+            elif sku_effect == "ceiling_reduced":
                 return "low", "Mieszana jakość wykonania + brak potwierdzonego SKU — ceiling niski"
-            return "medium", "Mieszana jakość wykonania ogranicza ceiling meczowej"
+            else:
+                return "medium", "Mieszana jakość wykonania ogranicza ceiling meczowej"
         elif mfg_quality == "fallback":
             # ścieżka legacy: D status + construction_flagged
             if d_status in ("RED", "YELLOW") or construction_flagged:
@@ -749,12 +757,23 @@ def _compute_classification(
     if verdict_category in _FAKE:
         return "likely_fake"
     elif verdict_category == "meczowa":
-        # poor = hard push
         if mfg_quality == "poor":
+            # Poor mfg zawsze mixed_signals
+            # chyba że SKU oficjalnie potwierdzony
+            sku_status_cls = sku_verification.get("status", "uncertain")
+            if sku_status_cls in ("confirmed", "found_official"):
+                return "likely_match_issue"
             return "mixed_signals"
-        # mixed alone wystarczy — dedykowany ETAP 6 eliminuje confirmation bias,
-        # więc mixed jest już po bezstronnej ocenie jakości fizycznej
         if mfg_quality == "mixed":
+            # Mixed mfg + SKU confirmed/authorized
+            # → likely_match_issue (SKU wygrywa)
+            sku_status_cls = sku_verification.get("status", "uncertain")
+            if sku_status_cls in (
+                "confirmed",
+                "found_official",
+                "found_authorized",
+            ):
+                return "likely_match_issue"
             return "mixed_signals"
         # fallback: legacy D-status logic
         fallback_concern = mfg_quality == "fallback" and (d_not_clean or construction_flagged)
@@ -1177,7 +1196,8 @@ async def _run_mfg_check(
             contents=[types.Content(role="user", parts=parts)],
             config=types.GenerateContentConfig(
                 system_instruction=_MFG_CHECK_PROMPT,
-                temperature=0.1,
+                temperature=0.0,
+                response_mime_type="application/json",
             ),
         )
     except Exception as e:
@@ -1256,22 +1276,38 @@ def _build_override_key_evidence(
 
     # SKU hard reject (mismatch / found_unofficial / format_invalid)
     if "sku_mismatch_hard_reject" in hard_flags:
-        sku_status = (sku_verification.get("status") or "mismatch")
-        raw_reason = (sku_verification.get("reason") or "")
-        if sku_status == "found_unofficial":
+        sku_status_val = sku_verification.get("status", "")
+        found_product = (sku_verification.get("found_product_name") or "")
+        raw_sku = (
+            (sku_verification.get("reason") or "")
+            .split(".")[0]  # tylko pierwsze zdanie
+        )
+
+        # Jeśli metka nie była widoczna — wyjaśnij skąd pochodzi info o SKU
+        if manufacturing_signals.get("neck_tag_quality") == "unclear":
             override_reasons.append(
-                f"⚠ Kod SKU znaleziony wyłącznie na nieautoryzowanych/podróbkowych stronach — "
-                f"eliminuje autentyczność. {raw_reason}"
+                "ℹ Metka wewnętrzna nie była widoczna na zdjęciach — "
+                "SKU zweryfikowany na podstawie danych zewnętrznych."
             )
-        elif sku_status == "format_invalid":
+
+        if sku_status_val == "found_unofficial":
             override_reasons.append(
-                f"⚠ Kod SKU ma nieprawidłowy format — "
-                f"nie odpowiada żadnemu wzorcowi oryginalnego producenta. {raw_reason}"
+                "⚠ Kod SKU znaleziony wyłącznie na "
+                "stronach z podróbkami."
+            )
+        elif sku_status_val == "format_invalid":
+            override_reasons.append(
+                "⚠ Kod SKU ma nieprawidłowy format — "
+                "nie odpowiada wzorcom producenta."
+            )
+        elif found_product:
+            override_reasons.append(
+                f"⚠ Kod SKU należy do innego produktu: "
+                f"{found_product}."
             )
         else:
             override_reasons.append(
-                f"⚠ Kod SKU przypisany do innej koszulki — "
-                f"eliminuje autentyczność. {raw_reason}"
+                f"⚠ Kod SKU nieautentyczny. {raw_sku}."
             )
 
     # Brak SKU + poor manufacturing
@@ -1354,6 +1390,23 @@ def _build_override_key_evidence(
                 "⚠ Słaba jakość fizyczna wykonania — "
                 "wyklucza wersję meczową i wskazuje na podróbkę."
             )
+
+    # Konkretne obserwacje z manufacturing_signals (poor / good)
+    _mfg_fields_pl = {
+        "seams_quality": "szwy",
+        "construction_quality": "ogólna konstrukcja",
+        "panel_join_quality": "łączenia paneli",
+        "finish_quality": "wykończenie kołnierza i krawędzi",
+        "material_quality": "materiał",
+        "neck_tag_quality": "metka wewnętrzna",
+        "print_application_quality": "nadruki/aplikacje",
+    }
+    for field, label in _mfg_fields_pl.items():
+        val = manufacturing_signals.get(field)
+        if val == "poor":
+            override_reasons.append(f"⚠ Jakość fizyczna — słabe: {label}.")
+        elif val == "good":
+            override_reasons.append(f"✓ Jakość fizyczna — poprawne: {label}.")
 
     if not override_reasons:
         return list(original_evidence)
@@ -1666,15 +1719,25 @@ def run_rule_engine(
         override = "podrobka"
         hard_flags = hard_flags + ["match_issue_blocked_by_poor_manufacturing"]
         reasoning_limits_out.append("poor_manufacturing_overrides_match_issue")
-        # Backend aktualizuje key_evidence po hard override
-        _original_evidence = report_data.get("key_evidence") or []
-        _new_evidence = _build_override_key_evidence(
+        # Reset probabilities spójny z override
+        _probs_mib = report_data.get("probabilities") or {}
+        for _k in _probs_mib:
+            _probs_mib[_k] = 0
+        _probs_mib["podrobka"] = 80
+        _probs_mib["oryginalna_sklepowa"] = 8
+        _probs_mib["oficjalna_replika"] = 6
+        _probs_mib["treningowa_custom"] = 4
+        _probs_mib["edycja_limitowana"] = 2
+        _probs_mib["meczowa"] = 0
+        report_data["probabilities"] = _probs_mib
+        # Aktualizuj key_evidence
+        _orig_ev = report_data.get("key_evidence") or []
+        report_data["key_evidence"] = _build_override_key_evidence(
             hard_flags=hard_flags,
             manufacturing_signals=manufacturing_signals or {},
             sku_verification=sku_verification,
-            original_evidence=_original_evidence,
+            original_evidence=_orig_ev,
         )
-        report_data["key_evidence"] = _new_evidence
 
     # HARD OVERRIDE: neck_tag poor + brak SKU → podrobka
     # Neck tag to jeden z najważniejszych sygnałów dla ekspertów
@@ -1803,8 +1866,11 @@ def run_rule_engine(
         # Nadpisz tylko gdy hard override nie ustawił już explicite wyższej wartości
         current_conf = report_data["verdict"].get("confidence_percent", 0)
         if verdict_category not in _FAKE or current_conf < new_confidence_percent:
-            report_data["verdict"]["confidence_percent"] = final_confidence_percent
-            report_data["verdict"]["confidence_level"] = _map_percent_to_confidence_level(final_confidence_percent)
+            # CAP BIZNESOWY: max 95% — LegitScore to
+            # analiza ryzyka, nie certyfikat autentyczności
+            final_confidence = min(final_confidence_percent, 95)
+            report_data["verdict"]["confidence_percent"] = final_confidence
+            report_data["verdict"]["confidence_level"] = _map_percent_to_confidence_level(final_confidence)
         if confidence_explanation:
             report_data["verdict"]["confidence_explanation"] = confidence_explanation
 
@@ -1846,6 +1912,46 @@ def run_rule_engine(
         if final_cat and final_cat in _LABEL_MAP:
             final_verdict["label"] = _LABEL_MAP[final_cat]
             report_data["verdict"] = final_verdict
+
+    # Wyrównanie probability dominującej kategorii z final_confidence_percent
+    # gdy różnica > 20pp — eliminuje sprzeczne liczby w UI
+    _final_conf = report_data.get("verdict", {}).get("confidence_percent", 0)
+    _sync_probs = report_data.get("probabilities") or {}
+    _sync_cat = (report_data.get("verdict") or {}).get("verdict_category", "")
+    if (
+        _sync_cat
+        and _sync_cat in _sync_probs
+        and isinstance(_final_conf, (int, float))
+        and abs(_sync_probs[_sync_cat] - _final_conf) > 20
+    ):
+        _old_cat_prob = _sync_probs[_sync_cat]
+        _new_cat_prob = int(_final_conf)
+        _diff = _old_cat_prob - _new_cat_prob  # dodatni = zmniejszamy
+        _other_keys = [k for k in _sync_probs if k != _sync_cat]
+        _other_total = sum(_sync_probs[k] for k in _other_keys)
+        _sync_probs[_sync_cat] = _new_cat_prob
+        if _other_total > 0 and _diff != 0:
+            # Rozłóż różnicę proporcjonalnie na pozostałe kategorie
+            _distributed = 0
+            for i, k in enumerate(_other_keys):
+                if i == len(_other_keys) - 1:
+                    # Ostatnia kategoria absorbuje resztę zaokrągleń
+                    _sync_probs[k] = max(0, 100 - _new_cat_prob - _distributed)
+                else:
+                    _share = int(round(_sync_probs[k] / _other_total * (_other_total + _diff)))
+                    _sync_probs[k] = max(0, _share)
+                    _distributed += _sync_probs[k]
+        # Upewnij się że suma = 100
+        _sum_check = sum(_sync_probs.values())
+        if _sum_check != 100:
+            _max_other = max((_k for _k in _other_keys), key=lambda k: _sync_probs[k], default=None)
+            if _max_other:
+                _sync_probs[_max_other] = max(0, _sync_probs[_max_other] + (100 - _sum_check))
+        report_data["probabilities"] = _sync_probs
+        logger.info(
+            "prob_sync: %s prob %d→%d (confidence=%d)",
+            _sync_cat, _old_cat_prob, _new_cat_prob, _final_conf,
+        )
 
     # Problem 1: znormalizowany tekst obserwacji SKU
     sku_note = _build_sku_observation_text(subject, sku_verification)

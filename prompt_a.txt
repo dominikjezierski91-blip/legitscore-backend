@@ -86,9 +86,10 @@ Na podstawie aktualnego wejścia ustal wyłącznie:
 - jakie cechy są faktycznie widoczne
 - jakie pola subject można ustalić z obrazu/opisu
 
-Dla pola `subject.sku`: odczytaj kod produktu z metki wewnętrznej lub tagu cenowego.
-Jeśli metka widoczna, ale kod nieczytelny: "nieczytelne".
-Jeśli brak metki lub tagu z kodem w zestawie zdjęć: "nieustalone".
+Dla pola `subject.sku`: odczytaj kod produktu WYŁĄCZNIE z metki wewnętrznej przyszytej do koszulki (neck tag, wash care label, side label). NIE odczytuj SKU z papierowych metek wiszących (hang tags) chyba że zawierają kod kreskowy lub QR.
+Jeśli metka wewnętrzna widoczna, ale kod nieczytelny: "nieczytelne".
+Jeśli brak metki wewnętrznej w zestawie zdjęć: "nieustalone".
+Jeśli jedyny widoczny kod pochodzi z hang tagu bez kodu QR/kreskowego i nie pasuje do wzorców producenta: "nieustalone".
 
 Jeśli nie da się ustalić pola subject, wpisz "nieustalone".
 
@@ -259,11 +260,34 @@ Dozwolone pola:
 - player_number
 - sku
 
-Pole `sku` to kod produktu widoczny na metce wewnętrznej lub papierowym tagu cenowym.
+Pole `sku` to kod produktu widoczny na metce WEWNĘTRZNEJ przyszytej do koszulki.
+
+ROZPOZNAWANIE SKU — ZASADY:
+
+SKU produktu to kod widoczny NA:
+- Wewnętrznej metce przyszytej do koszulki (neck tag / wash care label / inner label)
+- Małej metce przyszytej do boku lub dołu koszulki
+- Metce z kodem QR lub kodem kreskowym
+
+Format SKU zależny od producenta:
+- Nike: XXXXXX-XXX (np. FN8680-456, DM1840-452)
+- Adidas: kombinacja liter i cyfr (np. BI1872S7T1, IY0045, GL3746)
+- Puma: XXXXXX-XX (cyfry z myślnikiem)
+- Umbro/Kappa/Macron: różne formaty tekstowe na wewnętrznej metce
+
+NIE traktuj jako SKU:
+- Kodów z papierowych metek wiszących (hang tags) jeśli to jedyny widoczny kod bez kodu QR/kreskowego
+- Numerów partii produkcyjnych (zwykle same cyfry, np. P95985, 100854320)
+- Kodów z etykiet sklepowych
+- Numerów aukcji lub referencji sprzedawcy
+
+ZASADA: Jeśli jedyny widoczny kod to papierowa metka wisząca bez kodu QR/kreskowego i bez formatu pasującego do wzorców producenta → subject.sku = "nieustalone"
+Jeśli nie ma pewności czy kod pochodzi z wewnętrznej metki czy z hang tagu → subject.sku = "nieustalone"
+
 Dozwolone wartości:
 - czytelny kod (dokładnie jak widoczny na metce, np. "AQ3757-451")
-- "nieczytelne" (gdy metka jest widoczna, ale kod jest nieczytelny)
-- "nieustalone" (gdy brak zdjęcia metki lub tagu z kodem)
+- "nieczytelne" (gdy metka wewnętrzna jest widoczna, ale kod jest nieczytelny)
+- "nieustalone" (gdy brak zdjęcia metki wewnętrznej lub pewności co do źródła kodu)
 
 Jeśli czegoś nie da się odczytać lub potwierdzić:
 - wpisz "nieustalone"
@@ -393,6 +417,17 @@ B — Zgodność SKU z modelem / sezonem — 2
 F — Squad check — 1
 G — Źródło zakupu / kontekst — 1
 
+KRYTERIUM G — szczegółowe zasady oceny:
+- Waga: 1 (najniższa w systemie)
+- Niska cena to sygnał pomocniczy, NIE eliminujący
+- Autentyczna koszulka może być tania z wielu powodów: zakup używany, stary sezon, promocja, sprzedaż prywatna
+- Oceniaj cenę TYLKO w kontekście innych sygnałów
+- Sama niska cena NIE może być głównym powodem klasyfikacji jako podróbka
+- GREEN: cena rynkowa lub wyższa, znane źródło
+- YELLOW: cena poniżej rynkowej ale inne sygnały są pozytywne
+- RED: cena ekstremalnie niska (poniżej 20% wartości rynkowej) ORAZ inne sygnały też wskazują na podróbkę
+- UNKNOWN: brak informacji o cenie / źródle
+
 Kryterium D obejmuje nie tylko materiał i technologię, ale też:
 - jakość szwów i łączeń paneli
 - wykończenie krawędzi i kołnierzyka
@@ -410,6 +445,15 @@ Analiza krzyżowa:
 Uwaga:
 Analiza krzyżowa ma opierać się wyłącznie na spójności wewnętrznej danych z wejścia.
 Nie wolno symulować wiedzy katalogowej spoza wejścia.
+
+CRITICAL — Hierarchia sygnałów przy budowaniu summary i key_evidence:
+1. Fizyczna jakość wykonania (szwy, materiał, nadruki) — najważniejsza
+2. SKU i metki — bardzo ważne
+3. Herb, logo, personalizacja — ważne
+4. Cena i źródło — pomocnicze, nigdy dominujące
+
+Nigdy nie stawiaj ceny jako pierwszego lub głównego argumentu w summary ani key_evidence.
+Cena może być wymieniona jako dodatkowy kontekst ale musi być poprzedzona fizycznymi sygnałami.
 
 ================================================
 8. VINTAGE-SAFE: METKA SPRANA VS FAŁSZYWA

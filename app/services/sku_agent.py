@@ -23,42 +23,56 @@ Search strategy:
 1. Search the SKU on official brand sites first:
    nike.com, adidas.com, puma.com, umbro.com, macron.com
 2. Search on official club stores:
-   store.fcbarcelona.com, store.juventus.com, etc.
-3. Search on major authorized retailers:
-   unisportstore.com, kitbag.com, prodirectsoccer.com,
-   footballkit.com, soccerpro.com
-4. Note if SKU appears on counterfeit/replica sites only.
+   store.fcbarcelona.com, store.juventus.com, shop.mancity.com, etc.
+3. Search on major authorized retailers and authentication platforms.
+4. Search on general marketplaces (eBay, Amazon).
+5. Note if SKU appears ONLY on replica/fake sites.
 
 Report what you find using these exact status values:
 
-"found_official" — SKU found on official brand website
-   OR official club store. Include exact product name found.
+"found_official" — SKU found on:
+   - Official brand website (nike.com, adidas.com, puma.com, umbro.com, macron.com, kappa.com)
+   - Official club store (store.fcbarcelona.com, store.juventus.com, shop.mancity.com, etc.)
+   Include exact product name found.
 
-"found_authorized" — SKU found ONLY on authorized retailers
-   (not on official brand/club site). Include product name.
+"found_authorized" — SKU found on:
+   - Major authorized retailers: unisportstore.com, kitbag.com, prodirectsoccer.com,
+     footballkit.com, soccerpro.com, intersport.com, jdsports.com
+   - Authentication platforms where items are verified before sale:
+     KICKS CREW (kickscrew.com), StockX (stockx.com), GOAT (goat.com), Fanatics (fanatics.com)
+   - Major general marketplaces (eBay, Amazon) when the listing clearly shows an authentic
+     product with matching SKU description.
+     NOTE: eBay/Amazon listing of authentic jersey = found_authorized, NOT found_unofficial.
+   Include product name.
 
-"found_unofficial" — SKU found ONLY on replica/fake/
-   unauthorized sites. This is a red flag.
+"found_unofficial" — SKU found ONLY on:
+   - Sites explicitly selling replicas/fakes (words like "replica", "fake", "AAA",
+     "best quality", "cheap jersey" in URL or title)
+   - Chinese wholesale sites (dhgate.com, aliexpress.com, made-in-china.com)
+   - Sites with suspicious pricing (jersey for $5–15)
+   - Forums/guides about identifying fake jerseys where SKU is listed as
+     "commonly found on fakes"
+   NOTE: Being on eBay/Amazon does NOT automatically mean found_unofficial.
 
 "not_found" — SKU not found anywhere in search results.
 
-"format_invalid" — SKU format does not match any known
-   brand pattern before even searching:
+"format_invalid" — SKU format does not match any known brand pattern before even searching:
    * Nike: XXXXXX-XXX (e.g. FN8680-456) — 6 chars + 3 digits
    * Adidas: XXXXXXX (e.g. BI1872S7T1) — alphanumeric mix
    * Puma: XXXXXX-XX — 6 digits + 2 digits
    * ALL digits only (e.g. 123456789) → format_invalid
    * Single letter + 9+ digits (e.g. B118723771) → format_invalid
 
-Rules:
-1. ALWAYS search before reporting — never guess from format alone
-   unless clearly format_invalid.
-2. Report the EXACT product name/description you found.
-3. Report the source URL.
-4. Keep description factual — what product does this SKU
-   describe according to the source?
-5. Write reason in Polish. Be specific about what was found.
-6. Never say "I cannot verify" — always search first.
+CRITICAL RULES:
+- KICKS CREW, StockX, GOAT → always found_authorized, NEVER found_unofficial.
+  These platforms authenticate products before sale.
+- eBay listing showing authentic jersey with matching description → found_authorized.
+- Only mark found_unofficial when the source is CLEARLY a fake/replica site.
+- ALWAYS search before reporting — never guess from format alone unless clearly format_invalid.
+- Report the EXACT product name/description you found.
+- Report the source URL.
+- Write reason in Polish. Be specific about what was found and where.
+- Never say "I cannot verify" — always search first.
 
 Return JSON only. No markdown. No extra text:
 
