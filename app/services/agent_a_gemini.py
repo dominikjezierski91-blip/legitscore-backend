@@ -1260,6 +1260,32 @@ def _extract_year_from_season(season: str) -> Optional[int]:
     return None
 
 
+def _clean_contradictory_data_after_override(report_data: Dict[str, Any]) -> None:
+    """Usuwa z missing_data i notes wpisy sprzeczne z hard override na podróbkę.
+
+    Po hard override verdict=podrobka, wpisy sugerujące że brak SKU/metki
+    jest powodem niepewności (a nie dowodem podróbki) są mylące dla użytkownika.
+    """
+    _contradiction_phrases = [
+        "sku", "kod produktu", "kod sku",
+        "metki wewnętrznej", "metką wewnętrzną", "metek wewnętrznych", "wewnętrznej metki",
+    ]
+
+    missing = report_data.get("missing_data") or []
+    cleaned_missing = [
+        m for m in missing
+        if not any(phrase in str(m).lower() for phrase in _contradiction_phrases)
+    ]
+    report_data["missing_data"] = cleaned_missing
+
+    notes = report_data.get("notes") or {}
+    if isinstance(notes, dict):
+        mode_note = notes.get("mode_note", "")
+        if any(phrase in mode_note.lower() for phrase in _contradiction_phrases):
+            notes["mode_note"] = ""
+        report_data["notes"] = notes
+
+
 def _build_override_key_evidence(
     hard_flags: List[str],
     manufacturing_signals: Dict[str, Any],
@@ -1532,6 +1558,7 @@ def run_rule_engine(
         report_data["key_evidence"] = _new_evidence
         _update_decision_matrix_row(dm, "A", "RED", "Kod SKU przypisany do innej koszulki — jednoznaczny sygnał podróbki.")
         _update_decision_matrix_row(dm, "B", "RED", "Kod SKU niezgodny z tym modelem i sezonem.")
+        _clean_contradictory_data_after_override(report_data)
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -1617,6 +1644,7 @@ def run_rule_engine(
         )
         report_data["key_evidence"] = _new_evidence
         _update_decision_matrix_row(dm, "A", "RED", "Brak kodu SKU przy słabej jakości fizycznej wykonania.")
+        _clean_contradictory_data_after_override(report_data)
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -1770,6 +1798,7 @@ def run_rule_engine(
             sku_effect, dm_statuses, missing_data, "podrobka", coverage_result, reasoning_limits,
             construction_flagged, mfg_quality,
         )
+        _clean_contradictory_data_after_override(report_data)
 
     # HARD OVERRIDE: neck_tag poor + brak SKU → podrobka
     # Neck tag to jeden z najważniejszych sygnałów dla ekspertów
@@ -1815,6 +1844,7 @@ def run_rule_engine(
             original_evidence=_original_evidence,
         )
         report_data["key_evidence"] = _new_evidence
+        _clean_contradictory_data_after_override(report_data)
 
     # HARD OVERRIDE: print_application poor + brak SKU
     # Bąbelki/odstawanie nadruków = jednoznaczny sygnał taniej podróbki
@@ -1863,6 +1893,7 @@ def run_rule_engine(
         )
         report_data["key_evidence"] = _new_evidence
         _update_decision_matrix_row(dm, "D", "RED", "Słaba jakość aplikacji nadruków — widoczne bąbelki i odstawanie krawędzi.")
+        _clean_contradictory_data_after_override(report_data)
 
     # Oblicz confidence_percent PO wszystkich hard overrides
     # ceiling_value, verdict_prob i probs odzwierciedlają aktualny stan po overrides
