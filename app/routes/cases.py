@@ -514,7 +514,30 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "[CONSISTENCY_CHECK] case_id=%s status=%s confidence=%s",
                             case_id, _pcc_result.get("status"), _pcc_result.get("confidence"),
                         )
-                        _update_progress("sku", 65, "Weryfikacja kodu SKU...")
+
+                    # Synchronizuj decision_matrix wiersz F z wynikiem PCC
+                    pcc_status = report_data["player_club_consistency"].get("status", "uncertain")
+                    pcc_reason = report_data["player_club_consistency"].get("reason", "")
+                    dm = report_data.get("decision_matrix") or []
+                    for row in dm:
+                        if isinstance(row, dict) and row.get("code") == "F":
+                            if pcc_status == "consistent":
+                                row["status"] = "GREEN"
+                                row["impact"] = "neutralne"
+                            elif pcc_status == "inconsistent":
+                                row["status"] = "RED"
+                                row["impact"] = "obniza"
+                            elif pcc_status == "not_applicable":
+                                row["status"] = "UNKNOWN"
+                                row["impact"] = "neutralne"
+                            else:  # uncertain
+                                row["status"] = "YELLOW"
+                                row["impact"] = "ogranicza_pewnosc"
+                            if pcc_reason:
+                                row["observation"] = pcc_reason
+                            break
+
+                    _update_progress("sku", 65, "Weryfikacja kodu SKU...")
 
                     # ETAP 5 — SKU
                     if isinstance(_sku_result, Exception):
@@ -529,7 +552,45 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "[SKU_VERIFICATION] case_id=%s status=%s confidence=%s",
                             case_id, _sku_result.get("status"), _sku_result.get("confidence"),
                         )
-                        _update_progress("mfg_check", 75, "Ocena jakości wykonania...")
+
+                    # Synchronizuj decision_matrix wiersze A i B z wynikiem SKU verification
+                    _sku_status = report_data["sku_verification"].get("status", "uncertain")
+                    _sku_reason = report_data["sku_verification"].get("reason", "")
+                    _sku_dm_map = {
+                        "found_official": (
+                            ("GREEN", "Kod SKU potwierdzony w oficjalnym źródle producenta."),
+                            ("GREEN", "Kod SKU zgodny z deklarowanym modelem i sezonem."),
+                        ),
+                        "found_authorized": (
+                            ("GREEN", "Kod SKU potwierdzony u autoryzowanego sprzedawcy."),
+                            ("YELLOW", "Kod SKU potwierdzony u autoryzowanego sprzedawcy — zgodność z modelem bardzo prawdopodobna."),
+                        ),
+                        "found_unofficial": (
+                            ("RED", "Kod SKU powiązany z nieautoryzowanymi produktami."),
+                            ("RED", "Kod SKU niezgodny z autentycznym produktem."),
+                        ),
+                        "not_found": (
+                            ("YELLOW", "Kod SKU nie został znaleziony w dostępnych źródłach."),
+                            None,  # wiersz B bez zmian
+                        ),
+                        "format_invalid": (
+                            ("RED", "Kod SKU ma nieprawidłowy format."),
+                            ("RED", "Kod SKU niezgodny z wzorcami producenta."),
+                        ),
+                    }
+                    if _sku_status in _sku_dm_map:
+                        _a_update, _b_update = _sku_dm_map[_sku_status]
+                        for _row in (report_data.get("decision_matrix") or []):
+                            if not isinstance(_row, dict):
+                                continue
+                            if _row.get("code") == "A" and _a_update:
+                                _row["status"] = _a_update[0]
+                                _row["observation"] = _a_update[1]
+                            elif _row.get("code") == "B" and _b_update:
+                                _row["status"] = _b_update[0]
+                                _row["observation"] = _b_update[1]
+
+                    _update_progress("mfg_check", 75, "Ocena jakości wykonania...")
 
                     # ETAP 6 — Manufacturing
                     if isinstance(_mfg_result, Exception):

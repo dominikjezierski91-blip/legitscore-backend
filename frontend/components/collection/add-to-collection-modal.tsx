@@ -68,21 +68,29 @@ export function AddToCollectionModal({ caseId, mode, reportData, onClose, onSave
     return (
       <ModalShell onClose={onClose}>
         <div className="space-y-4 text-center">
-          <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-400" />
+          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-400" />
           <div>
-            <h2 className="text-lg font-semibold text-slate-50">Dodano do kolekcji</h2>
+            <h2 className="text-lg font-semibold text-slate-50">Zapisano do kolekcji</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Koszulka została zapisana w Twojej kolekcji.
+              Koszulka została dodana do Twojej kolekcji.
             </p>
           </div>
-          <button
-            onClick={() => router.push("/collection")}
-            className="w-full rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-emerald-400"
-          >
-            Zobacz kolekcję
-          </button>
-          <button onClick={onClose} className="w-full text-xs text-muted-foreground hover:text-slate-300">
-            Zamknij
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => router.push("/collection")}
+              className="w-full rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-emerald-400"
+            >
+              Zobacz kolekcję →
+            </button>
+            <button
+              onClick={() => router.push("/analyze")}
+              className="w-full rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+            >
+              Nowa analiza
+            </button>
+          </div>
+          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-slate-300 underline underline-offset-2">
+            Wróć do raportu
           </button>
         </div>
       </ModalShell>
@@ -235,8 +243,14 @@ export function AddToCollectionModal({ caseId, mode, reportData, onClose, onSave
 
 function ModalShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-md rounded-2xl border border-border/60 bg-slate-950 p-6 shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-md rounded-2xl border border-border/60 bg-slate-950 p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
           onClick={onClose}
           className="absolute right-4 top-4 rounded-full p-1 text-slate-500 transition hover:text-slate-300"
