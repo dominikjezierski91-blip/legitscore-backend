@@ -142,7 +142,11 @@ async def estimate_via_gemini(report_data: Dict[str, Any]) -> Dict[str, Any]:
     search_prompt = (
         f'Znajdź aktualne ceny koszulki piłkarskiej: "{query}". {verdict_context} '
         f"Szukaj na Vinted.pl, Allegro.pl i eBay. Priorytet: zakończone transakcje (sprzedane); "
-        f"jeśli brak, użyj aktywnych ofert. Podaj minimum 3 konkretne ceny z podaniem źródła, tytułu i kwoty."
+        f"jeśli brak, użyj aktywnych ofert. Podaj minimum 3 konkretne ceny z podaniem źródła, tytułu i kwoty. "
+        f"Always provide specific prices in numbers. If you find prices in GBP or USD, convert them to PLN "
+        f"(1 GBP = {_FX_TO_PLN['GBP']:.0f} PLN, 1 USD = {_FX_TO_PLN['USD']:.1f} PLN) and include the converted PLN value. "
+        f"If you cannot find any specific auction prices with numbers — return empty listings array, "
+        f"do not describe the search process."
     )
 
     loop = asyncio.get_running_loop()

@@ -1066,16 +1066,16 @@ EVALUATION CRITERIA PER FIELD:
    peeling edges on any letter, logo or number; uneven adhesion visible as
    lighter/darker patches; print edges are rough, jagged or show glue residue; colors
    faded or washed out; any element visibly not flat against fabric
-   MIXED: prints mostly flat but with minor imperfections — small bubble in one area,
-   slightly rough edge on one element, minor color inconsistency
+   MIXED: prints mostly flat but with minor imperfections — NO bubbles anywhere;
+   only slightly rough edge on one element, minor color inconsistency; zero blistering
    GOOD: ALL prints and applications perfectly flat, zero bubbles anywhere, edges crisp
    and clean throughout, colors vivid and consistent, zero lifting
    UNCLEAR: no close-up of prints or sponsor logos available, or photo quality
    prevents reliable assessment — do NOT penalize, return "unclear".
    USE THIS when in doubt — do not guess "poor".
 
-   CRITICAL: Even ONE CLEARLY VISIBLE bubble anywhere on ANY print = "poor".
-   If you are not sure whether it is a bubble or a photo artifact → "mixed" or "unclear".
+   CRITICAL: Even ONE CLEARLY VISIBLE bubble anywhere on ANY print = "poor", no exceptions.
+   If you see ANYTHING that looks like a bubble — that is "poor", not "mixed".
 
 8. aging_indicators — Signs of natural aging and wear consistent with
    the jersey's age (fading, pilling, wear at collar/cuffs, slight
@@ -1292,8 +1292,7 @@ def _build_override_key_evidence(
 
         if sku_status_val == "found_unofficial":
             override_reasons.append(
-                "⚠ Kod SKU znaleziony wyłącznie na "
-                "stronach z podróbkami."
+                "⚠ Kod SKU powiązany z nieautoryzowanymi produktami — sygnał podróbki."
             )
         elif sku_status_val == "format_invalid":
             override_reasons.append(
@@ -1766,10 +1765,10 @@ def run_rule_engine(
     sku_status_now = sku_verification.get("status", "uncertain")
     if (
         neck_tag_val == "poor"
-        and sku_status_now in (
-            "not_found", "not_applicable",
-            "uncertain", "invalid",
-            "format_invalid",
+        and sku_status_now not in (
+            "confirmed",
+            "found_official",
+            "found_authorized",
         )
         and verdict_category != "podrobka"  # nie nadpisuj jeśli już podrobka
         and not _is_aged_authentic
@@ -1813,10 +1812,10 @@ def run_rule_engine(
     )
     if (
         print_app_val == "poor"
-        and sku_status_now in (
-            "not_found", "not_applicable",
-            "uncertain", "invalid",
-            "format_invalid",
+        and sku_status_now not in (
+            "confirmed",
+            "found_official",
+            "found_authorized",
         )
         and verdict_category != "podrobka"
         and not _is_aged_authentic

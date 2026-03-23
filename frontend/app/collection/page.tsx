@@ -638,6 +638,7 @@ function CollectionCard({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [valuating, setValuating] = useState(false);
+  const [noDataAfterRefresh, setNoDataAfterRefresh] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Feature 7: inline edit error
   const [editError, setEditError] = useState<string | null>(null);
@@ -750,9 +751,13 @@ function CollectionCard({
 
   async function handleValuate() {
     setValuating(true);
+    setNoDataAfterRefresh(false);
     try {
       const result = await refreshMarketValue(item.id);
       onMarketValueRefresh(item.id, result);
+      if ((result?.market_value_result?.sample_size ?? result?.sample_size ?? 0) === 0) {
+        setNoDataAfterRefresh(true);
+      }
     } catch {
       // ignoruj — user widzi brak wartości
     } finally {
@@ -1032,15 +1037,39 @@ function CollectionCard({
                     Zobacz pełny raport →
                   </Link>
                 )}
-                <button
-                  onClick={handleValuate}
-                  disabled={valuating}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/40 px-4 py-2 text-[11px] font-medium text-slate-300 transition hover:border-emerald-400/40 hover:text-emerald-300 disabled:opacity-50"
-                >
-                  <RefreshCw className={cn("h-3 w-3", valuating && "animate-spin")} />
-                  {valuating ? "Szacuję..." : marketValue != null ? "Odśwież wycenę" : "Sprawdź wartość rynkową"}
-                </button>
-                {item.market_value_updated_at && (
+                {noDataAfterRefresh ? (
+                  <span className="inline-flex items-center gap-2 text-[11px] text-slate-500">
+                    Brak aktywnych aukcji dla tej koszulki
+                    <button
+                      onClick={handleValuate}
+                      disabled={valuating}
+                      className="text-slate-400 underline underline-offset-2 hover:text-slate-300 disabled:opacity-50"
+                    >
+                      {valuating ? "Szacuję..." : "Sprawdź ponownie"}
+                    </button>
+                  </span>
+                ) : marketValue == null && item.market_value_updated_at ? (
+                  <span className="inline-flex items-center gap-2 text-[11px] text-slate-500">
+                    Brak danych rynkowych
+                    <button
+                      onClick={handleValuate}
+                      disabled={valuating}
+                      className="text-slate-400 underline underline-offset-2 hover:text-slate-300 disabled:opacity-50"
+                    >
+                      {valuating ? "Szacuję..." : "Sprawdź ponownie"}
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={handleValuate}
+                    disabled={valuating}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/40 px-4 py-2 text-[11px] font-medium text-slate-300 transition hover:border-emerald-400/40 hover:text-emerald-300 disabled:opacity-50"
+                  >
+                    <RefreshCw className={cn("h-3 w-3", valuating && "animate-spin")} />
+                    {valuating ? "Szacuję..." : marketValue != null ? "Odśwież wycenę" : "Sprawdź wartość rynkową"}
+                  </button>
+                )}
+                {item.market_value_updated_at && !noDataAfterRefresh && (
                   <span className="self-center text-[10px] text-slate-600">
                     Wycena: {new Date(item.market_value_updated_at).toLocaleDateString("pl-PL")}
                     {item.market_value_sample_size ? ` · ${item.market_value_sample_size} aukcji` : ""}
