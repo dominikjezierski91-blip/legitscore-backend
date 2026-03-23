@@ -1583,7 +1583,7 @@ def run_rule_engine(
             "format_invalid",
         )
         and mfg_quality == "poor"
-        and manufacturing_signals  # tylko gdy ETAP 6 dostarczył dane
+        and manufacturing_signals and mfg_quality != "fallback"  # fallback = niekompletne dane z ETAP 6, nie brak problemów
         and verdict_category in _AUTHENTIC_LIKE
         and not _is_aged_authentic  # vintage koszulki są zwolnione
     ):
@@ -1723,7 +1723,7 @@ def run_rule_engine(
     if (
         verdict_category == "meczowa"
         and mfg_quality == "poor"
-        and manufacturing_signals
+        and manufacturing_signals and mfg_quality != "fallback"  # fallback = niekompletne dane z ETAP 6, nie brak problemów
         and _sku_status_for_override not in (
             "confirmed",
             "found_official",
@@ -1758,6 +1758,18 @@ def run_rule_engine(
             original_evidence=_orig_ev,
         )
         _update_decision_matrix_row(dm, "D", "RED", "Słaba jakość fizyczna wykonania wyklucza wersję meczową.")
+        # Ustawiamy confidence_percent explicite — ceiling był policzony przed tym overridem (dla meczowej).
+        # Przeliczamy ceiling dla podróbki żeby dalszy kod używał właściwej wartości.
+        if isinstance(report_data.get("verdict"), dict):
+            report_data["verdict"]["confidence_percent"] = 80
+            report_data["verdict"]["confidence_level"] = "wysoki"
+            report_data["verdict"]["confidence_explanation"] = (
+                "Słaba jakość fizyczna wykonania wyklucza wersję meczową — sygnał podróbki."
+            )
+        confidence_ceiling, ceiling_reason = _compute_confidence_ceiling(
+            sku_effect, dm_statuses, missing_data, "podrobka", coverage_result, reasoning_limits,
+            construction_flagged, mfg_quality,
+        )
 
     # HARD OVERRIDE: neck_tag poor + brak SKU → podrobka
     # Neck tag to jeden z najważniejszych sygnałów dla ekspertów
@@ -1943,7 +1955,7 @@ def run_rule_engine(
         _sync_cat
         and _sync_cat in _sync_probs
         and isinstance(_final_conf, (int, float))
-        and abs(_sync_probs[_sync_cat] - _final_conf) > 20
+        and abs(_sync_probs[_sync_cat] - _final_conf) >= 20
     ):
         _old_cat_prob = _sync_probs[_sync_cat]
         _new_cat_prob = int(_final_conf)
