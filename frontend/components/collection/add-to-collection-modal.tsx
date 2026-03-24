@@ -67,15 +67,15 @@ export function AddToCollectionModal({ caseId, mode, reportData, onClose, onSave
   if (success) {
     return (
       <ModalShell onClose={onClose}>
-        <div className="space-y-4 text-center">
-          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-400" />
+        <div className="flex flex-col items-center gap-5 py-2 text-center">
+          <CheckCircle2 className="h-16 w-16 text-emerald-400" strokeWidth={1.5} />
           <div>
-            <h2 className="text-lg font-semibold text-slate-50">Zapisano do kolekcji</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <h2 className="text-lg font-bold text-slate-50">Zapisano do kolekcji ✓</h2>
+            <p className="mt-1.5 text-sm text-slate-400">
               Koszulka została dodana do Twojej kolekcji.
             </p>
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex w-full flex-col gap-2">
             <button
               onClick={() => router.push("/collection")}
               className="w-full rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-emerald-400"
@@ -84,12 +84,15 @@ export function AddToCollectionModal({ caseId, mode, reportData, onClose, onSave
             </button>
             <button
               onClick={() => router.push("/analyze")}
-              className="w-full rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+              className="w-full rounded-full border border-emerald-400/60 bg-transparent px-4 py-2.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/10"
             >
               Nowa analiza
             </button>
           </div>
-          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-slate-300 underline underline-offset-2">
+          <button
+            onClick={onClose}
+            className="text-xs text-slate-500 hover:text-slate-300 underline underline-offset-2"
+          >
             Wróć do raportu
           </button>
         </div>
@@ -248,7 +251,7 @@ function ModalShell({ children, onClose }: { children: React.ReactNode; onClose:
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md rounded-2xl border border-border/60 bg-slate-950 p-6 shadow-2xl"
+        className="relative w-full max-w-md rounded-2xl border border-border/60 bg-slate-950 p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <button
