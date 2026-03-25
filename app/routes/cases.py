@@ -123,6 +123,43 @@ def _normalize_ig_signal(text: str) -> str:
     return text
 
 
+def _compress_to_phrase(text: str, max_words: int = 6) -> str:
+    """Skraca zdanie do frazy maks. max_words słów dla IG bez urywania w połowie słowa."""
+    if len(text.split()) <= max_words:
+        return text
+
+    # Krok 1: usuń końcowe frazy przyimkowe/względne (iteracyjnie aż do skutku)
+    _tails = [
+        r',?\s+co do \w+$',                                   # "co do jakości"
+        r',?\s+w porównaniu do .+$',                          # "w porównaniu do oryginału"
+        r',?\s+w stosunku do .+$',
+        r',?\s+dla (?:tego|tej|tych|danego|danej)\s+.+$',     # "dla tego modelu koszulki"
+        r',?\s+(?:co|który|która|które)\s+.+$',               # "co sugeruje X", "który wskazuje"
+        r',?\s+wskazując\w*\s+na\s+.+$',                      # "wskazując na podróbkę"
+        r'\s+i\s+widoczn\w+\s+.+$',                           # "i widoczne są X"
+    ]
+    prev = ""
+    while len(text.split()) > max_words and text != prev:
+        prev = text
+        for pat in _tails:
+            trimmed = re.sub(pat, '', text, flags=re.IGNORECASE).strip().rstrip('.,;: ')
+            if trimmed and len(trimmed) >= 5 and len(trimmed.split()) < len(text.split()):
+                text = trimmed
+                break
+
+    if len(text.split()) <= max_words:
+        return text
+
+    # Krok 2: usuń czasowniki posiłkowe (jest/są/ma/mają) — jeśli wynik mieści się w limicie
+    no_cop = re.sub(r'\b(jest|są|ma|mają)\b\s*', '', text, flags=re.IGNORECASE)
+    no_cop = re.sub(r'\s{2,}', ' ', no_cop).strip().rstrip('.,;: ')
+    if no_cop and 3 <= len(no_cop.split()) <= max_words:
+        return no_cop
+
+    # Krok 3: twardy limit — pierwsze max_words słów (word boundary)
+    return ' '.join(text.split()[:max_words]).rstrip('.,;: ')
+
+
 def _shorten_signal(text: str) -> str:
     """Skraca obserwację AI do czytelnej formy bullet point dla IG (fake-only).
     Główna metoda: pierwsze zdanie (do pierwszej kropki). Bez ucinania po liczbie znaków."""
@@ -143,8 +180,8 @@ def _shorten_signal(text: str) -> str:
         r'^brak zbli',
         r'^zdjęcia nie pozwalaj',
         r'^jakość zdjęć',
-        r'uniemo(ż|z)liwia ocen',          # podciąg — filtruje niezależnie od pozycji
-        r'trudna? do (weryfikacji|oceny|sprawdzenia)',  # "trudna do weryfikacji"
+        r'uniemo(ż|z)liwia (ocen|odczyt|weryfik|sprawdz)',  # podciąg — każda forma
+        r'trudna? do (weryfikacji|oceny|sprawdzenia)',
     ]
     for pat in _meta:
         if re.search(pat, text, re.IGNORECASE):
@@ -182,7 +219,13 @@ def _shorten_signal(text: str) -> str:
 
     # 6. Usuń końcową interpunkcję i elipsy
     text = text.rstrip('…').rstrip('.,;: ')
-    if len(text) < 8:
+    if len(text.split()) < 3:   # zbyt krótkie przed kompresją — fragment bez treści
+        return ""
+
+    # 7. Kompresuj do maks. 6 słów (bullet pod IG)
+    text = _compress_to_phrase(text)
+    text = text.rstrip('.,;: ')
+    if len(text.split()) < 3:   # zbyt krótkie po kompresji
         return ""
     return text[0].upper() + text[1:]
 

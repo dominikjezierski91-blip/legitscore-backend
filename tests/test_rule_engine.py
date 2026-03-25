@@ -438,3 +438,107 @@ class TestRunRuleEngineProbabilitiesSync:
         run_rule_engine(report)
         assert report["probabilities"]["podrobka"] == 80
         assert report["probabilities"]["meczowa"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Testy _compress_to_phrase i _shorten_signal (IG fake-case endpoint)
+# ---------------------------------------------------------------------------
+
+class TestCompressToPhrase:
+    """Testy funkcji _compress_to_phrase — kompresja do maks. 6 słów."""
+
+    def _f(self, text, max_words=6):
+        from app.routes.cases import _compress_to_phrase
+        return _compress_to_phrase(text, max_words)
+
+    def test_short_phrase_unchanged(self):
+        assert self._f("Kod SKU nieprawidłowy") == "Kod SKU nieprawidłowy"
+
+    def test_already_six_words_unchanged(self):
+        text = "Nadruk sponsora jest mocno spękany dziś"
+        assert self._f(text) == text
+
+    def test_removes_co_do_tail(self):
+        result = self._f("Jego wykonanie budzi wątpliwości co do jakości")
+        assert "co do" not in result
+        assert len(result.split()) <= 6
+
+    def test_removes_co_sugeruje_tail(self):
+        result = self._f("Naszywka z herbem ma grube krawędzie, co sugeruje niską jakość")
+        assert "co sugeruje" not in result
+        assert len(result.split()) <= 6
+
+    def test_removes_dla_tego_tail(self):
+        result = self._f("Kod SKU na metce jest nieprawidłowy dla tego modelu koszulki")
+        assert len(result.split()) <= 6
+
+    def test_removes_copula_when_needed(self):
+        result = self._f("Nadruk na koszulce jest nierówny i wyblakły dla produktu")
+        assert len(result.split()) <= 6
+
+    def test_hard_limit_fallback(self):
+        result = self._f("jeden dwa trzy cztery pięć sześć siedem osiem dziewięć dziesięć")
+        assert len(result.split()) <= 6
+
+    def test_result_not_empty(self):
+        assert self._f("Kod SKU jest nieprawidłowy dla modelu koszulki sezonowej") != ""
+
+
+class TestShortenSignalIG:
+    """Testy _shorten_signal — pełny pipeline dla IG fake-case."""
+
+    def _s(self, text):
+        from app.routes.cases import _shorten_signal
+        return _shorten_signal(text)
+
+    def test_one_word_fragment_filtered(self):
+        assert self._s("Logotypy") == ""
+
+    def test_two_word_fragment_filtered(self):
+        assert self._s("Nierówne szwy") == ""
+
+    def test_meta_uniemozliwia_odczytanie_filtered(self):
+        assert self._s("Jej stan uniemożliwia odczytanie kodu produktu") == ""
+
+    def test_meta_uniemozliwia_weryfikacje_filtered(self):
+        assert self._s("Metka uniemożliwia weryfikację kodu SKU") == ""
+
+    def test_meta_brak_kluczowych_zdj_filtered(self):
+        assert self._s("Brak kluczowych zdjęć wewnętrznych metek") == ""
+
+    def test_meta_brak_zblizen_filtered(self):
+        assert self._s("Brak zbliżeń na szwy i wykończenia krawędzi") == ""
+
+    def test_pro_auth_filtered(self):
+        assert self._s("Jakość wykonania wydaje się być na wysokim poziomie") == ""
+
+    def test_sku_nieprawidlowy_passes(self):
+        result = self._s("Kod SKU na metce papierowej jest nieprawidłowy dla tego modelu koszulki")
+        assert result
+        assert len(result.split()) <= 6
+
+    def test_ale_takes_negative_conclusion(self):
+        result = self._s("Metka jest widoczna, ale jej treść jest nieczytelna")
+        assert result
+        assert "nieczytelna" in result.lower()
+        assert len(result.split()) <= 6
+
+    def test_jednak_takes_negative_conclusion(self):
+        result = self._s("Herb jest haftowany, jednak wykonanie budzi wątpliwości")
+        assert result
+        assert "wątpliwości" in result.lower()
+
+    def test_max_6_words(self):
+        result = self._s("Naszywka z herbem ma grube, niedokładne krawędzie, co sugeruje niską jakość wykonania w porównaniu do produktów autentycznych")
+        assert result
+        assert len(result.split()) <= 6
+
+    def test_no_trailing_period(self):
+        result = self._s("Kod SKU na metce jest nieprawidłowy dla modelu.")
+        assert result
+        assert not result.endswith('.')
+
+    def test_capitalized(self):
+        result = self._s("kod sku na metce jest nieprawidłowy dla modelu")
+        if result:
+            assert result[0].isupper()
