@@ -1335,6 +1335,7 @@ async def get_random_instagram_fake_case(request: Request):
             "signal_2": signals[1] if len(signals) > 1 else "",
             "signal_3": signals[2] if len(signals) > 2 else "",
             "confidence_percent": conf_rounded,
+            "confidence_label": "wysoka pewność" if conf_rounded >= 80 else "średnia pewność" if conf_rounded >= 50 else "niska pewność",
             "analysis_date": rd.get("analysis_date", "") or "",
         }
 
