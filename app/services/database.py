@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean, Float
+from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean, Float, func as _sqla_func
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -615,9 +615,12 @@ def get_user_list() -> list:
             analysis_count = db.query(CaseRecord).filter(CaseRecord.email == u.email).count()
             collection_count = db.query(CollectionItem).filter(CollectionItem.user_id == u.id).count()
 
-            last_case = db.query(CaseRecord.created_at).filter(
-                CaseRecord.email == u.email
-            ).order_by(CaseRecord.created_at.desc()).first()
+            case_dates = db.query(
+                _sqla_func.max(CaseRecord.created_at),
+                _sqla_func.min(CaseRecord.created_at),
+            ).filter(CaseRecord.email == u.email).first()
+            last_case = (case_dates[0],) if case_dates and case_dates[0] else None
+            first_case = (case_dates[1],) if case_dates and case_dates[1] else None
             last_col = db.query(CollectionItem.added_at).filter(
                 CollectionItem.user_id == u.id
             ).order_by(CollectionItem.added_at.desc()).first()
@@ -637,6 +640,7 @@ def get_user_list() -> list:
                 "analysis_count": analysis_count,
                 "collection_count": collection_count,
                 "last_activity_at": last_activity,
+                "first_analysis_at": first_case[0].isoformat() if first_case and first_case[0] else None,
                 "user_type": getattr(u, "user_type", None),
                 "collection_size_range": getattr(u, "collection_size_range", None),
                 "profile_survey_completed_at": (

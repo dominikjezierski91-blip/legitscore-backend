@@ -52,6 +52,7 @@ type UserRecord = {
   analysis_count: number;
   collection_count: number;
   last_activity_at: string | null;
+  first_analysis_at: string | null;
   user_type: string | null;
 };
 
@@ -416,6 +417,18 @@ function SegBar({ label, value, total }: { label: string; value: number; total: 
 
 // ── Tab: Raporty ───────────────────────────────────────────────────────────
 
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+function todayEndISO(): string {
+  return `${todayISO()}T23:59:59`;
+}
+function daysAgoISO(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 function TabReports() {
   const [data, setData] = useState<CasesResponse | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -423,13 +436,17 @@ function TabReports() {
   const [emailFilter, setEmailFilter] = useState("");
   const [emailInput, setEmailInput] = useState("");
   const [verdictFilter, setVerdictFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback((p: number, email: string, verdict: string) => {
+  const load = useCallback((p: number, email: string, verdict: string, df: string, dt: string) => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(p), limit: "25" });
     if (email) params.set("email", email);
     if (verdict) params.set("verdict", verdict);
+    if (df) params.set("date_from", df);
+    if (dt) params.set("date_to", dt);
     Promise.all([
       apiFetch<CasesResponse>(`/api/dashboard/cases?${params}`),
       apiFetch<Stats>("/api/dashboard/stats"),
@@ -439,25 +456,43 @@ function TabReports() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(1, "", ""); }, [load]);
+  useEffect(() => { load(1, "", "", "", ""); }, [load]);
 
   function applyFilter() {
     setPage(1);
     setEmailFilter(emailInput);
-    load(1, emailInput, verdictFilter);
+    load(1, emailInput, verdictFilter, dateFrom, dateTo);
   }
 
   function clearFilter() {
     setEmailInput("");
     setEmailFilter("");
     setVerdictFilter("");
+    setDateFrom("");
+    setDateTo("");
     setPage(1);
-    load(1, "", "");
+    load(1, "", "", "", "");
+  }
+
+  function applyPreset(preset: "today" | "7d" | "30d" | "all") {
+    let df = "";
+    let dt = "";
+    if (preset === "today") { df = todayISO(); dt = todayEndISO(); }
+    else if (preset === "7d") { df = daysAgoISO(7); dt = ""; }
+    else if (preset === "30d") { df = daysAgoISO(30); dt = ""; }
+    // preset "all": df="" dt="" — jawne resetowanie poniżej
+    setDateFrom(df);
+    setDateTo(dt);
+    setEmailInput("");
+    setEmailFilter("");
+    setVerdictFilter("");
+    setPage(1);
+    load(1, "", "", df, dt);
   }
 
   function goPage(p: number) {
     setPage(p);
-    load(p, emailFilter, verdictFilter);
+    load(p, emailFilter, verdictFilter, dateFrom, dateTo);
   }
 
   const totalPages = data ? Math.ceil(data.total / 25) : 1;
@@ -476,6 +511,49 @@ function TabReports() {
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-700/60 bg-slate-900/40 p-3">
+        {/* Date presets */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-slate-500">Okres</label>
+          <div className="flex gap-1">
+            {([
+              { label: "Dziś",      preset: "today" as const, active: dateFrom === todayISO() && dateTo === todayEndISO() },
+              { label: "7 dni",     preset: "7d"    as const, active: dateFrom === daysAgoISO(7) && dateTo === "" },
+              { label: "30 dni",    preset: "30d"   as const, active: dateFrom === daysAgoISO(30) && dateTo === "" },
+              { label: "Wszystkie", preset: "all"   as const, active: dateFrom === "" && dateTo === "" },
+            ]).map(({ label, preset, active }) => (
+              <button
+                key={preset}
+                onClick={() => applyPreset(preset)}
+                className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                  active
+                    ? "border-emerald-500/60 bg-emerald-900/30 text-emerald-300"
+                    : "border-slate-700 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* Date range inputs */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-slate-500">Od</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500/50 focus:outline-none"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-slate-500">Do</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 focus:border-emerald-500/50 focus:outline-none"
+          />
+        </div>
         <div className="flex flex-col gap-1">
           <label className="text-[10px] text-slate-500">Email</label>
           <input
@@ -483,7 +561,7 @@ function TabReports() {
             onChange={(e) => setEmailInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && applyFilter()}
             placeholder="Filtruj po emailu…"
-            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:border-emerald-500/50 focus:outline-none w-52"
+            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:border-emerald-500/50 focus:outline-none w-44"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -508,7 +586,7 @@ function TabReports() {
         >
           Szukaj
         </button>
-        {(emailFilter || verdictFilter) && (
+        {(emailFilter || verdictFilter || dateFrom || dateTo) && (
           <button
             onClick={clearFilter}
             className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
@@ -622,6 +700,7 @@ function TabUsers() {
             <tr>
               <th className="px-3 py-2.5">Email</th>
               <th className="px-3 py-2.5">Rejestracja</th>
+              <th className="px-3 py-2.5">Pierwsza analiza</th>
               <th className="px-3 py-2.5">Status</th>
               <th className="px-3 py-2.5">Analizy</th>
               <th className="px-3 py-2.5">Kolekcja</th>
@@ -631,7 +710,7 @@ function TabUsers() {
           </thead>
           <tbody className="divide-y divide-slate-800">
             {users.length === 0 ? (
-              <tr><td colSpan={7} className="py-8 text-center text-slate-500">Brak użytkowników</td></tr>
+              <tr><td colSpan={8} className="py-8 text-center text-slate-500">Brak użytkowników</td></tr>
             ) : users.map((u) => (
               <tr key={u.id} className="hover:bg-slate-800/30">
                 <td className="px-3 py-2 text-xs text-slate-200">
@@ -639,6 +718,7 @@ function TabUsers() {
                   {u.is_admin && <Chip cls="ml-2 bg-amber-500/20 text-amber-300">admin</Chip>}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{fmtDate(u.created_at)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{fmtDate(u.first_analysis_at ?? null)}</td>
                 <td className="px-3 py-2"><UserStatusBadge u={u} /></td>
                 <td className="px-3 py-2 text-xs">
                   {u.analysis_count > 0
@@ -722,15 +802,121 @@ function TabUsers() {
 
 // ── Tab: Zgłoszenia ────────────────────────────────────────────────────────
 
-function TabSubmissions() {
+type Submission = {
+  id: string;
+  created_at: string | null;
+  status: string;
+  type: string;
+  message: string;
+  email: string | null;
+  report_id: string | null;
+  analysis_id: string | null;
+  app_section: string | null;
+  source_page: string | null;
+};
+
+function SubTypeBadge({ type }: { type: string }) {
+  const map: Record<string, [string, string]> = {
+    pytanie: ["Pytanie", "bg-blue-500/20 text-blue-300 border-blue-400/40"],
+    problem: ["Problem", "bg-red-500/20 text-red-300 border-red-400/40"],
+    sugestia: ["Sugestia", "bg-purple-500/20 text-purple-300 border-purple-400/40"],
+    inne: ["Inne", "bg-slate-500/20 text-slate-300 border-slate-400/40"],
+  };
+  const [label, cls] = map[type] ?? [type, "bg-slate-700 text-slate-300 border-slate-600"];
   return (
-    <div className="py-4">
-      <iframe
-        src="/dashboard/submissions"
-        className="w-full rounded-xl border border-slate-700"
-        style={{ height: "70vh" }}
-        title="Zgłoszenia"
-      />
+    <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function SubStatusBadge({ status }: { status: string }) {
+  const map: Record<string, [string, string]> = {
+    nowe: ["Nowe", "bg-blue-500/20 text-blue-300 border-blue-400/40"],
+    w_trakcie: ["W trakcie", "bg-amber-500/20 text-amber-300 border-amber-400/40"],
+    zamkniete: ["Zamknięte", "bg-slate-500/20 text-slate-400 border-slate-500/40"],
+  };
+  const [label, cls] = map[status] ?? [status, "bg-slate-700 text-slate-300 border-slate-600"];
+  return (
+    <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function TabSubmissions() {
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch<Submission[]>("/api/support")
+      .then(setSubmissions)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const nowe = submissions.filter((s) => s.status === "nowe").length;
+  const wTrakcie = submissions.filter((s) => s.status === "w_trakcie").length;
+  const zamkniete = submissions.filter((s) => s.status === "zamkniete").length;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="Wszystkie" value={submissions.length} color="slate" />
+        <Stat label="Nowe" value={nowe} color="blue" />
+        <Stat label="W trakcie" value={wTrakcie} color="amber" />
+        <Stat label="Zamknięte" value={zamkniete} color="slate" />
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-slate-700 bg-slate-900/50">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-slate-700 bg-slate-800/50 text-xs uppercase text-slate-400">
+            <tr>
+              <th className="px-4 py-3">Data</th>
+              <th className="px-4 py-3">Typ</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Email</th>
+              <th className="px-4 py-3">Źródło</th>
+              <th className="px-4 py-3">Powiązanie</th>
+              <th className="px-4 py-3">Wiadomość</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {loading ? (
+              <tr><td colSpan={8} className="py-8 text-center text-slate-500">Ładowanie…</td></tr>
+            ) : submissions.length === 0 ? (
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500">Brak zgłoszeń</td></tr>
+            ) : submissions.map((s) => (
+              <tr key={s.id} className="hover:bg-slate-800/30">
+                <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{fmt(s.created_at)}</td>
+                <td className="px-4 py-3"><SubTypeBadge type={s.type} /></td>
+                <td className="px-4 py-3"><SubStatusBadge status={s.status} /></td>
+                <td className="px-4 py-3 text-xs text-slate-300">{s.email || <span className="text-slate-500">—</span>}</td>
+                <td className="px-4 py-3 text-xs text-slate-400">{s.app_section || s.source_page || <span className="text-slate-600">—</span>}</td>
+                <td className="px-4 py-3 font-mono text-[11px] text-slate-500">
+                  {s.report_id
+                    ? s.report_id.slice(0, 8)
+                    : s.analysis_id
+                    ? s.analysis_id.slice(0, 8)
+                    : <span className="text-slate-700">—</span>}
+                </td>
+                <td className="max-w-xs px-4 py-3 text-xs text-slate-300">
+                  <span className="line-clamp-2">{s.message}</span>
+                </td>
+                <td className="px-4 py-3">
+                  <a
+                    href={`/dashboard/submissions/${s.id}`}
+                    className="text-xs text-emerald-400 hover:underline whitespace-nowrap"
+                  >
+                    Otwórz →
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
