@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { submitSupport } from "@/lib/api";
 import { CheckCircle2, ChevronLeft } from "lucide-react";
@@ -19,6 +19,7 @@ export default function ContactPage() {
   const [topic, setTopic] = useState<(typeof TOPICS)[0] | null>(null);
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState(user?.email ?? "");
+  useEffect(() => { if (user?.email) setEmail(user.email); }, [user?.email]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -120,10 +121,7 @@ export default function ContactPage() {
         </div>
 
         {/* Step 1 — topic selection */}
-        <div className={cn(
-          "transition-all duration-300",
-          step === 1 ? "opacity-100 translate-x-0" : "hidden"
-        )}>
+        <div className={cn(step !== 1 && "hidden")}>
           <div className="grid grid-cols-2 gap-3">
             {TOPICS.map((t) => (
               <button
@@ -139,10 +137,7 @@ export default function ContactPage() {
         </div>
 
         {/* Step 2 — form */}
-        <div className={cn(
-          "transition-all duration-300",
-          step === 2 ? "opacity-100 translate-x-0" : "hidden"
-        )}>
+        <div className={cn(step !== 2 && "hidden")}>
           <form onSubmit={handleSubmit} className="glass-card p-5 space-y-4">
             {/* Topic badge + back */}
             <div className="flex items-center justify-between">
