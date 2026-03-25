@@ -328,12 +328,14 @@ export default async function CasePage({ params, searchParams }: Props) {
           <div className="mt-4 border-t border-border/40 pt-4">
             <RatingBalls caseId={case_id} />
           </div>
-          <div className="mt-4 border-t border-border/40 pt-4">
-            <SupportWidget
-              reportId={reportId ?? undefined}
-              analysisId={case_id}
-              appSection="report"
-            />
+          <div className="mt-8">
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 p-5 shadow-lg shadow-black/20 ring-1 ring-slate-800/60">
+              <SupportWidget
+                reportId={reportId ?? undefined}
+                analysisId={case_id}
+                appSection="report"
+              />
+            </div>
           </div>
           <div className="mt-4 border-t border-border/40 pt-4">
             <Link

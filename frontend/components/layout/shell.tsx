@@ -65,6 +65,9 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                 <Link href="/collection" className="text-slate-400 transition hover:text-slate-200">
                   Kolekcja
                 </Link>
+                <Link href="/contact" className="text-slate-400 transition hover:text-slate-200">
+                  Kontakt
+                </Link>
                 <Link href="/account" className="text-slate-400 transition hover:text-slate-200">
                   Konto
                 </Link>
@@ -79,6 +82,9 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               <>
                 <Link href="/analyze" className="text-slate-400 transition hover:text-slate-200">
                   Analiza
+                </Link>
+                <Link href="/contact" className="text-slate-400 transition hover:text-slate-200">
+                  Kontakt
                 </Link>
                 <Link href="/login" className="text-slate-400 transition hover:text-slate-200">
                   Zaloguj się
