@@ -79,7 +79,7 @@ def _is_pro_auth(text: str) -> bool:
     # Negacje odwracają sens → sygnał jest OK dla fake
     if any(neg in lower for neg in [
         'niezgodn', 'niespójn', 'niepoprawni', 'nienaturalny',
-        'wątpliw', 'nieoficjaln', 'podróbk', 'nieoryg',
+        'wątpliw', 'nieoficjaln', 'podróbk', 'podróbek', 'nieoryg',
         'odbiega', 'budzi', 'spękan', 'zniszczon',
         'słab', 'brak ', 'uniemożliwia', 'wyklucza',
     ]):
@@ -89,60 +89,99 @@ def _is_pro_auth(text: str) -> bool:
         'wyglądają poprawni', 'jest poprawni', 'są poprawn', 'wygląda poprawni',
         'charakterystyczn', 'potwierdza', 'gwarantuje autentyczn',
         'wysoka jakość', 'wysoką jakość',
+        'na wysokim poziomie', 'dobrej jakości', 'dobrze wykonan',
         'liczne cechy', 'cechy wersji meczowej', 'cechy autentyczn',
         'jest obecna', 'są obecne',
         'oficjalnej personalizacji', 'oficjalnej wersji',
-        'typowy dla', 'typowe dla', 'typowa dla',
+        'typowy dla', 'typowe dla', 'typowa dla', 'typowym dla', 'typowej dla',
+        'wersji meczowej', 'cech wersji', 'cechą wersji',
         'obecność technolog', 'obecność cech', 'obecność oficj',
         'jest typow', 'są typow',
         'format jest typow',
     ])
 
 
+def _normalize_ig_signal(text: str) -> str:
+    """Usuwa zbędne wstępy raportowe, upraszcza zdanie do formy bullet pod IG."""
+    _intros = [
+        r'^analiz[ay]\s+\w+\s+(że|na|iż)\s+',
+        r'^na podstawie\s+\S+\s*,?\s+',
+        r'^biorąc\s+pod\s+uwagę\s+\S+\s*,?\s+',
+        r'^co\s+(wskazuje?|sugeruje?)\s+(że|na)\s+',
+        r'^widoczna\s+jest\s+',
+        r'^widoczny\s+jest\s+',
+        r'^widoczne\s+jest\s+',
+        r'^jest\s+(?:widoczn[aey]?|obecn[ay]?)\s+',
+    ]
+    for pat in _intros:
+        cleaned = re.sub(pat, '', text, flags=re.IGNORECASE).strip()
+        if cleaned and cleaned != text and len(cleaned) >= 8:
+            text = cleaned
+            break
+    if text:
+        text = text[0].upper() + text[1:]
+    return text
+
+
 def _shorten_signal(text: str) -> str:
-    """Skraca obserwację AI do krótkiej formy pod IG (max ~45 znaków, fake-only)."""
+    """Skraca obserwację AI do czytelnej formy bullet point dla IG (fake-only).
+    Główna metoda: pierwsze zdanie (do pierwszej kropki). Bez ucinania po liczbie znaków."""
+    # 1. Wyczyść nawiasy, emoji, wielokrotne spacje
     text = re.sub(r'\([^)]*\)', ' ', text)
     text = re.sub(r'\s{2,}', ' ', text).strip()
     text = re.sub(r'^[^a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ0-9]+', '', text).strip()
+    if not text:
+        return ""
 
+    # 2. Filtr meta-komentarzy (zdania o braku danych / jakości zdjęć)
     _meta = [
         r'^obserwacje wizualne',
         r'^analiza opiera',
         r'^nie mo(ż|z)na oceni',
         r'^trudno oceni',
-        r'^brak zdj',
+        r'^brak\s+(\w+\s+)?zdj',          # "brak zdjęć", "brak kluczowych zdjęć"
         r'^brak zbli',
         r'^zdjęcia nie pozwalaj',
         r'^jakość zdjęć',
-        r'uniemo(ż|z)liwia ocen',  # podciąg — filtruje niezależnie od pozycji w zdaniu
+        r'uniemo(ż|z)liwia ocen',          # podciąg — filtruje niezależnie od pozycji
+        r'trudna? do (weryfikacji|oceny|sprawdzenia)',  # "trudna do weryfikacji"
     ]
     for pat in _meta:
         if re.search(pat, text, re.IGNORECASE):
             return ""
 
-    m2 = re.split(r'\.\s+(jednak|ale|lecz|niemniej)\s+', text, maxsplit=1, flags=re.IGNORECASE)
-    if len(m2) == 3 and len(m2[2]) >= 10:
-        text = m2[2]
+    # 3. Preferuj negatywną konkluzję po spójniku odwracającym (X, ale Y → weź Y)
+    #    Struktura AI: "cecha neutralna, ALE problem" — konkluzja jest sygnałem
+    #    re.split z grupą przechwytującą zwraca [przed, spójnik, po] — bierzemy indeks 2
+    m_rev = re.split(r'\.\s+(jednak|ale|lecz|niemniej)\s+', text, maxsplit=1, flags=re.IGNORECASE)
+    if len(m_rev) == 3 and len(m_rev[2]) >= 10:
+        text = m_rev[2]
     else:
-        m = re.split(r',\s+(ale|jednak|lecz)\s+', text, maxsplit=1, flags=re.IGNORECASE)
-        if len(m) == 3 and len(m[2]) >= 10:
-            text = m[2]
+        m_rev2 = re.split(r',\s+(ale|jednak|lecz)\s+', text, maxsplit=1, flags=re.IGNORECASE)
+        if len(m_rev2) == 3 and len(m_rev2[2]) >= 10:
+            text = m_rev2[2]
+        else:
+            # 3b. Pierwsze zdanie (do pierwszej ". ") — dla tekstów bez spójnika odwracającego
+            m_sent = re.match(r'^(.+?)\.\s', text, re.DOTALL)
+            if m_sent and len(m_sent.group(1).strip()) >= 8:
+                text = m_sent.group(1).strip()
+            else:
+                # 3c. Fallback: separator logiczny (nie `, co` — to intro konkluzji)
+                for sep in ['; ', ' — ', ' – ', ', który ', ', która ']:
+                    idx = text.find(sep)
+                    if idx >= 15:
+                        text = text[:idx].strip()
+                        break
 
-    for sep in ['. ', '; ', ', co ', ', który', ', która', ', choć', ', chociaż', ' — ', ' – ']:
-        idx = text.find(sep)
-        if 0 < idx < len(text) - 5:
-            text = text[:idx]
-            break
+    # 4. Normalizuj styl — usuń zbędne wstępy raportowe (działa na już wyekstrahowanym fragmencie)
+    text = _normalize_ig_signal(text)
 
+    # 5. Sprawdź pro-autentyczność
     if _is_pro_auth(text):
         return ""
 
-    if len(text) > 45:
-        cut = text[:45]
-        sp = cut.rfind(' ')
-        text = cut[:sp] if sp > 15 else ""
-
-    text = text.rstrip('.,;: ')
+    # 6. Usuń końcową interpunkcję i elipsy
+    text = text.rstrip('…').rstrip('.,;: ')
     if len(text) < 8:
         return ""
     return text[0].upper() + text[1:]
