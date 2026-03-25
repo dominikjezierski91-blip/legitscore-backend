@@ -3,3 +3,4 @@ Jinja2
 WeasyPrint
 passlib[bcrypt]
 python-jose[cryptography]
+anthropic

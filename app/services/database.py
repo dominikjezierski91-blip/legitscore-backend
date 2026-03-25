@@ -314,8 +314,11 @@ def get_all_cases_from_db(
     date_to: Optional[str] = None,
     auth_state_filter: Optional[str] = None,
     verdict_filter: Optional[str] = None,
-) -> list:
-    """Pobiera case'y z bazy z opcjonalnym filtrowaniem."""
+    email_filter: Optional[str] = None,
+    page: int = 1,
+    limit: int = 25,
+) -> dict:
+    """Pobiera case'y z bazy z opcjonalnym filtrowaniem i paginacją."""
     db = SessionLocal()
     try:
         q = db.query(CaseRecord)
@@ -335,30 +338,185 @@ def get_all_cases_from_db(
             q = q.filter(CaseRecord.email.is_(None))
         if verdict_filter:
             q = q.filter(CaseRecord.verdict_category == verdict_filter)
+        if email_filter:
+            q = q.filter(CaseRecord.email.ilike(f"%{email_filter}%"))
 
-        records = q.order_by(CaseRecord.created_at.desc()).all()
-        return [
+        total = q.count()
+        offset = (page - 1) * limit
+        records = q.order_by(CaseRecord.created_at.desc()).offset(offset).limit(limit).all()
+        cases = [
             {
                 "case_id": r.case_id,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "email": r.email,
-                "consent_at": r.consent_at.isoformat() if r.consent_at else None,
-                "offer_link": r.offer_link,
-                "context": r.context,
-                "model": r.model,
-                "prompt_version": r.prompt_version,
                 "verdict_category": r.verdict_category,
                 "confidence_percent": r.confidence_percent,
                 "feedback": r.feedback,
-                "feedback_at": r.feedback_at.isoformat() if r.feedback_at else None,
                 "feedback_comment": r.feedback_comment,
                 "rating": r.rating,
-                "rating_at": r.rating_at.isoformat() if r.rating_at else None,
                 "sku": r.sku,
-                "auth_state": "logged_in" if r.email else "guest",
+                "model": r.model,
+                "prompt_version": r.prompt_version,
             }
             for r in records
         ]
+        return {"cases": cases, "total": total, "page": page, "limit": limit}
+    finally:
+        db.close()
+
+
+def get_activation_detail() -> dict:
+    """Metryki aktywacji: czas do pierwszej analizy i lista nieaktywowanych użytkowników."""
+    db = SessionLocal()
+    try:
+        users = db.query(User).order_by(User.created_at.desc()).all()
+        avg_hours_list = []
+        unactivated = []
+
+        for u in users:
+            first_case = db.query(CaseRecord.created_at).filter(
+                CaseRecord.email == u.email
+            ).order_by(CaseRecord.created_at.asc()).first()
+
+            if first_case and first_case[0] and u.created_at:
+                reg = u.created_at.replace(tzinfo=None)
+                first = first_case[0].replace(tzinfo=None) if hasattr(first_case[0], 'replace') else first_case[0]
+                delta_h = max(0, (first - reg).total_seconds() / 3600)
+                avg_hours_list.append(delta_h)
+            else:
+                unactivated.append({
+                    "id": u.id,
+                    "email": u.email,
+                    "created_at": u.created_at.isoformat() if u.created_at else None,
+                })
+
+        avg_hours = round(sum(avg_hours_list) / len(avg_hours_list), 1) if avg_hours_list else None
+        return {
+            "avg_hours_to_first_analysis": avg_hours,
+            "unactivated_users": unactivated[:20],
+            "unactivated_count": len(unactivated),
+        }
+    finally:
+        db.close()
+
+
+def get_retention_metrics() -> dict:
+    """Metryki retencji: 7-dniowa retencja, engaged users, lista churned."""
+    from datetime import timedelta
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        week_ago = now - timedelta(days=7)
+        churn_cutoff = now.replace(tzinfo=None) - timedelta(days=14)
+
+        total_users = db.query(User).count()
+
+        # Aktywni w ostatnich 7 dniach (via analiza)
+        active_emails = {
+            row[0] for row in
+            db.query(CaseRecord.email)
+            .filter(CaseRecord.created_at >= week_ago, CaseRecord.email.isnot(None))
+            .distinct().all()
+        }
+        active_7d = db.query(User).filter(User.email.in_(active_emails)).count() if active_emails else 0
+        retention_7d_pct = round(active_7d / total_users * 100, 1) if total_users > 0 else 0
+
+        # Engaged: ≥3 analiz
+        engaged_emails = {
+            row[0] for row in
+            db.query(CaseRecord.email, func.count(CaseRecord.case_id).label("cnt"))
+            .filter(CaseRecord.email.isnot(None))
+            .group_by(CaseRecord.email)
+            .having(func.count(CaseRecord.case_id) >= 3)
+            .all()
+        }
+        engaged_count = db.query(User).filter(User.email.in_(engaged_emails)).count() if engaged_emails else 0
+        engaged_pct = round(engaged_count / total_users * 100, 1) if total_users > 0 else 0
+
+        # Churned: miał ≥1 analizę, ale ostatnia >14 dni temu
+        users_with_cases = db.query(User).filter(
+            User.email.in_(
+                db.query(CaseRecord.email).filter(CaseRecord.email.isnot(None)).distinct()
+            )
+        ).all()
+
+        churned = []
+        for u in users_with_cases:
+            last = db.query(CaseRecord.created_at).filter(
+                CaseRecord.email == u.email
+            ).order_by(CaseRecord.created_at.desc()).first()
+            if last and last[0]:
+                last_dt = last[0].replace(tzinfo=None) if hasattr(last[0], 'replace') else last[0]
+                if last_dt < churn_cutoff:
+                    churned.append({
+                        "id": u.id,
+                        "email": u.email,
+                        "last_activity_at": last[0].isoformat(),
+                        "created_at": u.created_at.isoformat() if u.created_at else None,
+                    })
+
+        churned.sort(key=lambda x: x["last_activity_at"], reverse=True)
+        return {
+            "retention_7d_pct": retention_7d_pct,
+            "active_7d_count": active_7d,
+            "engaged_pct": engaged_pct,
+            "engaged_count": engaged_count,
+            "churned_users": churned[:20],
+            "churned_count": len(churned),
+        }
+    finally:
+        db.close()
+
+
+def get_registration_trend(days: int = 30) -> list:
+    """Trend rejestracji dzienny — ostatnie N dni."""
+    from datetime import timedelta
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        result = []
+        for i in range(days - 1, -1, -1):
+            day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            count = db.query(User).filter(
+                User.created_at >= day_start,
+                User.created_at < day_end,
+            ).count()
+            result.append({"date": day_start.strftime("%Y-%m-%d"), "count": count})
+        return result
+    finally:
+        db.close()
+
+
+def get_user_detail(user_id: str) -> Optional[dict]:
+    """Szczegóły użytkownika z listą jego analiz."""
+    db = SessionLocal()
+    try:
+        u = db.query(User).filter(User.id == user_id).first()
+        if not u:
+            return None
+        cases = db.query(CaseRecord).filter(
+            CaseRecord.email == u.email
+        ).order_by(CaseRecord.created_at.desc()).all()
+        return {
+            "id": u.id,
+            "email": u.email,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "is_admin": u.is_admin,
+            "user_type": u.user_type,
+            "cases": [
+                {
+                    "case_id": c.case_id,
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                    "verdict_category": c.verdict_category,
+                    "confidence_percent": c.confidence_percent,
+                    "feedback": c.feedback,
+                    "sku": c.sku,
+                }
+                for c in cases
+            ],
+        }
     finally:
         db.close()
 

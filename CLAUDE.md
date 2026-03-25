@@ -1,3 +1,5 @@
+WAŻNE: Na początku każdej sesji przeczytaj CLAUDE_AGENT_DEV.md i działaj zgodnie z zawartymi tam instrukcjami przez całą sesję.
+
 # LegitScore Backend
 
 ## Project Overview

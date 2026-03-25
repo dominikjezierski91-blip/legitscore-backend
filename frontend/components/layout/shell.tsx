@@ -1,8 +1,8 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
-import { X } from "lucide-react";
+import { X, Bug } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -17,6 +17,15 @@ type ShellProps = {
 export function Shell({ children, className, subtitle }: ShellProps) {
   const { user, logout } = useAuth();
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [criticalCount, setCriticalCount] = useState(0);
+
+  useEffect(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+    fetch(`${apiBase}/api/monitoring/tickets`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setCriticalCount(d.critical_count ?? 0); })
+      .catch(() => {});
+  }, []);
 
   function handleLogout() {
     setLogoutOpen(false);
@@ -39,6 +48,18 @@ export function Shell({ children, className, subtitle }: ShellProps) {
             {subtitle ? (
               <span className="text-muted-foreground">{subtitle}</span>
             ) : null}
+            {criticalCount > 0 && (
+              <Link
+                href="/dashboard#monitoring"
+                title={`${criticalCount} CRITICAL ticket${criticalCount > 1 ? "y" : ""}`}
+                className="relative text-red-400 transition hover:text-red-300"
+              >
+                <Bug className="h-4 w-4" />
+                <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
+                  {criticalCount}
+                </span>
+              </Link>
+            )}
             {user ? (
               <>
                 <Link href="/collection" className="text-slate-400 transition hover:text-slate-200">

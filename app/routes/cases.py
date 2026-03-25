@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func as _sqla_func
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Request, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
@@ -29,7 +31,7 @@ from app.services.storage import (
 from app.services.auction_scraper import fetch_auction_images, AuctionScraperError
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics
+from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, SessionLocal, CaseRecord
 from app.services.security import (
     limiter,
     validate_upload_files,
@@ -65,6 +67,97 @@ _DETECTED_VIEW_ALIASES: dict = {
     "back_full": ["jersey_back", "back_view", "back", "full_back", "shirt_back", "back_side"],
     "crest_or_brand_closeup": ["crest", "badge", "logo", "brand_logo", "crest_closeup", "badge_closeup", "logo_closeup"],
 }
+
+
+# ---------------------------------------------------------------------------
+# Pomocnicze funkcje Instagram fake-case endpoint
+# ---------------------------------------------------------------------------
+
+def _is_pro_auth(text: str) -> bool:
+    """Zwraca True jeśli klauzula wspiera autentyczność — nie nadaje się dla fake."""
+    lower = text.lower()
+    # Negacje odwracają sens → sygnał jest OK dla fake
+    if any(neg in lower for neg in [
+        'niezgodn', 'niespójn', 'niepoprawni', 'nienaturalny',
+        'wątpliw', 'nieoficjaln', 'podróbk', 'nieoryg',
+        'odbiega', 'budzi', 'spękan', 'zniszczon',
+        'słab', 'brak ', 'uniemożliwia', 'wyklucza',
+    ]):
+        return False
+    return any(phrase in lower for phrase in [
+        'spójn', 'zgodn',
+        'wyglądają poprawni', 'jest poprawni', 'są poprawn', 'wygląda poprawni',
+        'charakterystyczn', 'potwierdza', 'gwarantuje autentyczn',
+        'wysoka jakość', 'wysoką jakość',
+        'liczne cechy', 'cechy wersji meczowej', 'cechy autentyczn',
+        'jest obecna', 'są obecne',
+        'oficjalnej personalizacji', 'oficjalnej wersji',
+        'typowy dla', 'typowe dla', 'typowa dla',
+        'obecność technolog', 'obecność cech', 'obecność oficj',
+        'jest typow', 'są typow',
+        'format jest typow',
+    ])
+
+
+def _shorten_signal(text: str) -> str:
+    """Skraca obserwację AI do krótkiej formy pod IG (max ~45 znaków, fake-only)."""
+    text = re.sub(r'\([^)]*\)', ' ', text)
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    text = re.sub(r'^[^a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ0-9]+', '', text).strip()
+
+    _meta = [
+        r'^obserwacje wizualne',
+        r'^analiza opiera',
+        r'^nie mo(ż|z)na oceni',
+        r'^trudno oceni',
+        r'^brak zdj',
+        r'^brak zbli',
+        r'^zdjęcia nie pozwalaj',
+        r'^jakość zdjęć',
+        r'uniemo(ż|z)liwia ocen',  # podciąg — filtruje niezależnie od pozycji w zdaniu
+    ]
+    for pat in _meta:
+        if re.search(pat, text, re.IGNORECASE):
+            return ""
+
+    m2 = re.split(r'\.\s+(jednak|ale|lecz|niemniej)\s+', text, maxsplit=1, flags=re.IGNORECASE)
+    if len(m2) == 3 and len(m2[2]) >= 10:
+        text = m2[2]
+    else:
+        m = re.split(r',\s+(ale|jednak|lecz)\s+', text, maxsplit=1, flags=re.IGNORECASE)
+        if len(m) == 3 and len(m[2]) >= 10:
+            text = m[2]
+
+    for sep in ['. ', '; ', ', co ', ', który', ', która', ', choć', ', chociaż', ' — ', ' – ']:
+        idx = text.find(sep)
+        if 0 < idx < len(text) - 5:
+            text = text[:idx]
+            break
+
+    if _is_pro_auth(text):
+        return ""
+
+    if len(text) > 45:
+        cut = text[:45]
+        sp = cut.rfind(' ')
+        text = cut[:sp] if sp > 15 else ""
+
+    text = text.rstrip('.,;: ')
+    if len(text) < 8:
+        return ""
+    return text[0].upper() + text[1:]
+
+
+def _extract_key_evidence_text(item) -> str:
+    if isinstance(item, dict):
+        return item.get("text") or item.get("observation") or ""
+    return str(item) if item else ""
+
+
+def _is_duplicate_signal(s: str, existing: list) -> bool:
+    """Blokuje sygnały zbyt podobne do już dodanych (podciąg lub odwrotnie)."""
+    sl = s.lower()
+    return any(sl in e.lower() or e.lower() in sl for e in existing)
 
 
 def _normalize_detected_views(detected_views: dict) -> dict:
@@ -121,15 +214,13 @@ async def upload_assets(request: Request, case_id: str, files: List[UploadFile] 
     # Waliduj case_id
     case_id = validate_case_id(case_id)
 
-    import logging as _logging
-    _rlog = _logging.getLogger(__name__)
-    _rlog.info("UPLOAD_REQUEST case_id=%s files_count=%d filenames=%r", case_id, len(files), [f.filename for f in files])
+    logger.info("UPLOAD_REQUEST case_id=%s files_count=%d filenames=%r", case_id, len(files), [f.filename for f in files])
 
     # Waliduj pliki (rozmiar, typ MIME, rozszerzenie)
     try:
         await validate_upload_files(files)
     except HTTPException as _he:
-        _rlog.warning("UPLOAD_FAILED detail=%r status=%s", _he.detail, _he.status_code)
+        logger.warning("UPLOAD_FAILED detail=%r status=%s", _he.detail, _he.status_code)
         raise
 
     # Sprawdź czy case istnieje
@@ -971,13 +1062,19 @@ async def list_all_cases(
     date_to: Optional[str] = Query(None),
     auth_state: Optional[str] = Query(None),
     verdict: Optional[str] = Query(None),
+    email: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(25, ge=1, le=100),
 ):
-    """Lista wszystkich case'ów z bazy (dla dashboardu), z opcjonalnym filtrowaniem."""
+    """Lista wszystkich case'ów z bazy (dla dashboardu), z opcjonalnym filtrowaniem i paginacją."""
     return get_all_cases_from_db(
         date_from=date_from,
         date_to=date_to,
         auth_state_filter=auth_state,
         verdict_filter=verdict,
+        email_filter=email,
+        page=page,
+        limit=limit,
     )
 
 
@@ -1009,6 +1106,37 @@ async def get_metrics(request: Request):
     return get_dashboard_metrics()
 
 
+@router.get("/dashboard/activation")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_activation(request: Request):
+    """Metryki aktywacji użytkowników."""
+    return get_activation_detail()
+
+
+@router.get("/dashboard/retention")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_retention(request: Request):
+    """Metryki retencji użytkowników."""
+    return get_retention_metrics()
+
+
+@router.get("/dashboard/registrations")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_registrations(request: Request, days: int = Query(30, ge=1, le=90)):
+    """Trend rejestracji (dzienny)."""
+    return get_registration_trend(days=days)
+
+
+@router.get("/dashboard/users/{user_id}")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_user(request: Request, user_id: str):
+    """Szczegóły użytkownika z listą analiz. user_id to adres e-mail — nie UUID case."""
+    data = get_user_detail(user_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return data
+
+
 @router.delete("/cases/{case_id}/email")
 async def anonymize_email(case_id: str):
     """Anonimizuje email w case (RODO - prawo do bycia zapomnianym)."""
@@ -1025,3 +1153,190 @@ async def delete_case(case_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Case not found in database")
     return {"ok": True, "message": "Dane zostały usunięte z bazy"}
+
+
+@router.get("/instagram/random-case")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_random_instagram_case(request: Request):
+    """
+    Zwraca losowy zdecydowany case do posta na Instagram.
+    Wybiera tylko cases z pełnym report_data i verdict_category.
+    """
+    db = SessionLocal()
+    try:
+        record = (
+            db.query(CaseRecord)
+            .filter(CaseRecord.verdict_category.isnot(None))
+            .filter(CaseRecord.report_data.isnot(None))
+            .order_by(_sqla_func.random())
+            .first()
+        )
+
+        if not record:
+            return {"error": "Brak cases w bazie"}
+        rd = record.report_data
+
+        if isinstance(rd, dict) and "REPORT_DATA" in rd:
+            rd = rd["REPORT_DATA"]
+
+        subject = rd.get("subject", {}) or {}
+        verdict = rd.get("verdict", {}) or {}
+        decision_matrix = rd.get("decision_matrix", []) or []
+        key_evidence = rd.get("key_evidence", []) or []
+
+        signals = []
+        for item in decision_matrix:
+            if item.get("status") in ("GREEN", "RED", "YELLOW") and item.get("observation"):
+                obs = item["observation"]
+                if len(obs) > 60:
+                    obs = obs[:57] + "..."
+                signals.append(obs)
+            if len(signals) >= 3:
+                break
+
+        if not signals:
+            signals = key_evidence[:3]
+
+        verdict_map = {
+            "meczowa": "MECZOWA",
+            "oryginalna_sklepowa": "ORYGINAL",
+            "oficjalna_replika": "REPLIKA",
+            "podrobka": "PODROBKA",
+            "edycja_limitowana": "LIMITOWANA",
+            "treningowa_custom": "CUSTOM",
+        }
+        verdict_label = verdict_map.get(
+            verdict.get("verdict_category", ""),
+            verdict.get("verdict_category", "NIEZNANA").upper()
+        )
+
+        conf = verdict.get("confidence_percent", 0) or 0
+        conf_rounded = max(0, min(100, round(conf / 5) * 5))
+        confidence = f"Pewnosc: {conf_rounded}%"
+
+        club = subject.get("club", "Nieznany klub")
+        season = subject.get("season", "")
+        model_name = subject.get("model", "")
+        club_season = f"{club} {season}"
+        if model_name and len(f"{club} {season} • {model_name}") <= 50:
+            club_season = f"{club} {season} • {model_name}"
+
+        return {
+            "case_id": record.case_id,
+            "club_season": club_season,
+            "verdict_label": verdict_label,
+            "signal_1": signals[0] if len(signals) > 0 else "",
+            "signal_2": signals[1] if len(signals) > 1 else "",
+            "signal_3": signals[2] if len(signals) > 2 else "",
+            "confidence": confidence,
+            "verdict_category": verdict.get("verdict_category", ""),
+            "confidence_percent": conf_rounded,
+            "summary": verdict.get("summary", ""),
+            "analysis_date": rd.get("analysis_date", ""),
+        }
+
+    finally:
+        db.close()
+
+
+@router.get("/instagram/random-fake-case")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def get_random_instagram_fake_case(request: Request):
+    """
+    Zwraca losowy case kategorii podrobka do posta IG (seria: analiza tygodnia).
+    Filtruje wyłącznie verdict_category='podrobka' po stronie bazy.
+    """
+    db = SessionLocal()
+    try:
+        record = (
+            db.query(CaseRecord)
+            .filter(CaseRecord.verdict_category == "podrobka")
+            .filter(CaseRecord.report_data.isnot(None))
+            .order_by(_sqla_func.random())
+            .first()
+        )
+
+        if not record:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Brak dostępnych przypadków fake w bazie"},
+            )
+        rd = record.report_data
+
+        if isinstance(rd, dict) and "REPORT_DATA" in rd:
+            rd = rd["REPORT_DATA"]
+
+        subject = rd.get("subject", {}) or {}
+        verdict = rd.get("verdict", {}) or {}
+        decision_matrix = rd.get("decision_matrix", []) or []
+        key_evidence = rd.get("key_evidence", []) or []
+
+        # Pula 1: RED/YELLOW z decision_matrix (najsilniejsze sygnały podróbki)
+        signals: list[str] = []
+        for item in decision_matrix:
+            if item.get("status") in ("RED", "YELLOW") and item.get("observation"):
+                s = _shorten_signal(item["observation"])
+                if s and not _is_duplicate_signal(s, signals):
+                    signals.append(s)
+            if len(signals) >= 3:
+                break
+
+        # Pula 2: key_evidence — uzupełnij jeśli brakuje
+        if len(signals) < 3:
+            for item in key_evidence:
+                raw = _extract_key_evidence_text(item)
+                s = _shorten_signal(raw) if raw else ""
+                if s and not _is_duplicate_signal(s, signals):
+                    signals.append(s)
+                if len(signals) >= 3:
+                    break
+
+        # Pula 3: YELLOW z decision_matrix, klucz "observation" (jak Pula 1)
+        if len(signals) < 3:
+            for item in decision_matrix:
+                if item.get("status") == "YELLOW" and item.get("observation"):
+                    s = _shorten_signal(item["observation"])
+                    if s and not _is_duplicate_signal(s, signals):
+                        signals.append(s)
+                if len(signals) >= 3:
+                    break
+
+        # Fallbacki statyczne — zawsze związane z podróbką, czytelne pod IG
+        _fallbacks = [
+            "Niezgodność detali wykonania z oryginałem",
+            "Nieprawidłowości w oznaczeniach i metkach",
+            "Jakość aplikacji nadruków odbiega od standardu",
+        ]
+        for fb in _fallbacks:
+            if len(signals) >= 3:
+                break
+            signals.append(fb)
+
+        conf = verdict.get("confidence_percent", 0) or 0
+        conf_rounded = max(0, min(100, round(conf / 5) * 5))
+
+        club = subject.get("club", "Nieznany klub") or "Nieznany klub"
+        season = subject.get("season", "") or ""
+        model_name = subject.get("model", "") or ""
+        club_season = f"{club} {season}".strip()
+        if model_name and len(f"{club} {season} • {model_name}") <= 50:
+            club_season = f"{club} {season} • {model_name}".strip()
+        # Wyczyść "nieustalone" i zbędne separatory
+        club_season = re.sub(r'\s*nieustalone\s*', ' ', club_season, flags=re.IGNORECASE).strip()
+        club_season = re.sub(r'\s+•\s+', ' • ', club_season)
+        club_season = club_season.strip(' •')
+
+        return {
+            "case_id": record.case_id,
+            "club_season": club_season,
+            "verdict_type": "fake",
+            "verdict_label": "PODRÓBKA",
+            "signal_1": signals[0] if len(signals) > 0 else "",
+            "signal_2": signals[1] if len(signals) > 1 else "",
+            "signal_3": signals[2] if len(signals) > 2 else "",
+            "confidence_percent": conf_rounded,
+            "analysis_date": rd.get("analysis_date", "") or "",
+        }
+
+    finally:
+        db.close()

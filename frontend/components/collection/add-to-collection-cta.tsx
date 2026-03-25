@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BookmarkPlus, BookmarkCheck } from "lucide-react";
 import { getCollection } from "@/lib/api";
 import { AddToCollectionModal } from "./add-to-collection-modal";
@@ -15,6 +15,7 @@ type Props = {
 export function AddToCollectionCta({ caseId, mode, reportData, autoOpen }: Props) {
   const [open, setOpen] = useState(autoOpen ?? false);
   const [alreadySaved, setAlreadySaved] = useState(false);
+  const wasSaved = useRef(false);
 
   useEffect(() => {
     getCollection()
@@ -53,8 +54,8 @@ export function AddToCollectionCta({ caseId, mode, reportData, autoOpen }: Props
           caseId={caseId}
           mode={mode}
           reportData={reportData}
-          onClose={() => setOpen(false)}
-          onSaved={() => setAlreadySaved(true)}
+          onClose={() => { setOpen(false); if (wasSaved.current) setAlreadySaved(true); }}
+          onSaved={() => { wasSaved.current = true; }}
         />
       )}
     </>
