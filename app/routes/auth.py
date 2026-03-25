@@ -1,15 +1,18 @@
+import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app.services.database import get_db, User, CollectionItem
+from app.services.database import get_db, User, CollectionItem, PasswordResetToken
 from app.services.auth_service import hash_password, verify_password, create_access_token, decode_access_token
-from app.services.security import limiter
-from fastapi import Request
+from app.services.email_service import send_welcome_email, send_password_reset_email
+from app.services.security import limiter, RATE_LIMIT_DEFAULT
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
 router = APIRouter()
 
@@ -17,13 +20,13 @@ router = APIRouter()
 # ── Pydantic models ──────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    password_confirm: str
+    email: EmailStr
+    password: str = Field(max_length=128)
+    password_confirm: str = Field(max_length=128)
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 
@@ -52,7 +55,7 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
 # ── Endpoints ────────────────────────────────────────────────
 
 @router.post("/auth/register")
-async def register(data: RegisterRequest, db: Session = Depends(get_db)):
+async def register(data: RegisterRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if len(data.password) < 8:
         raise HTTPException(status_code=400, detail="Hasło musi mieć co najmniej 8 znaków.")
     if data.password != data.password_confirm:
@@ -75,6 +78,8 @@ async def register(data: RegisterRequest, db: Session = Depends(get_db)):
     db.refresh(user)
 
     token = create_access_token(user.id, is_admin=user.is_admin)
+    # Email powitalny — BackgroundTasks (nie blokuje odpowiedzi)
+    background_tasks.add_task(send_welcome_email, email)
     return {"token": token, "user": {"id": user.id, "email": user.email, "is_admin": user.is_admin}}
 
 
@@ -190,8 +195,17 @@ async def update_profile(
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(max_length=128)
+    new_password: str = Field(max_length=128)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(max_length=36)
+    new_password: str = Field(max_length=128)
 
 
 @router.post("/auth/change-password")
@@ -205,6 +219,11 @@ async def change_password(
     if len(data.new_password) < 8:
         raise HTTPException(status_code=400, detail="Nowe hasło musi mieć co najmniej 8 znaków.")
     current_user.password_hash = hash_password(data.new_password)
+    # Unieważnij tokeny resetu hasła — zmiana hasła unieważnia wcześniej wysłane linki
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == current_user.id,
+        PasswordResetToken.used == False,  # noqa: E712
+    ).update({"used": True})
     db.commit()
     return {"ok": True}
 
@@ -215,6 +234,7 @@ async def delete_account(
     db: Session = Depends(get_db),
 ):
     db.query(CollectionItem).filter(CollectionItem.user_id == current_user.id).delete()
+    db.query(PasswordResetToken).filter(PasswordResetToken.user_id == current_user.id).delete()
     db.delete(current_user)
     db.commit()
     return {"ok": True}
@@ -256,6 +276,57 @@ def _serialize_for_export(item: CollectionItem) -> dict:
     }
 
 
+@router.post("/auth/forgot-password")
+@limiter.limit("5/minute")
+async def forgot_password(request: Request, data: ForgotPasswordRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Generuje token resetu hasła i wysyła email z linkiem. Zawsze zwraca 200 (nie ujawnia czy email istnieje)."""
+    email = data.email.strip().lower()
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        # Unieważnij poprzednie tokeny dla tego użytkownika
+        db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == False,  # noqa: E712
+        ).update({"used": True})
+        token = str(uuid.uuid4())
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        db.add(PasswordResetToken(token=token, user_id=user.id, expires_at=expires_at, used=False))
+        db.commit()
+        reset_link = f"{FRONTEND_URL}/reset-password?token={token}"
+        background_tasks.add_task(send_password_reset_email, email, reset_link)
+    return {"ok": True}
+
+
+@router.post("/auth/reset-password")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def reset_password(request: Request, data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Weryfikuje token i ustawia nowe hasło."""
+    record = db.query(PasswordResetToken).filter(PasswordResetToken.token == data.token).first()
+    if not record:
+        raise HTTPException(status_code=400, detail="Nieprawidłowy lub wygasły link resetu hasła.")
+    if record.used:
+        raise HTTPException(status_code=400, detail="Link resetu hasła został już użyty.")
+    now = datetime.now(timezone.utc)
+    expires = record.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if now > expires:
+        raise HTTPException(status_code=400, detail="Link resetu hasła wygasł.")
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Hasło musi mieć co najmniej 8 znaków.")
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Nieprawidłowy lub wygasły link resetu hasła.")
+    user.password_hash = hash_password(data.new_password)
+    # Unieważnij wszystkie tokeny resetu dla tego użytkownika
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used == False,  # noqa: E712
+    ).update({"used": True})
+    db.commit()
+    return {"ok": True}
+
+
 @router.delete("/admin/users/{user_id}")
 async def admin_delete_user(
     user_id: str,
@@ -267,6 +338,8 @@ async def admin_delete_user(
         raise HTTPException(status_code=404, detail="Użytkownik nie istnieje.")
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Nie możesz usunąć własnego konta.")
+    db.query(CollectionItem).filter(CollectionItem.user_id == user.id).delete()
+    db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.id).delete()
     db.delete(user)
     db.commit()
     return {"ok": True}

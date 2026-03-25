@@ -320,3 +320,20 @@ export async function submitSupport(data: SupportPayload): Promise<{ ok: boolean
     body: JSON.stringify(data),
   });
 }
+
+export async function forgotPassword(email: string): Promise<{ ok: boolean }> {
+  return request("/api/auth/forgot-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(token: string, new_password: string): Promise<{ ok: boolean }> {
+  return request("/api/auth/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, new_password }),
+  });
+}
+

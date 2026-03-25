@@ -89,15 +89,22 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Nie masz konta?{" "}
-          <Link
-            href={`/register${next !== "/collection" ? `?next=${encodeURIComponent(next)}` : ""}`}
-            className="text-emerald-400 hover:underline"
-          >
-            Zarejestruj się
-          </Link>
-        </p>
+        <div className="space-y-2 text-center">
+          <p className="text-xs text-muted-foreground">
+            <Link href="/forgot-password" className="text-slate-400 hover:text-slate-200">
+              Zapomniałeś hasła?
+            </Link>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Nie masz konta?{" "}
+            <Link
+              href={`/register${next !== "/collection" ? `?next=${encodeURIComponent(next)}` : ""}`}
+              className="text-emerald-400 hover:underline"
+            >
+              Zarejestruj się
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

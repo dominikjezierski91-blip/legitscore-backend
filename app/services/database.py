@@ -150,6 +150,15 @@ class SupportSubmission(Base):
     resolved_at = Column(DateTime, nullable=True)
 
 
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    token = Column(String, primary_key=True)
+    user_id = Column(String, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+
+
 def init_db():
     """Tworzy tabele jeśli nie istnieją + migruje nowe kolumny."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -157,6 +166,25 @@ def init_db():
     _migrate_collection_market_value()
     _migrate_collection_manual_fields()
     _migrate_user_profile_fields()
+    _migrate_password_reset_tokens()
+
+
+def _migrate_password_reset_tokens():
+    """Tworzy tabelę password_reset_tokens jeśli nie istnieje (SQLite migration)."""
+    with engine.connect() as conn:
+        existing_tables = {row[0] for row in conn.execute(
+            __import__("sqlalchemy").text("SELECT name FROM sqlite_master WHERE type='table'")
+        )}
+        if "password_reset_tokens" not in existing_tables:
+            conn.execute(__import__("sqlalchemy").text("""
+                CREATE TABLE password_reset_tokens (
+                    token TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0
+                )
+            """))
+            conn.commit()
 
 
 def _migrate_collection_market_value():
