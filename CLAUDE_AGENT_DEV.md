@@ -6,12 +6,21 @@
 
 ### Kiedy uruchamiać
 
-**Po KAŻDEJ istotnej zmianie kodu** — bez czekania na instrukcję od usera.
+**Tylko przy poważnych zmianach backendowych** — bez czekania na instrukcję od usera.
 
-Istotna zmiana to każda modyfikacja plików `.py`, `.ts`, `.tsx` wpływająca na logikę (nie tylko style/komentarze).
+Cykl uruchamiaj gdy zmiana dotyczy:
+- plików `.py` (logika API, rule engine, serwisy AI, testy)
+- krytycznych ścieżek frontendowych: przepływ analizy, auth, przesyłanie plików
+
+Cyklu **NIE uruchamiaj** dla:
+- zmian CSS / layoutu / Tailwind
+- poprawek tekstów, labelek, tłumaczeń
+- zmian konfiguracyjnych (CLAUDE.md, .env, README)
+- drobnych UX (kolory, spacing, animacje)
 
 Triggery słowne (case-insensitive, także jako część zdania):
 `gotowe` | `zaimplementowano` | `wdrożono` | `zrobione` | `done`
+— ale tylko jeśli zmiana spełnia kryteria powyżej.
 
 ### Przebieg cyklu
 

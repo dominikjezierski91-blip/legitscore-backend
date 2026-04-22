@@ -1,6 +1,6 @@
 WAŻNE: Na początku każdej sesji przeczytaj CLAUDE_AGENT_DEV.md i działaj zgodnie z zawartymi tam instrukcjami przez całą sesję.
 
-WAŻNE: Po każdej istotnej zmianie kodu (.py, .ts, .tsx) AUTOMATYCZNIE uruchom pełny cykl jakości BEZ czekania na instrukcję usera:
+WAŻNE: Po poważnych zmianach backendowych (.py, krytyczne ścieżki frontend) AUTOMATYCZNIE uruchom pełny cykl jakości BEZ czekania na instrukcję usera. Nie uruchamiaj dla CSS/layoutu/tekstów.
 1. pytest tests/ -v --tb=short
 2. Równolegle: Agent(subagent_type="reviewer") + Agent(subagent_type="qa")
 3. Napraw wszystkie BLOCKER/HIGH i FAIL (max 2 iteracje)
