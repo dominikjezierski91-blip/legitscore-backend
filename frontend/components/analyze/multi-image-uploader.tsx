@@ -66,11 +66,18 @@ export function MultiImageUploader({
         }}
         onDrop={onDrop}
         className={cn(
-          "flex min-h-[140px] flex-col items-center justify-center rounded-2xl border border-dashed border-border/80 bg-slate-950/40 px-4 text-xs text-muted-foreground transition-colors",
+          "relative flex min-h-[140px] flex-col items-center justify-center rounded-2xl border border-dashed border-border/80 bg-slate-950/40 px-4 text-xs text-muted-foreground transition-colors",
           "hover:border-emerald-400/70 hover:bg-slate-900/60"
         )}
-        onClick={() => inputRef.current?.click()}
       >
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          multiple
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
         <ImageIcon className="mb-2 h-6 w-6 text-emerald-300" />
         <div className="mb-1 text-xs font-medium text-slate-100">
           Przeciągnij zdjęcia lub kliknij, aby wybrać
@@ -78,14 +85,6 @@ export function MultiImageUploader({
         <div className="text-xs">
           JPG, PNG • maks. {maxCount} zdjęć
         </div>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-          multiple
-          className="hidden"
-          onChange={(e) => handleFiles(e.target.files)}
-        />
       </div>
 
       <div className="space-y-1 text-xs text-muted-foreground">

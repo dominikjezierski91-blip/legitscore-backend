@@ -232,6 +232,7 @@ export type CollectionItemPayload = {
   purchase_date?: string;
   purchase_source?: string;
   notes?: string;
+  is_manual?: boolean;
 };
 
 export async function addToCollection(data: CollectionItemPayload): Promise<unknown> {

@@ -25,6 +25,7 @@ type Props = {
   canSubmit: boolean;
   onSubmit: () => void;
   submitting: boolean;
+  submitPhase?: "idle" | "creating" | "uploading" | "navigating";
 };
 
 export function SubmitSummaryCard({
@@ -38,7 +39,13 @@ export function SubmitSummaryCard({
   canSubmit,
   onSubmit,
   submitting,
+  submitPhase = "idle",
 }: Props) {
+  const submitLabel =
+    submitPhase === "creating" ? "Tworzę sprawę..." :
+    submitPhase === "uploading" ? (inputMode === "url" ? "Pobieranie zdjęć..." : "Przesyłanie zdjęć...") :
+    submitPhase === "navigating" ? "Przekierowuję..." :
+    "Uruchom analizę";
   return (
     <aside className="flex flex-col justify-between rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-[0_18px_45px_rgba(16,185,129,0.25)] backdrop-blur md:sticky md:top-6 md:self-start">
       <div className="space-y-4 text-xs text-muted-foreground">
@@ -121,7 +128,7 @@ export function SubmitSummaryCard({
                 : "cursor-not-allowed bg-slate-800/60 text-slate-500 shadow-none"
             )}
           >
-            {submitting ? "Wysyłanie..." : "Uruchom analizę"}
+            {submitLabel}
             <ArrowRight className="h-3 w-3" />
           </button>
         </div>
@@ -157,21 +164,22 @@ function SummaryRow({
     ) : null;
 
   return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2">
+    <div className="flex items-start gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900/80 text-slate-200">
           {icon}
         </span>
-        <span className="text-xs text-slate-300">{label}</span>
+        <span className="text-xs text-slate-300 whitespace-nowrap">{label}</span>
       </div>
-      <div className="flex items-center gap-1">
-        {statusIcon}
+      <div className="ml-auto flex min-w-0 items-center gap-1">
+        {statusIcon && <span className="shrink-0">{statusIcon}</span>}
         <span
           className={cn(
-            "break-all text-right text-xs",
+            "block min-w-0 truncate text-right text-xs",
             accent ? "font-semibold text-slate-100" : "",
             status === "warn" && !accent ? "text-amber-300" : ""
           )}
+          title={value}
         >
           {value}
         </span>

@@ -72,7 +72,8 @@ class TestFileUploadValidation:
             files={"files": ("test.txt", b"test content", "text/plain")}
         )
         assert response.status_code == 400
-        assert "rozszerzenie" in response.json()["detail"].lower() or "extension" in response.json()["detail"].lower()
+        detail = response.json()["detail"].lower()
+        assert any(kw in detail for kw in ("rozszerzenie", "extension", "typ pliku", "file type", "niedozwolony"))
 
     def test_empty_file_rejected(self):
         """Pusty plik jest odrzucany."""

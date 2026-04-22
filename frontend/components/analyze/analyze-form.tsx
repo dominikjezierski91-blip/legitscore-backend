@@ -24,6 +24,7 @@ export function AnalyzeForm() {
   const [acceptedDisclaimer, setAcceptedDisclaimer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<"idle" | "creating" | "uploading" | "navigating">("idle");
   const router = useRouter();
 
   useEffect(() => {
@@ -73,13 +74,16 @@ export function AnalyzeForm() {
 
     try {
       setSubmitting(true);
-      // 1) Tworzymy sprawę z emailem i kontekstem
+      setSubmitPhase("creating");
       const { case_id } = await createCase(email, undefined, context);
-      // 2) Czytamy pliki jako ArrayBuffer TERAZ (iOS Safari invaliduje File objects po nawigacji)
-      //    Używamy FileReader (lepsza kompatybilność z iOS niż File.arrayBuffer())
-      let fileData: Array<{ name: string; type: string; buffer: ArrayBuffer }> | undefined;
-      if (inputMode === "photos" && files.length > 0) {
-        fileData = await Promise.all(
+
+      setSubmitPhase("uploading");
+      if (inputMode === "url" && auctionUrl) {
+        const { importFromUrl } = await import("@/lib/api");
+        await importFromUrl(case_id, auctionUrl);
+      } else if (inputMode === "photos" && files.length > 0) {
+        const { uploadAssets } = await import("@/lib/api");
+        const fileData = await Promise.all(
           files.map((f) => new Promise<{ name: string; type: string; buffer: ArrayBuffer }>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = (e) => resolve({ name: f.name, type: f.type || "image/jpeg", buffer: e.target!.result as ArrayBuffer });
@@ -87,16 +91,18 @@ export function AnalyzeForm() {
             reader.readAsArrayBuffer(f);
           }))
         );
+        const uploadFiles = fileData.map(({ name, type, buffer }) => new File([buffer], name, { type }));
+        await uploadAssets(case_id, uploadFiles);
       }
-      // 3) Zapisujemy dane (z surowymi bajtami) do dalszego przetwarzania na ekranie statusu
+
+      setSubmitPhase("navigating");
       setPendingSubmission({
         caseId: case_id,
         mode: reportType,
         inputType: inputMode,
-        fileData,
         auctionUrl: inputMode === "url" ? auctionUrl : undefined,
       });
-      // 4) Przechodzimy natychmiast na stronę statusu
+
       const qs = new URLSearchParams();
       qs.set("case_id", case_id);
       qs.set("mode", reportType);
@@ -108,6 +114,7 @@ export function AnalyzeForm() {
           : "Nie udało się wysłać zgłoszenia. Spróbuj ponownie później."
       );
       setSubmitting(false);
+      setSubmitPhase("idle");
     }
   }
 
@@ -348,6 +355,7 @@ export function AnalyzeForm() {
         canSubmit={canSubmit}
         onSubmit={handleSubmit}
         submitting={submitting}
+        submitPhase={submitPhase}
       />
     </div>
   );

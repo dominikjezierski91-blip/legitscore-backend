@@ -2,24 +2,16 @@
 
 ---
 
-## AUTOMATYCZNY CYKL
+## AUTOMATYCZNY CYKL — OBOWIĄZKOWY
 
-### Kiedy się uruchamia
+### Kiedy uruchamiać
 
-Gdy Twoja odpowiedź kończy się jednym z poniższych słów kluczowych — **bez czekania na instrukcję od usera**.
+**Po KAŻDEJ istotnej zmianie kodu** — bez czekania na instrukcję od usera.
 
-**Matching jest case-insensitive** — "Gotowe.", "GOTOWE", "gotowe" — wszystkie triggerują cykl.
-**Trigger działa też gdy słowo jest częścią zdania kończącego odpowiedź**, np. "Zmiany wdrożono." lub "Implementacja gotowa."
+Istotna zmiana to każda modyfikacja plików `.py`, `.ts`, `.tsx` wpływająca na logikę (nie tylko style/komentarze).
 
-| Słowo kluczowe | Przykłady (wszystkie równoważne) |
-|----------------|---------|
-| `gotowe` | "Gotowe." / "gotowe." / "Implementacja gotowa." |
-| `zaimplementowano` | "Zaimplementowano." / "Funkcja zaimplementowana." |
-| `wdrożono` | "Wdrożono." / "Zmiana wdrożona." |
-| `zrobione` | "Zrobione." / "zrobione." |
-| `done` | "Done." / "done." |
-
-**Dodatkowo:** po każdej implementacji, która modyfikuje pliki `.py` lub `.ts/.tsx`, uruchom cykl **nawet bez triggera** — nie czekaj na słowo kluczowe jeśli wprowadzono istotną zmianę kodu.
+Triggery słowne (case-insensitive, także jako część zdania):
+`gotowe` | `zaimplementowano` | `wdrożono` | `zrobione` | `done`
 
 ### Przebieg cyklu
 
@@ -29,12 +21,12 @@ IMPLEMENTACJA ZAKOŃCZONA
         ▼
 [1] pytest tests/ -v --tb=short
         │
-        ├─ FAIL ──► napraw błędy ──► wróć do [1]  (iteracja 1/2)
+        ├─ FAIL ──► napraw ──► wróć do [1]  (max 2 iteracje)
         │
         ▼ PASS
-[2+3] Reviewer + QA subagenty (równolegle)
+[2+3] reviewer + qa  (równolegle, jeden blok tool calls)
         │
-        ├─ REQUEST_CHANGES lub FAIL ──► napraw ──► wróć do [1]  (iteracja 1/2)
+        ├─ REQUEST_CHANGES lub FAIL ──► napraw ──► wróć do [1]  (max 2 iteracje)
         │
         ▼ APPROVE + PASS
 [4] Commit
@@ -45,29 +37,49 @@ Poinformuj usera o wyniku
 
 ### Limit iteracji
 
-- **Max 2 iteracje** próby naprawy.
-- Po 2. nieudanej iteracji: **zatrzymaj się**, pokaż userowi pełne raporty Review i QA, zapytaj o dalsze decyzje.
-- Nigdy nie commituj jeśli cykl nie zakończył się APPROVE + PASS.
+- Max 2 iteracje naprawy.
+- Po 2. nieudanej: zatrzymaj się, pokaż userowi raporty, zapytaj o decyzje.
+- Nigdy nie commituj bez APPROVE + PASS.
 
-### Jak uruchamiać subagenty
+---
 
-Kroki 2 i 3 uruchamiaj **równolegle** (jeden blok tool calls z dwoma wywołaniami Agent).
-Szczegóły promptów i formatów raportów — sekcja "Twój workflow" poniżej.
+## Jak uruchamiać subagenty
+
+Kroki 2 i 3 **równolegle** (jeden blok z dwoma wywołaniami Agent):
+
+```
+Agent(subagent_type="reviewer", prompt="""
+Zmienione pliki w tej sesji:
+[lista plików]
+
+Kluczowe zmiany:
+[1-5 zdań co zaimplementowano]
+
+WAŻNE: Nie edytuj kodu. Zwróć tylko raport.
+""")
+
+Agent(subagent_type="qa", prompt="""
+Wykonaj testy regresyjne dla zmian w tej sesji.
+
+Zmienione pliki:
+[lista plików]
+
+WAŻNE: Nie edytuj kodu. Zwróć tylko raport.
+""")
+```
 
 ---
 
 ## Twoja rola
-Jesteś głównym agentem deweloperskim. Implementujesz zadania, koordynujesz review i QA,
-naprawiasz zgłoszone problemy, a dopiero na końcu commitasz.
 
-**Wersja Claude Code**: 2.1.81+ (Task tool dostępny — używaj go do subagentów)
+Jesteś głównym agentem deweloperskim. Implementujesz zadania, koordynujesz review i QA,
+naprawiasz zgłoszone problemy, commitasz dopiero na końcu.
 
 ---
 
 ## Kontekst projektu — LegitScore
 
 LegitScore to system AI analizujący koszulki piłkarskie w celu określenia autentyczności.
-Użytkownicy uploadują zdjęcia, AI (Gemini Vision) wykonuje analizę forensic i generuje raport PDF.
 
 ### Tech Stack
 - **Backend**: FastAPI (Python 3.13), uvicorn
@@ -79,12 +91,12 @@ Użytkownicy uploadują zdjęcia, AI (Gemini Vision) wykonuje analizę forensic 
 ```
 ├── app/
 │   ├── main.py
-│   ├── routes/cases.py              # główna logika API
+│   ├── routes/cases.py
 │   ├── services/
-│   │   ├── agent_a_gemini.py        # Gemini + rule engine
-│   │   ├── consistency_check.py     # weryfikacja zawodnik/klub
-│   │   ├── sku_agent.py             # weryfikacja SKU
-│   │   ├── market_value_agent.py    # wycena rynkowa
+│   │   ├── agent_a_gemini.py
+│   │   ├── consistency_check.py
+│   │   ├── sku_agent.py
+│   │   ├── market_value_agent.py
 │   │   ├── pdf_report.py
 │   │   └── storage.py
 │   ├── models/
@@ -94,23 +106,15 @@ Użytkownicy uploadują zdjęcia, AI (Gemini Vision) wykonuje analizę forensic 
 │   ├── components/
 │   └── lib/
 ├── tests/
-│   ├── test_rule_engine.py          # 44 testy jednostkowe rule engine
-│   └── test_security.py             # 13 testów bezpieczeństwa
-├── data/                            # runtime data (cases, artifacts)
-└── prompt_a.txt                     # system prompt Agent A
+│   ├── test_rule_engine.py   # 44 testy
+│   └── test_security.py      # 13 testów
+└── prompt_a.txt
 ```
 
-### Uruchamianie
+### Uruchamianie testów
 ```bash
-# Backend
-source .venv/bin/activate
-uvicorn app.main:app --reload --port 8000
-
-# Frontend
-cd frontend && npm run dev
-
-# Testy
-.venv/bin/python3 -m pytest tests/ -v --tb=short
+cd /Users/user/Projects/legitscore-backend
+.venv/bin/python3 -m pytest tests/ -v --tb=short 2>&1
 ```
 
 ### Krytyczne reguły architektury
@@ -124,10 +128,10 @@ cd frontend && npm run dev
 3. **Single execution** — analiza raz per case (lock file).
 
 4. **hard overrides** w `run_rule_engine()`:
-   - `found_authorized` → NIE triggeruje override (tylko exclusion lista)
-   - `mfg_quality == "fallback"` → blokuje overrides
-   - `_clean_contradictory_data_after_override()` → po KAŻDYM z 5 hard override
+   - `found_authorized` NIE triggeruje override
+   - `mfg_quality == "fallback"` blokuje overrides
    - SKU mismatch → override z confidence_percent=90, natychmiastowy return
+   - `_clean_contradictory_data_after_override()` po KAŻDYM z 5 hard override
 
 ### Kategorie werdyktu
 `meczowa` | `oryginalna_sklepowa` | `oficjalna_replika` | `edycja_limitowana` | `treningowa_custom` | `podrobka`
@@ -136,72 +140,6 @@ cd frontend && npm run dev
 - Komentarze i logi: po polsku
 - Treść dla użytkownika: po polsku
 - Komunikacja z userem: po polsku
-
----
-
-## Twój workflow po każdej implementacji
-
-### KROK 1 — Uruchom testy lokalnie
-
-```bash
-.venv/bin/python3 -m pytest tests/ -v --tb=short 2>&1
-```
-
-- Jeśli są błędy: napraw je PRZED przejściem do kroku 2
-- Jeśli wszystkie PASS: przejdź do kroku 2
-
-### KROK 2 — Code Review (subagent)
-
-Użyj narzędzia **Agent** z `subagent_type: "general-purpose"` i przekaż mu:
-
-```
-Wykonaj code review zgodnie z instrukcjami z pliku CLAUDE_AGENT_REVIEWER.md.
-
-Zmienione pliki w tej sesji:
-[lista plików które zmodyfikowałeś]
-
-Kluczowe zmiany:
-[1-5 zdań co zaimplementowałeś]
-
-WAŻNE: Nie edytuj kodu. Zwróć tylko raport w formacie z CLAUDE_AGENT_REVIEWER.md.
-```
-
-**Na podstawie raportu:**
-- Jeśli `APPROVE` → przejdź do kroku 3
-- Jeśli `REQUEST_CHANGES` → napraw wszystkie BLOCKER i HIGH, uruchom testy ponownie, wróć do kroku 2
-
-### KROK 3 — QA Regression (subagent)
-
-Użyj narzędzia **Agent** z `subagent_type: "general-purpose"` i przekaż mu:
-
-```
-Wykonaj testy regresyjne zgodnie z instrukcjami z pliku CLAUDE_AGENT_QA.md.
-
-WAŻNE: Nie edytuj kodu. Zwróć tylko raport w formacie z CLAUDE_AGENT_QA.md.
-```
-
-**Na podstawie raportu:**
-- Jeśli `PASS` → przejdź do kroku 4
-- Jeśli `FAIL` → napraw zgłoszone problemy, wróć do kroku 1
-
-### KROK 4 — Commit
-
-Dopiero gdy Review = APPROVE i QA = PASS:
-
-```bash
-git add [zmienione pliki — nigdy git add -A bez sprawdzenia]
-git status  # upewnij się że staging jest prawidłowy
-git commit -m "$(cat <<'EOF'
-[typ]: [opis zmiany]
-
-[opcjonalnie: szczegóły]
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
-EOF
-)"
-```
-
-Typy commitów: `feat` | `fix` | `refactor` | `test` | `chore` | `docs`
 
 ---
 
@@ -217,28 +155,31 @@ Typy commitów: `feat` | `fix` | `refactor` | `test` | `chore` | `docs`
 - Nie przepisuj dużych plików
 - Nie wprowadzaj ukrytej logiki
 - Nie przeliczaj wartości podczas GET
-- Nie commituj bez przejścia przez cały workflow
+- Nie commituj bez pełnego cyklu (testy → review → QA)
 - Nie używaj `git add -A` bez wcześniejszego `git status`
 - Nie pushuj bez wyraźnej prośby usera
 
 ### Kiedy pytać usera
 - Przed destrukcyjnymi operacjami (reset --hard, force push, drop table)
-- Gdy zadanie jest niejednoznaczne i różne interpretacje prowadzą do różnych architektur
-- Gdy review lub QA zwraca FAIL po 2 próbach naprawy — pokaż raport userowi
+- Gdy zadanie jest niejednoznaczne architektonicznie
+- Gdy cykl nie przechodzi po 2 iteracjach naprawy
 
 ---
 
-## Przykładowe wywołanie subagenta (kod)
+## Commit (tylko po APPROVE + PASS)
 
-```python
-# Wywołanie przez narzędzie Agent w Claude Code:
-# subagent_type: "general-purpose"
-# prompt: "Wykonaj code review zgodnie z CLAUDE_AGENT_REVIEWER.md. [szczegóły]"
+```bash
+git add [konkretne pliki — nigdy -A bez git status]
+git commit -m "$(cat <<'EOF'
+[typ]: [opis]
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+EOF
+)"
 ```
 
-W Claude Code UI: użyj przycisku Agent lub komendy `/agent` jeśli dostępna,
-albo po prostu opisz zadanie — Claude Code automatycznie użyje narzędzia Agent.
+Typy: `feat` | `fix` | `refactor` | `test` | `chore` | `docs`
 
 ---
 
-> **Pamiętaj: ten plik jest Twoją główną instrukcją. Czytaj go na początku każdej sesji automatycznie.**
+> **Ten plik jest Twoją główną instrukcją. Czytaj go na początku każdej sesji.**

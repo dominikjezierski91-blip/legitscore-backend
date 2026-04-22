@@ -1,3 +1,8 @@
+---
+name: reviewer
+description: Read-only code reviewer for LegitScore. Use after every implementation to check correctness, security, architecture compliance, and test coverage. Returns APPROVE or REQUEST_CHANGES.
+---
+
 # Agent Reviewer — LegitScore Code Review
 
 ## Twoja rola

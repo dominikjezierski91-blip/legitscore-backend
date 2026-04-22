@@ -32,8 +32,11 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
   const [precheckError, setPrecheckError] = useState<PrecheckError | null>(null);
   const [tick, setTick] = useState(0);
   const [progress, setProgress] = useState<{ stage: string; percent: number; label: string } | null>(null);
+  const [simPercent, setSimPercent] = useState(5);
+  const simStartRef = useRef(Date.now());
 
   const runDecisionStartedRef = useRef(false);
+  const errorHandledRef = useRef(false);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -83,17 +86,22 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
           }
           if (status === "ERROR") {
             stopPolling();
-            if (!cancelled) setError("Analiza zakończyła się błędem. Spróbuj ponownie później.");
+            if (!cancelled && !errorHandledRef.current) {
+              errorHandledRef.current = true;
+              setError("Analiza zakończyła się błędem. Spróbuj ponownie później.");
+            }
             return;
           }
           if (status === "PRECHECK_FAILED") {
             stopPolling();
-            // Pobierz szczegóły precheck z case data
-            const precheckResult = data?.precheck_result;
-            if (precheckResult && !cancelled) {
-              setPrecheckError(precheckResult);
-            } else if (!cancelled) {
-              setError("Zdjęcia nie spełniają wymagań do analizy. Sprawdź jakość i kompletność zdjęć.");
+            if (!cancelled && !errorHandledRef.current) {
+              errorHandledRef.current = true;
+              const precheckResult = data?.precheck_result;
+              if (precheckResult) {
+                setPrecheckError(precheckResult);
+              } else {
+                setError("Zdjęcia nie spełniają wymagań do analizy. Sprawdź jakość i kompletność zdjęć.");
+              }
             }
             return;
           }
@@ -112,67 +120,48 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
       pollingIntervalRef.current = setInterval(pollOnce, POLL_INTERVAL_MS);
     };
 
+    // Polling zawsze startuje — pokazuje postęp niezależnie od runDecision
+    startPolling();
+
     const submission = getPendingSubmission();
 
-    if (submission && submission.caseId === id) {
-      if (runDecisionStartedRef.current) {
-        if (DEBUG) console.debug("[AnalyzeStatus] runDecision skipped because already started");
-        startPolling();
-      } else {
-        runDecisionStartedRef.current = true;
-        if (DEBUG) console.debug("[AnalyzeStatus] runDecision started case_id=", id, "inputType=", submission.inputType);
-        (async () => {
+    if (submission && submission.caseId === id && !runDecisionStartedRef.current) {
+      runDecisionStartedRef.current = true;
+      if (DEBUG) console.debug("[AnalyzeStatus] runDecision started case_id=", id);
+      (async () => {
+        try {
+          await runDecision(id, submission.mode);
+          clearPendingSubmission();
+          // Polling wykryje DECIDED i przekieruje — nic tu nie robimy
+        } catch (e: any) {
+          clearPendingSubmission();
+          if (cancelled || errorHandledRef.current) return;
+
           try {
-            // Obsłuż dwa tryby: upload zdjęć lub import z URL
-            if (submission.inputType === "url" && submission.auctionUrl) {
-              await importFromUrl(id, submission.auctionUrl);
-            } else if (submission.fileData && submission.fileData.length > 0) {
-              // Odtwarzamy File objects z ArrayBuffer (bezpieczne po nawigacji iOS Safari)
-              const files = submission.fileData.map(
-                ({ name, type, buffer }) => new File([buffer], name, { type })
-              );
-              await uploadAssets(id, files);
+            const caseData: any = await getCase(id);
+            if (caseData?.status === "DECIDED") return;
+            if (caseData?.precheck_result) {
+              errorHandledRef.current = true;
+              setPrecheckError(caseData.precheck_result);
+              return;
             }
-            await runDecision(id, submission.mode);
-            clearPendingSubmission();
-            if (!cancelled) {
-              const qs = new URLSearchParams();
-              qs.set("caseId", id);
-              if (submission.mode) qs.set("mode", submission.mode);
-              router.replace(`/case/${id}?${qs.toString()}`);
-            }
-          } catch (e: any) {
-            clearPendingSubmission();
-            if (cancelled) return;
+          } catch {}
 
-            // Spróbuj sparsować błąd prechecka
-            const errorMessage = e instanceof Error ? e.message : String(e);
-
-            // Sprawdź czy to błąd prechecka (zawiera stage)
-            try {
-              // Jeśli message wygląda jak JSON z stage, to precheck error
-              if (errorMessage.includes('"stage"') || errorMessage.includes("stage")) {
-                // Pobierz case data z precheck_result
-                const caseData: any = await getCase(id);
-                if (caseData?.precheck_result) {
-                  setPrecheckError(caseData.precheck_result);
-                  return;
-                }
-              }
-            } catch {
-              // Ignoruj błędy parsowania
-            }
-
-            setError(errorMessage || "Nie udało się dokończyć analizy. Spróbuj ponownie później.");
-          }
-        })();
-      }
-    } else {
-      startPolling();
+          errorHandledRef.current = true;
+          const errorMessage = e instanceof Error ? e.message : String(e);
+          setError(errorMessage || "Nie udało się dokończyć analizy. Spróbuj ponownie później.");
+        }
+      })();
     }
 
     tickIntervalRef.current = setInterval(() => {
-      if (!cancelled) setTick((t) => t + 1);
+      if (!cancelled) {
+        setTick((t) => t + 1);
+        const elapsed = (Date.now() - simStartRef.current) / 1000;
+        // Rośnie od 5% do 90% przez ~240 sekund (krzywa log)
+        const sim = Math.min(90, 5 + 85 * (1 - Math.exp(-elapsed / 80)));
+        setSimPercent(Math.round(sim));
+      }
     }, 2500);
 
     return () => {
@@ -328,8 +317,36 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
   }
 
   // UI dla ładowania (progress bar)
-  const progressPercent = progress?.percent ?? 0;
-  const progressLabel = progress?.label ?? "Trwa analiza...";
+  const progressPercent = Math.max(simPercent, progress?.percent ?? 0);
+  const currentStage = progress?.stage ?? "";
+
+  const STAGE_LABELS: Record<string, string> = {
+    starting:         "Przygotowywanie analizy...",
+    coverage:         "Sprawdzanie kompletności zdjęć...",
+    quality:          "Ocena jakości i ostrości zdjęć...",
+    agent_a:          "Analiza forensyczna koszulki...",
+    agent_a_running:  "Badanie szwów, metek i nadruków...",
+    consistency:      "Weryfikacja personalizacji zawodnika...",
+    sku:              "Weryfikacja kodu produktu (SKU)...",
+    mfg_check:        "Ocena jakości wykonania i materiałów...",
+    rule_engine:      "Obliczanie werdyktu końcowego...",
+    generating:       "Generowanie raportu...",
+    done:             "Analiza zakończona!",
+  };
+  const progressLabel = STAGE_LABELS[currentStage] ?? "Trwa analiza...";
+
+  const STEPS = [
+    { label: "Zdjęcia",   stages: ["starting", "coverage", "quality"] },
+    { label: "Analiza",   stages: ["agent_a", "agent_a_running"] },
+    { label: "Zawodnik",  stages: ["consistency"] },
+    { label: "SKU",       stages: ["sku"] },
+    { label: "Wykonanie", stages: ["mfg_check"] },
+    { label: "Werdykt",   stages: ["rule_engine"] },
+    { label: "Raport",    stages: ["generating", "done"] },
+  ];
+
+  const stageOrder = ["starting","coverage","quality","agent_a","agent_a_running","consistency","sku","mfg_check","rule_engine","generating","done"];
+  const currentStageIdx = stageOrder.indexOf(currentStage);
 
   return (
     <div className="glass-card flex w-full max-w-md flex-col gap-6 p-8">
@@ -358,32 +375,26 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
           )}
         </div>
         <div className="grid grid-cols-7 gap-1 mt-2">
-          {[
-            { key: "coverage", label: "Zdjęcia", pct: 14 },
-            { key: "agent_a", label: "AI", pct: 55 },
-            { key: "consistency", label: "Zawodnik", pct: 65 },
-            { key: "sku", label: "SKU", pct: 75 },
-            { key: "mfg_check", label: "Jakość", pct: 88 },
-            { key: "rule_engine", label: "Wynik", pct: 93 },
-            { key: "generating", label: "PDF", pct: 100 },
-          ].map((step) => (
-            <div key={step.key} className="flex flex-col items-center gap-1">
-              <div
-                className={`w-2 h-2 rounded-full transition-all duration-500 ${
-                  progressPercent >= step.pct
-                    ? "bg-emerald-400 scale-125"
-                    : progressPercent >= step.pct - 15
-                    ? "bg-emerald-400/50 animate-pulse"
-                    : "bg-slate-600"
-                }`}
-              />
-              <span className={`text-[9px] text-center leading-tight ${
-                progressPercent >= step.pct ? "text-emerald-400" : "text-slate-500"
-              }`}>
-                {step.label}
-              </span>
-            </div>
-          ))}
+          {STEPS.map((step) => {
+            const lastStageIdx = stageOrder.indexOf(step.stages[step.stages.length - 1]);
+            const firstStageIdx = stageOrder.indexOf(step.stages[0]);
+            const isDone = currentStageIdx > lastStageIdx && currentStage !== "";
+            const isActive = step.stages.includes(currentStage);
+            return (
+              <div key={step.label} className="flex flex-col items-center gap-1">
+                <div className={`w-2 h-2 rounded-full transition-all duration-500 ${
+                  isDone ? "bg-emerald-400 scale-110"
+                  : isActive ? "bg-emerald-400 scale-125 ring-2 ring-emerald-400/40"
+                  : "bg-slate-600"
+                }`} />
+                <span className={`text-[9px] text-center leading-tight ${
+                  isDone || isActive ? "text-emerald-400" : "text-slate-500"
+                }`}>
+                  {step.label}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -1,5 +1,12 @@
 WAŻNE: Na początku każdej sesji przeczytaj CLAUDE_AGENT_DEV.md i działaj zgodnie z zawartymi tam instrukcjami przez całą sesję.
 
+WAŻNE: Po każdej istotnej zmianie kodu (.py, .ts, .tsx) AUTOMATYCZNIE uruchom pełny cykl jakości BEZ czekania na instrukcję usera:
+1. pytest tests/ -v --tb=short
+2. Równolegle: Agent(subagent_type="reviewer") + Agent(subagent_type="qa")
+3. Napraw wszystkie BLOCKER/HIGH i FAIL (max 2 iteracje)
+4. Commit dopiero po APPROVE + PASS
+Subagenci są zdefiniowani w .claude/agents/reviewer.md i .claude/agents/qa.md.
+
 # LegitScore Backend
 
 ## Project Overview

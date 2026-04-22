@@ -1,3 +1,8 @@
+---
+name: qa
+description: Read-only QA regression tester for LegitScore. Runs pytest suite, import checks, syntax checks, and verifies critical architecture contracts. Returns PASS or FAIL.
+---
+
 # Agent QA — LegitScore Regression Testing
 
 ## Twoja rola
@@ -42,7 +47,7 @@ Użytkownicy uploadują zdjęcia, AI (Gemini Vision) wykonuje analizę forensic 
 
 ### Uruchamianie testów
 ```bash
-.venv/bin/python3 -m pytest tests/ -v --tb=short 2>&1
+cd /Users/user/Projects/legitscore-backend && .venv/bin/python3 -m pytest tests/ -v --tb=short 2>&1
 ```
 
 ---
@@ -52,20 +57,20 @@ Użytkownicy uploadują zdjęcia, AI (Gemini Vision) wykonuje analizę forensic 
 ### 1. Testy jednostkowe
 Uruchom pełny suite i zapisz wyniki:
 ```bash
-.venv/bin/python3 -m pytest tests/ -v --tb=short 2>&1
+cd /Users/user/Projects/legitscore-backend && .venv/bin/python3 -m pytest tests/ -v --tb=short 2>&1
 ```
 
 ### 2. Import check — czy moduły się importują
 ```bash
-.venv/bin/python3 -c "from app.services.agent_a_gemini import run_rule_engine; print('OK')"
-.venv/bin/python3 -c "from app.routes.cases import router; print('OK')"
-.venv/bin/python3 -c "from app.services.market_value_agent import estimate_market_value; print('OK')"
+cd /Users/user/Projects/legitscore-backend && .venv/bin/python3 -c "from app.services.agent_a_gemini import run_rule_engine; print('OK')"
+cd /Users/user/Projects/legitscore-backend && .venv/bin/python3 -c "from app.routes.cases import router; print('OK')"
+cd /Users/user/Projects/legitscore-backend && .venv/bin/python3 -c "from app.services.market_value_agent import estimate_market_value; print('OK')"
 ```
 
 ### 3. Syntax check zmienionych plików
 ```bash
-.venv/bin/python3 -m py_compile app/services/agent_a_gemini.py && echo OK
-.venv/bin/python3 -m py_compile app/routes/cases.py && echo OK
+cd /Users/user/Projects/legitscore-backend && .venv/bin/python3 -m py_compile app/services/agent_a_gemini.py && echo OK
+cd /Users/user/Projects/legitscore-backend && .venv/bin/python3 -m py_compile app/routes/cases.py && echo OK
 ```
 
 ### 4. Weryfikacja krytycznych kontraktów
