@@ -124,4 +124,5 @@ app.include_router(collection_router.router, prefix="/api")
 app.include_router(support_router.router, prefix="/api")
 app.include_router(monitoring_router.router, prefix="/api")
 
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.mount("/", StaticFiles(directory="data"), name="data")

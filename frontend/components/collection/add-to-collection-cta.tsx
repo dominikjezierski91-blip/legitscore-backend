@@ -17,6 +17,11 @@ export function AddToCollectionCta({ caseId, mode, reportData, autoOpen }: Props
   const [alreadySaved, setAlreadySaved] = useState(false);
   const wasSaved = useRef(false);
 
+  // Otwórz modal gdy autoOpen zmieni się na true (np. po powrocie z logowania)
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
+
   useEffect(() => {
     getCollection()
       .then((items: any[]) => {

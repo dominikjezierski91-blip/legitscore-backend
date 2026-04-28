@@ -251,6 +251,17 @@
         Poziom pewności: {{ CONFIDENCE_LABELS.get((d.verdict.confidence_level or "")|lower, d.verdict.confidence_level) or "nieustalone" }} ({{ d.verdict.confidence_percent or 0 }}%)
       </span>
     </div>
+    {% if d.verdict.agent_suggestion and d.verdict.agent_suggestion != d.verdict.verdict_category %}
+    <div style="margin-bottom:10px;padding:8px 12px;background:#fef3c7;border-left:3px solid #d97706;border-radius:4px;font-size:10px;color:#92400e;">
+      <strong>Uwaga:</strong> Pierwotna ocena AI wskazywała na kategorię <em>{{ VERDICT_LABELS.get((d.verdict.agent_suggestion or "")|lower, d.verdict.agent_suggestion) }}</em>.
+      Werdykt został zmieniony przez regułę weryfikacji na podstawie twardych sygnałów.
+      {% if d.verdict.confidence_explanation %}
+      <br><strong>Powód zmiany:</strong> {{ d.verdict.confidence_explanation }}
+      {% endif %}
+    </div>
+    {% elif d.verdict.confidence_explanation %}
+    <div style="margin-bottom:8px;font-size:10px;color:#92400e;">⚠ {{ d.verdict.confidence_explanation }}</div>
+    {% endif %}
     <div class="verdict-summary-box">
       {{ d.verdict.summary or "brak podsumowania" }}
     </div>
