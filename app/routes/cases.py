@@ -770,6 +770,14 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "produkt nieoficjalny",
                             "niezgodna z historią klubu",
                             "nie jest to oficjalny nadruk",
+                            "nigdy nie grał", "nigdy nie grała",
+                            "nieoficjalna ('fantasy')",
+                            "nigdy nie występowała w oficjalnych",
+                            "w którym nigdy nie grał",
+                            "nieoficjalna personalizacja wyklucza",
+                            "wyklucza status 'match worn'",
+                            "nie ma wartości kolekcjonerskiej",
+                            "produkt nieautoryzowany",
                         ]
 
                         # Row E
@@ -813,19 +821,20 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                                 case_id,
                             )
 
-                        # Zbuduj pełne podsumowanie na podstawie werdyktu i PCC —
-                        # wyświetlane w PDF zamiast oryginalnego verdict.summary.
-                        _vcat = (report_data.get("verdict") or {}).get("verdict_category", "")
-                        _vcat_label = {
-                            "meczowa": "meczowej (player issue)",
-                            "oryginalna_sklepowa": "oryginalnej (sklepowej)",
-                            "oficjalna_replika": "oficjalnej repliki",
-                            "edycja_limitowana": "edycji limitowanej",
-                        }.get(_vcat, _vcat)
-                        report_data["pcc_summary_note"] = (
-                            f"Koszulka posiada cechy autentycznej wersji {_vcat_label}. "
-                            f"{pcc_reason}"
-                        )
+                        # meczowa_detail.notes
+                        md = report_data.get("meczowa_detail") or {}
+                        if any(p in (md.get("notes") or "") for p in _stale_phrases):
+                            md["notes"] = pcc_reason
+                            report_data["meczowa_detail"] = md
+                            logger.info(
+                                "[PCC_CORRECTION] case_id=%s meczowa_detail corrected",
+                                case_id,
+                            )
+
+                        # pcc_summary_note — placeholder, zostanie zaktualizowany
+                        # po rule engine (żeby mieć właściwy verdict_category).
+                        report_data["pcc_summary_note"] = pcc_reason
+                        report_data["_pcc_summary_pending"] = True
                         logger.info(
                             "[PCC_CORRECTION] case_id=%s pcc_summary_note saved",
                             case_id,
@@ -951,6 +960,22 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             )
                     except Exception:
                         logger.exception("[RULE_ENGINE] Nieoczekiwany błąd (non-fatal), case_id=%s", case_id)
+
+                    # Finalizuj pcc_summary_note z właściwym verdict_category po rule engine.
+                    if report_data.pop("_pcc_summary_pending", False):
+                        _final_vcat = (report_data.get("verdict") or {}).get("verdict_category", "")
+                        _vcat_label = {
+                            "meczowa": "meczowej (player issue)",
+                            "oryginalna_sklepowa": "oryginalnej (sklepowej)",
+                            "oficjalna_replika": "oficjalnej repliki",
+                            "edycja_limitowana": "edycji limitowanej",
+                        }.get(_final_vcat, "")
+                        _pcc_note_base = report_data.get("pcc_summary_note", "")
+                        if _vcat_label:
+                            report_data["pcc_summary_note"] = (
+                                f"Koszulka posiada cechy autentycznej wersji {_vcat_label}. "
+                                f"{_pcc_note_base}"
+                            )
 
                     # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
                     try:
