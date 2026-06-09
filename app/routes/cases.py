@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from app.models.decision import Decision
 from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, coverage_check, quality_check, red_flag_check, run_rule_engine, run_manufacturing_quality_check
 from app.services.consistency_check import run_player_club_consistency_check
+from app.services.kit_context_search import run_kit_context_search
 from app.services.sku_agent import run_sku_verification
 from app.services.storage import (
     create_case,
@@ -564,14 +565,29 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
             )
 
         logger.info("[PRECHECK] case_id=%s stage=quality precheck_result=PASSED", case_id)
-        _update_progress("agent_a", 20, "Analiza forensyczna (to zajmie chwilę)...")
+        # ============================================================
+        # ETAP 2.5: Kit Context Search — wstrzyknij aktualną wiedzę o oficjalnych
+        # krojach przed analizą Agent A, żeby Gemini nie oceniał na podstawie
+        # nieaktualnych danych (np. nowe kolaboracje, zmienione logo producenta).
+        # Non-fatal — błąd nie blokuje analizy.
+        # ============================================================
+        _update_progress("kit_context", 20, "Pobieranie aktualnych danych o krojach...")
+        try:
+            kit_context = await run_kit_context_search(asset_paths)
+            if kit_context:
+                logger.info("[KIT_CONTEXT] case_id=%s context_length=%d", case_id, len(kit_context))
+            else:
+                logger.info("[KIT_CONTEXT] case_id=%s brak kontekstu (non-fatal)", case_id)
+        except Exception:
+            kit_context = ""
+            logger.exception("[KIT_CONTEXT] Błąd (non-fatal), case_id=%s", case_id)
 
         # ============================================================
-        # ETAP 3: Agent A Forensic Analysis (bez zmian)
+        # ETAP 3: Agent A Forensic Analysis
         # ============================================================
         logger.info("[AGENT_A] case_id=%s agent_a_started=true assets_count=%d", case_id, len(asset_paths))
         _update_progress("agent_a_running", 25, "AI analizuje koszulkę...")
-        decision_dict = await GeminiAgentA().analyze(case_id, asset_paths)
+        decision_dict = await GeminiAgentA().analyze(case_id, asset_paths, extra_context=kit_context)
 
         try:
             decision_model = Decision.model_validate(decision_dict)
@@ -709,6 +725,67 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             if pcc_reason:
                                 row["observation"] = pcc_reason
                             break
+
+                    # Gdy PCC potwierdza zgodność zawodnik↔klub, napraw wszystkie pola
+                    # w których Agent A błędnie ocenił personalizację jako niezgodną.
+                    if pcc_status == "consistent" and pcc_reason:
+                        _stale_phrases = [
+                            "nie gra w", "nie grał w", "nie jest zawodnikiem",
+                            "nie należy do", "nie figuruje w składzie",
+                            "niezgodna ze składem", "nie jest związany z klubem",
+                            "jest nieprawidłowa dla tego klubu",
+                            "jest nieprawidłowa dla klubu",
+                            "taka kombinacja zawodnika i drużyny nie występuje",
+                        ]
+
+                        # Row E
+                        for row in dm:
+                            if (isinstance(row, dict) and row.get("code") == "E"
+                                    and row.get("status") == "RED"):
+                                old_obs = row.get("observation", "")
+                                if any(p in old_obs for p in _stale_phrases):
+                                    row["status"] = "GREEN"
+                                    row["impact"] = "neutralne"
+                                    row["observation"] = pcc_reason
+                                    logger.info(
+                                        "[PCC_CORRECTION] case_id=%s row E corrected",
+                                        case_id,
+                                    )
+                                    break
+
+                        # key_evidence
+                        key_evidence = report_data.get("key_evidence") or []
+                        report_data["key_evidence"] = [
+                            ev for ev in key_evidence
+                            if not (isinstance(ev, dict) and any(
+                                p in (ev.get("text") or "") for p in _stale_phrases
+                            ))
+                        ]
+                        if len(report_data["key_evidence"]) < len(key_evidence):
+                            logger.info(
+                                "[PCC_CORRECTION] case_id=%s removed %d stale key_evidence entries",
+                                case_id, len(key_evidence) - len(report_data["key_evidence"]),
+                            )
+
+                        # personalization_assessment
+                        pa = report_data.get("personalization_assessment") or {}
+                        if any(p in (pa.get("notes") or "") for p in _stale_phrases):
+                            pa["status"] = "zweryfikowana"
+                            pa["confidence"] = "wysoka"
+                            pa["notes"] = pcc_reason
+                            report_data["personalization_assessment"] = pa
+                            logger.info(
+                                "[PCC_CORRECTION] case_id=%s personalization_assessment corrected",
+                                case_id,
+                            )
+
+                        # Zapisz korektę PCC w osobnym polu — verdict.summary jest
+                        # chronione (Agent A jako jedyne źródło prawdy).
+                        report_data["pcc_summary_note"] = pcc_reason
+                        logger.info(
+                            "[PCC_CORRECTION] case_id=%s pcc_summary_note saved",
+                            case_id,
+                        )
 
                     _update_progress("sku", 65, "Weryfikacja kodu SKU...")
 

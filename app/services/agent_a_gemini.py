@@ -2349,13 +2349,15 @@ async def red_flag_check(asset_paths: List[str]) -> Dict[str, Any]:
 
 
 class GeminiAgentA:
-    async def analyze(self, case_id: str, asset_paths: List[str]) -> Dict[str, Any]:
+    async def analyze(self, case_id: str, asset_paths: List[str], extra_context: str = "") -> Dict[str, Any]:
         if not asset_paths:
             raise HTTPException(status_code=400, detail="No assets available for decision")
 
         model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
         prompt_version = os.getenv("A_PROMPT_VERSION", DEFAULT_PROMPT_VERSION)
         system_prompt = _load_system_prompt()
+        if extra_context:
+            system_prompt = system_prompt + "\n\n---\nCURRENT OFFICIAL KIT INFORMATION (from web search — treat as ground truth):\n" + extra_context[:3000]
 
         api_key = _get_api_key()
         if not api_key:
