@@ -829,9 +829,12 @@ def _compute_personalization_assessment_v2(
     legacy_status = pa_legacy.get("status", "brak")
     result = STATUS_MAP.get(legacy_status, "unverified")
 
-    # Niezgodność z PCC zawsze nadpisuje na inconsistent
+    # Niezgodność z PCC nadpisuje na inconsistent — ale nie dla temporal_mismatch
+    # (zawodnik jest w klubie, lecz w innym sezonie → możliwa późniejsza personalizacja)
     if pcc.get("status") == "inconsistent":
         result = "inconsistent"
+    elif pcc.get("status") == "temporal_mismatch":
+        result = "aftermarket"
 
     confidence_map = {"niska": "low", "srednia": "medium", "wysoka": "high"}
     confidence = confidence_map.get(pa_legacy.get("confidence", "niska"), "low")
@@ -850,6 +853,8 @@ def _compute_consistency_effect(pcc: Dict[str, Any], verdict_category: str) -> s
             return "personalization_flagged"
         else:
             return "historical_claim_limited"
+    if pcc_status == "temporal_mismatch":
+        return "later_personalization"
     return "none"
 
 
@@ -876,7 +881,7 @@ def _compute_hard_flags(
         flags.append("sku_mismatch")
     if sku_mismatch and (c_red or d_red):
         flags.append("sku_mismatch_plus_visual_issues")
-    if pcc_status == "inconsistent" or pa_result == "inconsistent":
+    if (pcc_status == "inconsistent" or pa_result == "inconsistent") and pcc_status != "temporal_mismatch":
         flags.append("personalization_inconsistent")
     if not identity_tag:
         flags.append("critical_evidence_missing")

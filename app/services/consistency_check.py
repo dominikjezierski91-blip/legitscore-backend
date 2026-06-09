@@ -39,21 +39,25 @@ Instead: search, find the answer, and report what you found confidently.
 
 Rules:
 1. "consistent" means the player was at the given club in the given season AND wore the given number (if provided).
-2. "inconsistent" means the player was NOT at the club in that season, OR wore a DIFFERENT number.
-3. "uncertain" means search results are conflicting or inconclusive.
-4. Do not evaluate shirt authenticity.
-5. Do not infer counterfeit risk.
-6. Do not discuss SKU, patches, fabric, or materials.
-7. Keep the reason short, factual, and in Polish.
-8. If player_number is provided, you MUST verify it — a wrong number is "inconsistent".
-9. reason field must state what you found, not what you could not find.
+2. "inconsistent" means the player was NEVER at this club in any season, OR wore a DIFFERENT number.
+3. "temporal_mismatch" means the player IS or WAS at the club — but in a DIFFERENT season than the jersey. Use this when the player joined the club after the jersey season ended, or left before the jersey season. This indicates a legitimate later personalization, not a fake.
+4. "uncertain" means search results are conflicting or inconclusive.
+5. Do not evaluate shirt authenticity.
+6. Do not infer counterfeit risk.
+7. Do not discuss SKU, patches, fabric, or materials.
+8. Keep the reason short, factual, and in Polish.
+9. If player_number is provided, you MUST verify it — a wrong number is "inconsistent" (not temporal_mismatch).
+10. reason field must state what you found, not what you could not find.
 Good: 'Zawodnik grał w klubie X z numerem Y w sezonie Z.'
 Bad: 'Brak danych', 'Nie udało się zweryfikować', 'Wymagałoby zewnętrznych danych'.
+
+Example of temporal_mismatch: jersey season is 2023/24, player joined the club in 2025 → status: "temporal_mismatch".
+Example of inconsistent: player never played for this club in any season → status: "inconsistent".
 
 Return JSON only. No markdown. No extra text:
 
 {
-  "status": "consistent | inconsistent | uncertain",
+  "status": "consistent | inconsistent | temporal_mismatch | uncertain",
   "confidence": "low | medium | high",
   "reason": "",
   "notes": []
