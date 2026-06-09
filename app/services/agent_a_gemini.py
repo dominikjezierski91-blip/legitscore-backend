@@ -1789,6 +1789,45 @@ def run_rule_engine(
             dm_statuses.get("C"), dm_statuses.get("D"),
         )
 
+    # OVERRIDE: podrobka + consistent PCC + dobra baza → meczowa
+    # Agent A może oznaczyć podróbkę z powodu niezgodności personalizacji, którą
+    # PCC następnie obaliło (zawodnik faktycznie grał w klubie w tym sezonie).
+    # Jeśli baza koszulki wygląda autentycznie — koryguj werdykt.
+    if (
+        verdict_category == "podrobka"
+        and pcc_status == "consistent"
+        and dm_statuses.get("C") == "GREEN"
+        and dm_statuses.get("D") == "GREEN"
+        and not hard_flags
+        and _sku_status_for_override not in ("mismatch", "found_unofficial", "format_invalid")
+    ):
+        verdict_category = "meczowa"
+        if isinstance(report_data.get("verdict"), dict):
+            report_data["verdict"]["verdict_category"] = "meczowa"
+            report_data["verdict"]["label"] = "Meczowa / Player Issue"
+            report_data["verdict"]["confidence_percent"] = min(
+                int(report_data["verdict"].get("confidence_percent") or 70), 75
+            )
+            report_data["verdict"]["confidence_level"] = "wysoki"
+            report_data["verdict"]["confidence_explanation"] = (
+                "Baza koszulki autentyczna (meczowa). "
+                "Personalizacja potwierdzona przez weryfikację zawodnik↔klub."
+            )
+        _probs_cp = report_data.get("probabilities") or {}
+        for _k in _probs_cp:
+            _probs_cp[_k] = 0
+        _probs_cp["meczowa"] = 75
+        _probs_cp["oryginalna_sklepowa"] = 15
+        _probs_cp["oficjalna_replika"] = 5
+        _probs_cp["podrobka"] = 5
+        report_data["probabilities"] = _probs_cp
+        override = "meczowa"
+        classification = "likely_authentic"
+        logger.info(
+            "[RULE_ENGINE] consistent PCC override: podrobka → meczowa, C=%s D=%s pcc=%s",
+            dm_statuses.get("C"), dm_statuses.get("D"), pcc_status,
+        )
+
     # HARD BUSINESS OVERRIDE: meczowa + poor manufacturing → podrobka
     # Tylko gdy manufacturing_signals jawnie dostarczone (nie fallback ze starych raportów)
     # SKU confirmed jest silniejszym sygnałem autentyczności — blokuje override
