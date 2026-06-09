@@ -1789,12 +1789,13 @@ def run_rule_engine(
             dm_statuses.get("C"), dm_statuses.get("D"),
         )
 
-    # OVERRIDE: podrobka + consistent PCC + dobra baza → meczowa
-    # Agent A może oznaczyć podróbkę z powodu niezgodności personalizacji, którą
-    # PCC następnie obaliło (zawodnik faktycznie grał w klubie w tym sezonie).
-    # Jeśli baza koszulki wygląda autentycznie — koryguj werdykt.
+    # OVERRIDE: non-authentic verdict + consistent PCC + dobra baza → meczowa
+    # Agent A może oznaczyć podróbkę/treningową_custom z powodu niezgodności
+    # personalizacji, którą PCC następnie obaliło (zawodnik faktycznie grał
+    # w klubie w tym sezonie). Jeśli baza koszulki jest autentyczna — koryguj.
+    _non_authentic_verdicts = {"podrobka", "treningowa_custom", "oficjalna_replika"}
     if (
-        verdict_category == "podrobka"
+        verdict_category in _non_authentic_verdicts
         and pcc_status == "consistent"
         and dm_statuses.get("C") == "GREEN"
         and dm_statuses.get("D") == "GREEN"
