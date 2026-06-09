@@ -762,6 +762,14 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "jest nieprawidłowa dla tego klubu",
                             "jest nieprawidłowa dla klubu",
                             "taka kombinacja zawodnika i drużyny nie występuje",
+                            "jest niezgodna z klubem",
+                            "jest całkowicie niezgodna z klubem",
+                            "nigdy oficjalnie nie istniała",
+                            "koszulki fantasy", "koszulka fantasy",
+                            "kombinacja nigdy",
+                            "produkt nieoficjalny",
+                            "niezgodna z historią klubu",
+                            "nie jest to oficjalny nadruk",
                         ]
 
                         # Row E
@@ -805,9 +813,19 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                                 case_id,
                             )
 
-                        # Zapisz korektę PCC w osobnym polu — verdict.summary jest
-                        # chronione (Agent A jako jedyne źródło prawdy).
-                        report_data["pcc_summary_note"] = pcc_reason
+                        # Zbuduj pełne podsumowanie na podstawie werdyktu i PCC —
+                        # wyświetlane w PDF zamiast oryginalnego verdict.summary.
+                        _vcat = (report_data.get("verdict") or {}).get("verdict_category", "")
+                        _vcat_label = {
+                            "meczowa": "meczowej (player issue)",
+                            "oryginalna_sklepowa": "oryginalnej (sklepowej)",
+                            "oficjalna_replika": "oficjalnej repliki",
+                            "edycja_limitowana": "edycji limitowanej",
+                        }.get(_vcat, _vcat)
+                        report_data["pcc_summary_note"] = (
+                            f"Koszulka posiada cechy autentycznej wersji {_vcat_label}. "
+                            f"{pcc_reason}"
+                        )
                         logger.info(
                             "[PCC_CORRECTION] case_id=%s pcc_summary_note saved",
                             case_id,

@@ -284,13 +284,7 @@
         <span class="confidence-badge">
           Poziom pewności: {{ CONFIDENCE_LABELS.get((data.verdict.confidence_level or "")|lower, data.verdict.confidence_level) or "nieustalone" }}
         </span>
-        {% if data.verdict.agent_suggestion and data.verdict.agent_suggestion != data.verdict.verdict_category %}
-        <div style="margin:8px 0;padding:6px 10px;background:#fef3c7;border-left:3px solid #d97706;border-radius:3px;font-size:10px;color:#92400e;">
-          <strong>Uwaga:</strong> AI wskazywała na <em>{{ VERDICT_LABELS.get((data.verdict.agent_suggestion or "")|lower, data.verdict.agent_suggestion) }}</em> — werdykt zmieniony przez regułę weryfikacji.
-          {% if data.verdict.confidence_explanation %}<br>{{ data.verdict.confidence_explanation }}{% endif %}
-        </div>
-        {% endif %}
-        <div class="summary">{{ data.verdict.summary or "brak podsumowania" }}</div>
+        <div class="summary">{{ data.pcc_summary_note or data.verdict.summary or "brak podsumowania" }}</div>
       </div>
       <div class="verdict-percent">
         {{ data.verdict.confidence_percent or 0 }}%
