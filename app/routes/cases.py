@@ -780,56 +780,49 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "produkt nieautoryzowany",
                         ]
 
-                        # Row E
+                        # Row E — zawsze zielony gdy PCC consistent
                         for row in dm:
-                            if (isinstance(row, dict) and row.get("code") == "E"
-                                    and row.get("status") == "RED"):
-                                old_obs = row.get("observation", "")
-                                if any(p in old_obs for p in _stale_phrases):
+                            if isinstance(row, dict) and row.get("code") == "E":
+                                if row.get("status") in ("RED", "YELLOW"):
                                     row["status"] = "GREEN"
                                     row["impact"] = "neutralne"
                                     row["observation"] = pcc_reason
-                                    logger.info(
-                                        "[PCC_CORRECTION] case_id=%s row E corrected",
-                                        case_id,
-                                    )
-                                    break
+                                    logger.info("[PCC_CORRECTION] case_id=%s row E corrected", case_id)
+                                break
 
-                        # key_evidence
+                        # key_evidence — usuń wszelkie negatywne wpisy o personalizacji.
+                        # Używamy frazy jako filtr ORAZ sprawdzamy sentiment przez słowa kluczowe.
+                        _neg_personal_kw = {
+                            "nieprawidłow", "niezgodn", "nieoficjaln", "fantasy",
+                            "nigdy", "fałszyw", "podrobk", "nieautentyczn",
+                            "nieautoryzow", "wyklucza", "dowód przeciwko",
+                        }
                         key_evidence = report_data.get("key_evidence") or []
-                        report_data["key_evidence"] = [
-                            ev for ev in key_evidence
-                            if not (isinstance(ev, dict) and any(
-                                p in (ev.get("text") or "") for p in _stale_phrases
-                            ))
-                        ]
-                        if len(report_data["key_evidence"]) < len(key_evidence):
-                            logger.info(
-                                "[PCC_CORRECTION] case_id=%s removed %d stale key_evidence entries",
-                                case_id, len(key_evidence) - len(report_data["key_evidence"]),
-                            )
+                        def _is_negative_personalization(ev: dict) -> bool:
+                            text = (ev.get("text") or "").lower()
+                            if "personalizacj" not in text and "rashford" not in text.lower():
+                                return False
+                            return any(kw in text for kw in _neg_personal_kw)
+                        filtered_ev = [ev for ev in key_evidence
+                                       if not (isinstance(ev, dict) and _is_negative_personalization(ev))]
+                        if len(filtered_ev) < len(key_evidence):
+                            logger.info("[PCC_CORRECTION] case_id=%s removed %d negative key_evidence entries",
+                                        case_id, len(key_evidence) - len(filtered_ev))
+                        report_data["key_evidence"] = filtered_ev
 
-                        # personalization_assessment
+                        # personalization_assessment — zawsze nadpisz gdy PCC consistent
                         pa = report_data.get("personalization_assessment") or {}
-                        if any(p in (pa.get("notes") or "") for p in _stale_phrases):
-                            pa["status"] = "zweryfikowana"
-                            pa["confidence"] = "wysoka"
-                            pa["notes"] = pcc_reason
-                            report_data["personalization_assessment"] = pa
-                            logger.info(
-                                "[PCC_CORRECTION] case_id=%s personalization_assessment corrected",
-                                case_id,
-                            )
+                        pa["status"] = "zweryfikowana"
+                        pa["confidence"] = "wysoka"
+                        pa["notes"] = pcc_reason
+                        report_data["personalization_assessment"] = pa
+                        logger.info("[PCC_CORRECTION] case_id=%s personalization_assessment corrected", case_id)
 
-                        # meczowa_detail.notes
+                        # meczowa_detail.notes — zawsze nadpisz gdy PCC consistent
                         md = report_data.get("meczowa_detail") or {}
-                        if any(p in (md.get("notes") or "") for p in _stale_phrases):
-                            md["notes"] = pcc_reason
-                            report_data["meczowa_detail"] = md
-                            logger.info(
-                                "[PCC_CORRECTION] case_id=%s meczowa_detail corrected",
-                                case_id,
-                            )
+                        md["notes"] = pcc_reason
+                        report_data["meczowa_detail"] = md
+                        logger.info("[PCC_CORRECTION] case_id=%s meczowa_detail corrected", case_id)
 
                         # pcc_summary_note — placeholder, zostanie zaktualizowany
                         # po rule engine (żeby mieć właściwy verdict_category).
