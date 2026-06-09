@@ -1749,10 +1749,49 @@ def run_rule_engine(
             "Nie są traktowane jako sygnał podróbki."
         )
 
+    # OVERRIDE: podrobka + temporal_mismatch PCC + dobra baza → meczowa
+    # Gdy Agent A oznaczył podróbkę wyłącznie z powodu niezgodności zawodnik/sezon,
+    # ale PCC potwierdza że zawodnik IS w klubie (tylko w innym sezonie) i baza
+    # koszulki wygląda autentycznie (C i D zielone) — koryguj na meczową.
+    _sku_status_for_override = sku_verification.get("status", "uncertain")
+    if (
+        verdict_category == "podrobka"
+        and pcc_status == "temporal_mismatch"
+        and dm_statuses.get("C") == "GREEN"
+        and dm_statuses.get("D") == "GREEN"
+        and "sku_mismatch" not in hard_flags
+        and _sku_status_for_override not in ("mismatch", "found_unofficial", "format_invalid")
+    ):
+        verdict_category = "meczowa"
+        if isinstance(report_data.get("verdict"), dict):
+            report_data["verdict"]["verdict_category"] = "meczowa"
+            report_data["verdict"]["label"] = "Meczowa / Player Issue"
+            report_data["verdict"]["confidence_percent"] = min(
+                int(report_data["verdict"].get("confidence_percent") or 70), 70
+            )
+            report_data["verdict"]["confidence_level"] = "sredni"
+            report_data["verdict"]["confidence_explanation"] = (
+                "Baza koszulki autentyczna (meczowa). Personalizacja dodana po sezonie — "
+                "zawodnik dołączył do klubu w późniejszym sezonie."
+            )
+        _probs_tm = report_data.get("probabilities") or {}
+        for _k in _probs_tm:
+            _probs_tm[_k] = 0
+        _probs_tm["meczowa"] = 65
+        _probs_tm["oryginalna_sklepowa"] = 20
+        _probs_tm["treningowa_custom"] = 10
+        _probs_tm["podrobka"] = 5
+        report_data["probabilities"] = _probs_tm
+        override = "meczowa"
+        classification = "likely_authentic"
+        logger.info(
+            "[RULE_ENGINE] temporal_mismatch override: podrobka → meczowa, case signal C=%s D=%s",
+            dm_statuses.get("C"), dm_statuses.get("D"),
+        )
+
     # HARD BUSINESS OVERRIDE: meczowa + poor manufacturing → podrobka
     # Tylko gdy manufacturing_signals jawnie dostarczone (nie fallback ze starych raportów)
     # SKU confirmed jest silniejszym sygnałem autentyczności — blokuje override
-    _sku_status_for_override = sku_verification.get("status", "uncertain")
     if (
         verdict_category == "meczowa"
         and mfg_quality == "poor"
