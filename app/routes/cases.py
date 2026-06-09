@@ -704,6 +704,32 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             case_id, _pcc_result.get("status"), _pcc_result.get("confidence"),
                         )
 
+                        # Korekcja sezonu: gdy PCC wykrywa temporal_mismatch i zna
+                        # właściwy sezon zawodnika, popraw subject.season i re-run PCC.
+                        # Agent A zgaduje sezon wizualnie — może się mylić dla nowych krojów.
+                        if (
+                            _pcc_result.get("status") == "temporal_mismatch"
+                            and _pcc_result.get("player_actual_season")
+                        ):
+                            corrected_season = _pcc_result["player_actual_season"]
+                            subject = report_data.get("subject") or {}
+                            if corrected_season != subject.get("season"):
+                                logger.info(
+                                    "[SEASON_CORRECTION] case_id=%s season %s→%s (PCC temporal_mismatch)",
+                                    case_id, subject.get("season"), corrected_season,
+                                )
+                                subject["season"] = corrected_season
+                                report_data["subject"] = subject
+                                try:
+                                    _pcc_corrected = await run_player_club_consistency_check(report_data)
+                                    report_data["player_club_consistency"] = _pcc_corrected
+                                    logger.info(
+                                        "[SEASON_CORRECTION] re-run PCC: status=%s confidence=%s",
+                                        _pcc_corrected.get("status"), _pcc_corrected.get("confidence"),
+                                    )
+                                except Exception:
+                                    logger.exception("[SEASON_CORRECTION] re-run PCC error (non-fatal), case_id=%s", case_id)
+
                     # Synchronizuj decision_matrix wiersz F z wynikiem PCC
                     pcc_status = report_data["player_club_consistency"].get("status", "uncertain")
                     pcc_reason = report_data["player_club_consistency"].get("reason", "")

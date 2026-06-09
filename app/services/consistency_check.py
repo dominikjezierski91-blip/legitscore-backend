@@ -51,8 +51,10 @@ Rules:
 Good: 'Zawodnik grał w klubie X z numerem Y w sezonie Z.'
 Bad: 'Brak danych', 'Nie udało się zweryfikować', 'Wymagałoby zewnętrznych danych'.
 
-Example of temporal_mismatch: jersey season is 2023/24, player joined the club in 2025 → status: "temporal_mismatch".
-Example of inconsistent: player never played for this club in any season → status: "inconsistent".
+Example of temporal_mismatch: jersey season is 2023/24, player joined the club in 2025 → status: "temporal_mismatch", player_actual_season: "2025/26".
+Example of inconsistent: player never played for this club in any season → status: "inconsistent", player_actual_season: null.
+
+When status is temporal_mismatch, you MUST fill player_actual_season with the season the player actually played at this club (format: "YYYY/YY", e.g. "2025/26"). This is used to correct the jersey season in the report.
 
 Return JSON only. No markdown. No extra text:
 
@@ -60,6 +62,7 @@ Return JSON only. No markdown. No extra text:
   "status": "consistent | inconsistent | temporal_mismatch | uncertain",
   "confidence": "low | medium | high",
   "reason": "",
+  "player_actual_season": null,
   "notes": []
 }"""
 
