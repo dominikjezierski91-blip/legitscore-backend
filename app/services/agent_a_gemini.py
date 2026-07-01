@@ -451,34 +451,11 @@ def _normalize_verdict_from_probabilities(report_data: Dict[str, Any]) -> None:
             verdict_obj["confidence_level"] = level
             report_data["verdict"] = verdict_obj
 
-        # Backend oblicza verdict_category z argmax probabilities
-        # Model może sugerować ale backend ma ostatnie słowo
-        # Zachowaj oryginalny verdict modelu jako agent_suggestion
+        # Zachowaj oryginalny verdict modelu jako agent_suggestion.
+        # Backend NIE nadpisuje verdict_category — Agent A jest jedynym źródłem prawdy.
         if cat:
-            agent_suggestion = verdict_obj.get("verdict_category", "")
-            if agent_suggestion:
-                verdict_obj["agent_suggestion"] = agent_suggestion
-
-        # Oblicz verdict_category z argmax probabilities
-        if rounded:
-            argmax_category = max(rounded, key=lambda k: rounded[k])
-            argmax_value = rounded[argmax_category]
-            # Tylko override gdy argmax jest jednoznaczny (różnica >= 10pp)
-            # i gdy model się myli względem danych
-            current_cat = verdict_obj.get("verdict_category", "")
-            current_prob = rounded.get(current_cat, 0)
-            if (
-                argmax_category != current_cat
-                and argmax_value >= 40
-                and argmax_value - current_prob >= 10
-            ):
-                verdict_obj["verdict_category"] = argmax_category
-                verdict_obj["label"] = _LABEL_MAP.get(argmax_category, argmax_category)
-                report_data["verdict"] = verdict_obj
-                logger.info(
-                    "normalize: argmax override %s→%s (prob %d vs %d)",
-                    current_cat, argmax_category, argmax_value, current_prob
-                )
+            verdict_obj["agent_suggestion"] = cat
+            report_data["verdict"] = verdict_obj
 
 
 def normalize_report_data(report_data: Dict[str, Any]) -> None:
