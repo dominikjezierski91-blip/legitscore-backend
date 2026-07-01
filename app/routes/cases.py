@@ -755,31 +755,6 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                     # Gdy PCC potwierdza zgodność zawodnik↔klub, napraw wszystkie pola
                     # w których Agent A błędnie ocenił personalizację jako niezgodną.
                     if pcc_status == "consistent" and pcc_reason:
-                        _stale_phrases = [
-                            "nie gra w", "nie grał w", "nie jest zawodnikiem",
-                            "nie należy do", "nie figuruje w składzie",
-                            "niezgodna ze składem", "nie jest związany z klubem",
-                            "jest nieprawidłowa dla tego klubu",
-                            "jest nieprawidłowa dla klubu",
-                            "taka kombinacja zawodnika i drużyny nie występuje",
-                            "jest niezgodna z klubem",
-                            "jest całkowicie niezgodna z klubem",
-                            "nigdy oficjalnie nie istniała",
-                            "koszulki fantasy", "koszulka fantasy",
-                            "kombinacja nigdy",
-                            "produkt nieoficjalny",
-                            "niezgodna z historią klubu",
-                            "nie jest to oficjalny nadruk",
-                            "nigdy nie grał", "nigdy nie grała",
-                            "nieoficjalna ('fantasy')",
-                            "nigdy nie występowała w oficjalnych",
-                            "w którym nigdy nie grał",
-                            "nieoficjalna personalizacja wyklucza",
-                            "wyklucza status 'match worn'",
-                            "nie ma wartości kolekcjonerskiej",
-                            "produkt nieautoryzowany",
-                        ]
-
                         # Row E — zawsze zielony gdy PCC consistent
                         for row in dm:
                             if isinstance(row, dict) and row.get("code") == "E":
@@ -791,16 +766,23 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                                 break
 
                         # key_evidence — usuń wszelkie negatywne wpisy o personalizacji.
-                        # Używamy frazy jako filtr ORAZ sprawdzamy sentiment przez słowa kluczowe.
+                        # Dopasowanie po temacie (personalizacja lub konkretny zawodnik z subject)
+                        # ORAZ sentiment przez słowa kluczowe — nigdy po nazwisku zahardkodowanym.
                         _neg_personal_kw = {
                             "nieprawidłow", "niezgodn", "nieoficjaln", "fantasy",
                             "nigdy", "fałszyw", "podrobk", "nieautentyczn",
                             "nieautoryzow", "wyklucza", "dowód przeciwko",
                         }
+                        _player_name_lower = (
+                            (report_data.get("subject") or {}).get("player_name") or ""
+                        ).strip().lower()
                         key_evidence = report_data.get("key_evidence") or []
                         def _is_negative_personalization(ev: dict) -> bool:
                             text = (ev.get("text") or "").lower()
-                            if "personalizacj" not in text and "rashford" not in text.lower():
+                            about_personalization = "personalizacj" in text or (
+                                _player_name_lower and _player_name_lower in text
+                            )
+                            if not about_personalization:
                                 return False
                             return any(kw in text for kw in _neg_personal_kw)
                         filtered_ev = [ev for ev in key_evidence
