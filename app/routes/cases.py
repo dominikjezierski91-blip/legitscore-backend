@@ -810,23 +810,10 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                                         case_id, len(key_evidence) - len(filtered_ev))
                         report_data["key_evidence"] = filtered_ev
 
-                        # personalization_assessment — zawsze nadpisz gdy PCC consistent
-                        pa = report_data.get("personalization_assessment") or {}
-                        pa["status"] = "zweryfikowana"
-                        pa["confidence"] = "wysoka"
-                        pa["notes"] = pcc_reason
-                        report_data["personalization_assessment"] = pa
-                        logger.info("[PCC_CORRECTION] case_id=%s personalization_assessment corrected", case_id)
-
-                        # meczowa_detail.notes — zawsze nadpisz gdy PCC consistent
-                        md = report_data.get("meczowa_detail") or {}
-                        md["notes"] = pcc_reason
-                        report_data["meczowa_detail"] = md
-                        logger.info("[PCC_CORRECTION] case_id=%s meczowa_detail corrected", case_id)
-
-                        # pcc_summary_note — placeholder, zostanie zaktualizowany
-                        # po rule engine (żeby mieć właściwy verdict_category).
-                        report_data["pcc_summary_note"] = pcc_reason
+                        # personalization_assessment + meczowa_detail + pcc_summary_note
+                        # muszą być ustawione PO rule engine (który nadpisuje pa z pa_v2).
+                        # Zapisujemy pcc_reason jako flagę — zostanie użyta poniżej.
+                        report_data["_pcc_consistent_reason"] = pcc_reason
                         report_data["_pcc_summary_pending"] = True
                         logger.info(
                             "[PCC_CORRECTION] case_id=%s pcc_summary_note saved",
@@ -954,8 +941,25 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                     except Exception:
                         logger.exception("[RULE_ENGINE] Nieoczekiwany błąd (non-fatal), case_id=%s", case_id)
 
-                    # Finalizuj pcc_summary_note z właściwym verdict_category po rule engine.
-                    if report_data.pop("_pcc_summary_pending", False):
+                    # Finalizuj pola PCC po rule engine (rule engine nadpisuje pa_v2 → pa).
+                    # _pcc_consistent_reason jest ustawiony tylko gdy PCC=consistent.
+                    _pcc_post_reason = report_data.pop("_pcc_consistent_reason", None)
+                    if report_data.pop("_pcc_summary_pending", False) and _pcc_post_reason:
+                        # personalization_assessment — nadpisz po rule engine
+                        _pa = report_data.get("personalization_assessment") or {}
+                        _pa["status"] = "zweryfikowana"
+                        _pa["confidence"] = "wysoka"
+                        _pa["notes"] = _pcc_post_reason
+                        report_data["personalization_assessment"] = _pa
+                        logger.info("[PCC_CORRECTION] case_id=%s personalization_assessment corrected (post-rule-engine)", case_id)
+
+                        # meczowa_detail.notes — nadpisz po rule engine
+                        _md = report_data.get("meczowa_detail") or {}
+                        _md["notes"] = _pcc_post_reason
+                        report_data["meczowa_detail"] = _md
+                        logger.info("[PCC_CORRECTION] case_id=%s meczowa_detail corrected (post-rule-engine)", case_id)
+
+                        # pcc_summary_note — z właściwym verdict_category
                         _final_vcat = (report_data.get("verdict") or {}).get("verdict_category", "")
                         _vcat_label = {
                             "meczowa": "meczowej (player issue)",
@@ -963,12 +967,13 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "oficjalna_replika": "oficjalnej repliki",
                             "edycja_limitowana": "edycji limitowanej",
                         }.get(_final_vcat, "")
-                        _pcc_note_base = report_data.get("pcc_summary_note", "")
                         if _vcat_label:
                             report_data["pcc_summary_note"] = (
                                 f"Koszulka posiada cechy autentycznej wersji {_vcat_label}. "
-                                f"{_pcc_note_base}"
+                                f"{_pcc_post_reason}"
                             )
+                        else:
+                            report_data["pcc_summary_note"] = _pcc_post_reason
 
                     # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
                     try:
