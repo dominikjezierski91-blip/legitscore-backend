@@ -785,9 +785,9 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                         # ORAZ sentiment przez słowa kluczowe — nigdy po nazwisku zahardkodowanym.
                         _neg_personal_kw = {
                             "nieprawidłow", "niezgodn", "nieoficjaln", "fantasy",
-                            "nigdy", "fałszyw", "podrobk", "nieautentyczn",
+                            "nigdy", "fałszyw", "podrób", "nieautentyczn",
                             "nieautoryzow", "wyklucza", "dowód przeciwko",
-                            "fikcyjn", "unieważni", "podważa",
+                            "fikcyjn", "unieważni", "podważa", "błędn",
                         }
                         _player_name_lower = (
                             (report_data.get("subject") or {}).get("player_name") or ""
