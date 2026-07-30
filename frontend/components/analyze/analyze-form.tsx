@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { PhotoRequirementsCard } from "./photo-requirements-card";
 import { MultiImageUploader } from "./multi-image-uploader";
 import { ReportType, ReportTypeSelector } from "./report-type-selector";
@@ -12,6 +13,12 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 
 type InputMode = "photos" | "url";
+
+// Zgodne z wersją wpisaną w treści dokumentów (regulamin.html / polityka-prywatnosci.html).
+const REGULAMIN_VERSION = "1.0";
+const PRIVACY_VERSION = "1.0";
+// Ten sam wzorzec co EMAIL_REGEX w app/services/security.py (backend).
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 export function AnalyzeForm() {
   const { user } = useAuth();
@@ -44,9 +51,11 @@ export function AnalyzeForm() {
     );
   };
 
+  const isValidEmail = (value: string) => EMAIL_REGEX.test(value.trim());
+
   const canSubmit =
     acceptedDisclaimer &&
-    email.trim().length > 0 &&
+    isValidEmail(email) &&
     !submitting &&
     (inputMode === "photos"
       ? files.length >= minImages
@@ -60,13 +69,13 @@ export function AnalyzeForm() {
         setError(
           user
             ? "Upewnij się, że dodałeś minimum 7 zdjęć i zaakceptowałeś zastrzeżenia."
-            : "Upewnij się, że dodałeś minimum 7 zdjęć, podałeś email i zaakceptowałeś zastrzeżenia."
+            : "Upewnij się, że dodałeś minimum 7 zdjęć, podałeś poprawny adres email i zaakceptowałeś zastrzeżenia."
         );
       } else {
         setError(
           user
             ? "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay) i zaakceptowałeś zastrzeżenia."
-            : "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay), podałeś email i zaakceptowałeś zastrzeżenia."
+            : "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay), podałeś poprawny adres email i zaakceptowałeś zastrzeżenia."
         );
       }
       return;
@@ -75,7 +84,11 @@ export function AnalyzeForm() {
     try {
       setSubmitting(true);
       setSubmitPhase("creating");
-      const { case_id } = await createCase(email, undefined, context);
+      const { case_id } = await createCase(email, undefined, context, {
+        regulaminAccepted: acceptedDisclaimer,
+        regulaminVersion: REGULAMIN_VERSION,
+        privacyVersion: PRIVACY_VERSION,
+      });
 
       setSubmitPhase("uploading");
       if (inputMode === "url" && auctionUrl) {
@@ -303,8 +316,17 @@ export function AnalyzeForm() {
                   placeholder="np. twoj.email@example.com"
                 />
                 <p className="pt-1 text-xs italic text-muted-foreground">
-                  Wpisując adres email, zgadzasz się na kontakt w sprawie raportu
-                  oraz informacje o rozwoju LegitScore.
+                  Podając adres e-mail i przesyłając zdjęcia, akceptujesz
+                  przetwarzanie danych zgodnie z{" "}
+                  <Link
+                    href="/polityka-prywatnosci"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-300 underline"
+                  >
+                    Polityką prywatności
+                  </Link>
+                  . Zdjęcia analizujemy z użyciem zewnętrznych usług AI.
                 </p>
               </div>
             )}

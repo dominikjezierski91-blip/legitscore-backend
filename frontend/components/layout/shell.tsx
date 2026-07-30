@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
+import { useCookieConsent } from "@/components/layout/cookie-consent-provider";
 
 type ShellProps = {
   children: ReactNode;
@@ -16,6 +17,7 @@ type ShellProps = {
 
 export function Shell({ children, className, subtitle }: ShellProps) {
   const { user, logout } = useAuth();
+  const { openSettings } = useCookieConsent();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [criticalCount, setCriticalCount] = useState(0);
 
@@ -97,6 +99,23 @@ export function Shell({ children, className, subtitle }: ShellProps) {
         <main className={cn("flex flex-1 flex-col", className)}>{children}</main>
 
         <footer className="mt-10 border-t border-border/60 pt-4 text-center text-[10px] text-muted-foreground/70">
+          <nav className="mb-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+            <Link href="/regulamin" className="transition hover:text-slate-300">
+              Regulamin
+            </Link>
+            <span aria-hidden="true">·</span>
+            <Link href="/polityka-prywatnosci" className="transition hover:text-slate-300">
+              Polityka prywatności
+            </Link>
+            <span aria-hidden="true">·</span>
+            <button onClick={openSettings} className="transition hover:text-slate-300">
+              Ustawienia cookies
+            </button>
+            <span aria-hidden="true">·</span>
+            <a href="mailto:info@legitscore.app" className="transition hover:text-slate-300">
+              info@legitscore.app
+            </a>
+          </nav>
           <p>© 2026 LegitScore. Wszystkie prawa zastrzeżone.</p>
           <p className="mt-1">
             LegitScore dostarcza analizy ryzyka autentyczności koszulek

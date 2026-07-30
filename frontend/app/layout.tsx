@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { ReactNode } from "react";
 import { Shell } from "@/components/layout/shell";
 import { AuthProvider } from "@/components/auth/auth-provider";
+import { CookieConsentProvider } from "@/components/layout/cookie-consent-provider";
 
 export const metadata: Metadata = {
   title: "LegitScore · Analiza ryzyka autentyczności koszulek",
@@ -15,7 +16,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="pl" suppressHydrationWarning className="h-full">
       <body className="min-h-screen bg-background text-foreground antialiased">
         <AuthProvider>
-          <Shell>{children}</Shell>
+          <CookieConsentProvider>
+            <Shell>{children}</Shell>
+          </CookieConsentProvider>
         </AuthProvider>
       </body>
     </html>

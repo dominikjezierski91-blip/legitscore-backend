@@ -27,20 +27,30 @@ class TestInputValidation:
 
     def test_invalid_email_rejected(self):
         """Nieprawidłowy email jest odrzucany."""
-        response = client.post("/api/cases", json={"email": "invalid-email"})
+        response = client.post(
+            "/api/cases", json={"email": "invalid-email", "regulamin_accepted": True}
+        )
         assert response.status_code == 400
         assert "email" in response.json()["detail"].lower()
 
     def test_valid_email_accepted(self):
         """Prawidłowy email jest akceptowany."""
-        response = client.post("/api/cases", json={"email": "test@example.com"})
+        response = client.post(
+            "/api/cases", json={"email": "test@example.com", "regulamin_accepted": True}
+        )
         assert response.status_code == 200
         assert "case_id" in response.json()
 
     def test_empty_email_accepted(self):
         """Pusty email jest akceptowany (opcjonalne pole)."""
-        response = client.post("/api/cases", json={})
+        response = client.post("/api/cases", json={"regulamin_accepted": True})
         assert response.status_code == 200
+
+    def test_missing_regulamin_consent_rejected(self):
+        """Brak akceptacji Regulaminu blokuje utworzenie case'a."""
+        response = client.post("/api/cases", json={})
+        assert response.status_code == 400
+        assert "regulamin" in response.json()["detail"].lower()
 
     def test_invalid_case_id_rejected(self):
         """Nieprawidłowy case_id jest odrzucany."""
@@ -51,7 +61,7 @@ class TestInputValidation:
     def test_invalid_mode_rejected(self):
         """Nieprawidłowy mode jest odrzucany."""
         # Najpierw utwórz case
-        case_response = client.post("/api/cases", json={})
+        case_response = client.post("/api/cases", json={"regulamin_accepted": True})
         case_id = case_response.json()["case_id"]
 
         response = client.post(f"/api/cases/{case_id}/run-decision?mode=invalid")
@@ -64,7 +74,7 @@ class TestFileUploadValidation:
 
     def test_txt_file_rejected(self):
         """Plik .txt jest odrzucany."""
-        case_response = client.post("/api/cases", json={})
+        case_response = client.post("/api/cases", json={"regulamin_accepted": True})
         case_id = case_response.json()["case_id"]
 
         response = client.post(
@@ -77,7 +87,7 @@ class TestFileUploadValidation:
 
     def test_empty_file_rejected(self):
         """Pusty plik jest odrzucany."""
-        case_response = client.post("/api/cases", json={})
+        case_response = client.post("/api/cases", json={"regulamin_accepted": True})
         case_id = case_response.json()["case_id"]
 
         response = client.post(
@@ -93,7 +103,7 @@ class TestFeedbackValidation:
 
     def test_invalid_feedback_rejected(self):
         """Nieprawidłowy feedback jest odrzucany."""
-        case_response = client.post("/api/cases", json={})
+        case_response = client.post("/api/cases", json={"regulamin_accepted": True})
         case_id = case_response.json()["case_id"]
 
         response = client.post(

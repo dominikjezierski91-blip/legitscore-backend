@@ -53,7 +53,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export async function createCase(
   email?: string,
   offerLink?: string,
-  context?: string
+  context?: string,
+  consent?: {
+    regulaminAccepted: boolean;
+    regulaminVersion: string;
+    privacyVersion: string;
+  }
 ): Promise<{ case_id: string }> {
   return request<{ case_id: string }>("/api/cases", {
     method: "POST",
@@ -62,6 +67,9 @@ export async function createCase(
       email: email || null,
       offer_link: offerLink || null,
       context: context || null,
+      regulamin_accepted: consent?.regulaminAccepted ?? false,
+      regulamin_version: consent?.regulaminVersion ?? null,
+      privacy_version: consent?.privacyVersion ?? null,
     }),
   });
 }

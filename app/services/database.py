@@ -55,6 +55,14 @@ class CaseRecord(Base):
     # SKU wykryte przez model (jeśli widoczne na zdjęciach)
     sku = Column(String, nullable=True)
 
+    # Zgoda na Regulamin/Politykę prywatności (dowód rozliczalności RODO)
+    regulamin_accepted = Column(Boolean, nullable=True)
+    regulamin_version = Column(String, nullable=True)
+    privacy_version = Column(String, nullable=True)
+    consent_timestamp = Column(DateTime, nullable=True)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+
 
 class User(Base):
     __tablename__ = "users"
@@ -167,6 +175,7 @@ def init_db():
     _migrate_collection_manual_fields()
     _migrate_user_profile_fields()
     _migrate_password_reset_tokens()
+    _migrate_consent_fields()
 
 
 def _migrate_password_reset_tokens():
@@ -185,6 +194,28 @@ def _migrate_password_reset_tokens():
                 )
             """))
             conn.commit()
+
+
+def _migrate_consent_fields():
+    """Dodaje kolumny zgody na Regulamin/Politykę prywatności do cases (SQLite migration)."""
+    new_columns = [
+        ("regulamin_accepted", "INTEGER"),
+        ("regulamin_version", "TEXT"),
+        ("privacy_version", "TEXT"),
+        ("consent_timestamp", "DATETIME"),
+        ("ip_address", "TEXT"),
+        ("user_agent", "TEXT"),
+    ]
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(cases)")
+        )}
+        for col_name, col_type in new_columns:
+            if col_name not in existing:
+                conn.execute(__import__("sqlalchemy").text(
+                    f"ALTER TABLE cases ADD COLUMN {col_name} {col_type}"
+                ))
+        conn.commit()
 
 
 def _migrate_collection_market_value():
@@ -268,6 +299,12 @@ def save_case_to_db(
     offer_link: Optional[str] = None,
     context: Optional[str] = None,
     sku: Optional[str] = None,
+    regulamin_accepted: Optional[bool] = None,
+    regulamin_version: Optional[str] = None,
+    privacy_version: Optional[str] = None,
+    consent_timestamp: Optional[datetime] = None,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
 ):
     """Zapisuje lub aktualizuje case w bazie."""
     db = SessionLocal()
@@ -297,6 +334,18 @@ def save_case_to_db(
             record.context = context
         if sku is not None:
             record.sku = sku
+        if regulamin_accepted is not None:
+            record.regulamin_accepted = regulamin_accepted
+        if regulamin_version is not None:
+            record.regulamin_version = regulamin_version
+        if privacy_version is not None:
+            record.privacy_version = privacy_version
+        if consent_timestamp is not None:
+            record.consent_timestamp = consent_timestamp
+        if ip_address is not None:
+            record.ip_address = ip_address
+        if user_agent is not None:
+            record.user_agent = user_agent
 
         db.commit()
         return record

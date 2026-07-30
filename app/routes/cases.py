@@ -39,6 +39,7 @@ from app.services.security import (
     validate_email,
     validate_case_id,
     validate_text_field,
+    get_client_ip,
     RATE_LIMIT_DEFAULT,
     RATE_LIMIT_UPLOAD,
     RATE_LIMIT_ANALYSIS,
@@ -263,29 +264,43 @@ class CreateCaseRequest(BaseModel):
     email: Optional[str] = None
     offer_link: Optional[str] = None
     context: Optional[str] = None
+    regulamin_accepted: bool = False
+    regulamin_version: Optional[str] = None
+    privacy_version: Optional[str] = None
 
 
 @router.post("/cases")
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def create_case_endpoint(request: Request, req: Optional[CreateCaseRequest] = None):
-    """Tworzy nowy case i zwraca case_id. Zapisuje email, link do oferty i kontekst."""
+    """Tworzy nowy case i zwraca case_id. Zapisuje email, link do oferty, kontekst i zgodę na Regulamin/Politykę."""
+    if req is None or req.regulamin_accepted is not True:
+        raise HTTPException(
+            status_code=400,
+            detail="Wymagana jest akceptacja Regulaminu przed utworzeniem analizy.",
+        )
+
     case_data = create_case()
     case_id = case_data["case_id"]
 
-    # Waliduj i zapisz dane do bazy
-    if req:
-        validated_email = validate_email(req.email) if req.email else None
-        offer_link = validate_text_field(req.offer_link, "offer_link", 2000) if req.offer_link else None
-        context = validate_text_field(req.context, "context", 5000) if req.context else None
+    validated_email = validate_email(req.email) if req.email else None
+    offer_link = validate_text_field(req.offer_link, "offer_link", 2000) if req.offer_link else None
+    context = validate_text_field(req.context, "context", 5000) if req.context else None
+    regulamin_version = validate_text_field(req.regulamin_version, "regulamin_version", 50) if req.regulamin_version else None
+    privacy_version = validate_text_field(req.privacy_version, "privacy_version", 50) if req.privacy_version else None
 
-        if validated_email or offer_link or context:
-            save_case_to_db(
-                case_id=case_id,
-                email=validated_email,
-                consent_at=datetime.now(timezone.utc) if validated_email else None,
-                offer_link=offer_link,
-                context=context,
-            )
+    save_case_to_db(
+        case_id=case_id,
+        email=validated_email,
+        consent_at=datetime.now(timezone.utc) if validated_email else None,
+        offer_link=offer_link,
+        context=context,
+        regulamin_accepted=True,
+        regulamin_version=regulamin_version,
+        privacy_version=privacy_version,
+        consent_timestamp=datetime.now(timezone.utc),
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
 
     return {"case_id": case_id}
 
