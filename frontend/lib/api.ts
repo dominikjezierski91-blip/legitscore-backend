@@ -158,12 +158,20 @@ export async function importFromUrl(
 export async function authRegister(
   email: string,
   password: string,
-  passwordConfirm: string
+  passwordConfirm: string,
+  consent: { regulaminVersion: string; privacyVersion: string }
 ): Promise<{ token: string; user: { id: string; email: string; is_admin: boolean } }> {
   return request("/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, password_confirm: passwordConfirm }),
+    body: JSON.stringify({
+      email,
+      password,
+      password_confirm: passwordConfirm,
+      regulamin_accepted: true,
+      regulamin_version: consent.regulaminVersion,
+      privacy_version: consent.privacyVersion,
+    }),
   });
 }
 

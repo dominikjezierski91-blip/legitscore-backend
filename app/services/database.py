@@ -79,6 +79,14 @@ class User(Base):
     profile_survey_completed_at = Column(DateTime, nullable=True)
     profile_survey_skipped_at = Column(DateTime, nullable=True)
 
+    # Zgoda na Regulamin/Politykę prywatności przy rejestracji (dowód rozliczalności RODO)
+    regulamin_accepted = Column(Boolean, nullable=True)
+    regulamin_version = Column(String, nullable=True)
+    privacy_version = Column(String, nullable=True)
+    consent_timestamp = Column(DateTime, nullable=True)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+
 
 class CollectionItem(Base):
     __tablename__ = "collection_items"
@@ -176,6 +184,7 @@ def init_db():
     _migrate_user_profile_fields()
     _migrate_password_reset_tokens()
     _migrate_consent_fields()
+    _migrate_user_consent_fields()
 
 
 def _migrate_password_reset_tokens():
@@ -214,6 +223,28 @@ def _migrate_consent_fields():
             if col_name not in existing:
                 conn.execute(__import__("sqlalchemy").text(
                     f"ALTER TABLE cases ADD COLUMN {col_name} {col_type}"
+                ))
+        conn.commit()
+
+
+def _migrate_user_consent_fields():
+    """Dodaje kolumny zgody na Regulamin/Politykę prywatności do users (SQLite migration)."""
+    new_columns = [
+        ("regulamin_accepted", "INTEGER"),
+        ("regulamin_version", "TEXT"),
+        ("privacy_version", "TEXT"),
+        ("consent_timestamp", "DATETIME"),
+        ("ip_address", "TEXT"),
+        ("user_agent", "TEXT"),
+    ]
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(users)")
+        )}
+        for col_name, col_type in new_columns:
+            if col_name not in existing:
+                conn.execute(__import__("sqlalchemy").text(
+                    f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"
                 ))
         conn.commit()
 

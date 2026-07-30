@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.services.database import get_db, User, CollectionItem, PasswordResetToken
 from app.services.auth_service import hash_password, verify_password, create_access_token, decode_access_token
 from app.services.email_service import send_welcome_email, send_password_reset_email
-from app.services.security import limiter, RATE_LIMIT_DEFAULT
+from app.services.security import limiter, get_client_ip, validate_text_field, RATE_LIMIT_DEFAULT
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
@@ -23,6 +23,9 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(max_length=128)
     password_confirm: str = Field(max_length=128)
+    regulamin_accepted: bool = False
+    regulamin_version: Optional[str] = None
+    privacy_version: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -55,16 +58,24 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
 # ── Endpoints ────────────────────────────────────────────────
 
 @router.post("/auth/register")
-async def register(data: RegisterRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def register(request: Request, data: RegisterRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if len(data.password) < 8:
         raise HTTPException(status_code=400, detail="Hasło musi mieć co najmniej 8 znaków.")
     if data.password != data.password_confirm:
         raise HTTPException(status_code=400, detail="Hasła nie są identyczne.")
+    if data.regulamin_accepted is not True:
+        raise HTTPException(
+            status_code=400,
+            detail="Wymagana jest akceptacja Regulaminu i Polityki prywatności przed założeniem konta.",
+        )
 
     email = data.email.strip().lower()
     existing = db.query(User).filter(User.email == email).first()
     if existing:
         raise HTTPException(status_code=409, detail="Konto z tym adresem email już istnieje.")
+
+    regulamin_version = validate_text_field(data.regulamin_version, "regulamin_version", 50) if data.regulamin_version else None
+    privacy_version = validate_text_field(data.privacy_version, "privacy_version", 50) if data.privacy_version else None
 
     user = User(
         id=str(uuid.uuid4()),
@@ -72,6 +83,12 @@ async def register(data: RegisterRequest, background_tasks: BackgroundTasks, db:
         password_hash=hash_password(data.password),
         is_admin=False,
         created_at=datetime.now(timezone.utc),
+        regulamin_accepted=True,
+        regulamin_version=regulamin_version,
+        privacy_version=privacy_version,
+        consent_timestamp=datetime.now(timezone.utc),
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
     )
     db.add(user)
     db.commit()

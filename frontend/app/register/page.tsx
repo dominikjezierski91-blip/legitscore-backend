@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ProfileSurveyModal } from "@/components/onboarding/profile-survey-modal";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
+import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 
 function RegisterForm() {
   const { register, user } = useAuth();
@@ -16,6 +17,7 @@ function RegisterForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSurvey, setShowSurvey] = useState(false);
@@ -32,9 +34,16 @@ function RegisterForm() {
       setError("Hasła nie są identyczne.");
       return;
     }
+    if (!acceptedTerms) {
+      setError("Musisz zaakceptować Regulamin i Politykę prywatności.");
+      return;
+    }
     setLoading(true);
     try {
-      await register(email.trim(), password, passwordConfirm);
+      await register(email.trim(), password, passwordConfirm, {
+        regulaminVersion: REGULAMIN_VERSION,
+        privacyVersion: PRIVACY_VERSION,
+      });
       // Konto utworzone — pokaż opcjonalny krok profilowania
       setShowSurvey(true);
     } catch (err: any) {
@@ -118,6 +127,26 @@ function RegisterForm() {
               />
             </div>
 
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-border bg-slate-950/70 text-emerald-500 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+              />
+              <span>
+                Akceptuję{" "}
+                <Link href="/regulamin" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
+                  Regulamin
+                </Link>{" "}
+                i{" "}
+                <Link href="/polityka-prywatnosci" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
+                  Politykę prywatności
+                </Link>
+                .
+              </span>
+            </label>
+
             {error && (
               <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">
                 {error}
@@ -126,7 +155,7 @@ function RegisterForm() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !acceptedTerms}
               className="w-full rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 shadow-md shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:opacity-60"
             >
               {loading ? "Tworzenie konta..." : "Załóż konto"}

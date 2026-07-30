@@ -8,15 +8,13 @@ import { ReportType, ReportTypeSelector } from "./report-type-selector";
 import { SubmissionDisclaimer } from "./submission-disclaimer";
 import { SubmitSummaryCard } from "./submit-summary-card";
 import { createCase } from "@/lib/api";
+import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 import { setPendingSubmission } from "@/lib/submission-store";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 
 type InputMode = "photos" | "url";
 
-// Zgodne z wersją wpisaną w treści dokumentów (regulamin.html / polityka-prywatnosci.html).
-const REGULAMIN_VERSION = "1.0";
-const PRIVACY_VERSION = "1.0";
 // Ten sam wzorzec co EMAIL_REGEX w app/services/security.py (backend).
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
