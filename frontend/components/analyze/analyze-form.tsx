@@ -326,7 +326,7 @@ export function AnalyzeForm() {
                   >
                     Polityką prywatności
                   </Link>
-                  . Zdjęcia analizujemy z użyciem zewnętrznych usług AI.
+                  . Zdjęcia analizujemy z użyciem zewnętrznych usług analitycznych.
                 </p>
               </div>
             )}
