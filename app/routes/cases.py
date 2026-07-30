@@ -787,6 +787,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
                             "nieprawidłow", "niezgodn", "nieoficjaln", "fantasy",
                             "nigdy", "fałszyw", "podrobk", "nieautentyczn",
                             "nieautoryzow", "wyklucza", "dowód przeciwko",
+                            "fikcyjn", "unieważni", "podważa",
                         }
                         _player_name_lower = (
                             (report_data.get("subject") or {}).get("player_name") or ""
