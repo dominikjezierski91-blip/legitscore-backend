@@ -163,7 +163,8 @@ export function AnalyzeForm() {
             </span>
             <span>Jak chcesz przeanalizować koszulkę?</span>
           </div>
-          <div className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-lg shadow-emerald-900/20 backdrop-blur space-y-4">
+          <div className="rounded-2xl shadow-[0_18px_45px_rgba(16,185,129,0.25)]">
+          <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 backdrop-blur space-y-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
               <label
                 className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition ${
@@ -273,6 +274,7 @@ export function AnalyzeForm() {
               </div>
             )}
           </div>
+          </div>
           {inputMode === "photos" && <PhotoRequirementsCard />}
         </section>
 
@@ -295,7 +297,8 @@ export function AnalyzeForm() {
             </span>
             <span>{user ? "Dodaj kontekst (opcjonalnie)" : "Podaj dane kontaktowe i kontekst"}</span>
           </div>
-          <div className="rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-lg shadow-emerald-900/20 backdrop-blur space-y-3">
+          <div className="rounded-2xl shadow-[0_18px_45px_rgba(16,185,129,0.25)]">
+          <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 backdrop-blur space-y-3">
             {user ? (
               <p className="text-xs text-slate-400">
                 Jesteś zalogowany jako{" "}
@@ -339,6 +342,7 @@ export function AnalyzeForm() {
                 placeholder="Np. źródło koszulki, podejrzenia, szczegóły meczu, historia przedmiotu..."
               />
             </div>
+          </div>
           </div>
         </section>
 

@@ -47,7 +47,8 @@ export function SubmitSummaryCard({
     submitPhase === "navigating" ? "Przekierowuję..." :
     "Uruchom analizę";
   return (
-    <aside className="flex flex-col justify-between rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 shadow-lg shadow-emerald-900/20 backdrop-blur md:sticky md:top-6 md:self-start">
+    <aside className="rounded-2xl shadow-[0_18px_45px_rgba(16,185,129,0.25)] md:sticky md:top-6 md:self-start">
+      <div className="flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 backdrop-blur">
       <div className="space-y-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-100">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" />
@@ -136,6 +137,7 @@ export function SubmitSummaryCard({
           <div>Darmowe w becie.</div>
           <div>Raport ryzyka, nie gwarancja.</div>
         </div>
+      </div>
       </div>
     </aside>
   );
