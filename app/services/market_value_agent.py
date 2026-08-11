@@ -3,7 +3,11 @@ Market Value Agent — szacuje wartość rynkową koszulki piłkarskiej.
 
 Źródła:
   - Gemini 2.5 z Google Search Grounding (Vinted, Allegro, eBay)
-  - eBay Finding API (findCompletedItems) gdy EBAY_APP_ID dostępny
+  - eBay Browse API (item_summary/search, OAuth2 client_credentials) gdy
+    EBAY_APP_ID + EBAY_CERT_ID_PRD dostępne — patrz estimate_via_ebay_browse().
+    Stara Finding API (estimate_via_ebay, findCompletedItems) jest trwale
+    zablokowana na poziomie platformy eBay dla tego klucza (HTTP 418 z proxy
+    eBay niezależnie od auth) — zostawiona nieużywana jako punkt odniesienia.
 """
 import json
 import logging
@@ -242,11 +246,156 @@ async def estimate_via_gemini(report_data: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "Nie udało się przetworzyć wyników.", "sample_size": 0, "listings": []}
 
 
+_ebay_token_cache: Dict[str, Any] = {"token": None, "expires_at": 0.0}
+_ebay_token_lock = None  # leniwie tworzony asyncio.Lock (patrz _get_ebay_oauth_token)
+
+# Finding API (stara) filtrowała po walucie EUR globalnie, przeszukując cały
+# eBay. Browse API wymaga jednego marketplace per request — żeby nie zawężać
+# realnie zasięgu, odpytujemy kilka głównych rynków równolegle i łączymy wyniki.
+_EBAY_MARKETPLACES = ["EBAY_GB", "EBAY_DE", "EBAY_US"]
+
+
+async def _get_ebay_oauth_token() -> Optional[str]:
+    """
+    OAuth2 client_credentials dla eBay Browse API. Token cache w pamięci
+    procesu (ważność ~2h) — bez tego każda wycena robiłaby dodatkowy round-trip.
+    Lock zapobiega "thundering herd" (kilka równoległych wycen odświeżających
+    token jednocześnie po wygaśnięciu cache).
+    """
+    import asyncio
+    import base64
+    import time
+    import httpx
+
+    global _ebay_token_lock
+    if _ebay_token_lock is None:
+        _ebay_token_lock = asyncio.Lock()
+
+    async with _ebay_token_lock:
+        now = time.time()
+        if _ebay_token_cache["token"] and now < _ebay_token_cache["expires_at"] - 60:
+            return _ebay_token_cache["token"]
+
+        app_id = os.getenv("EBAY_APP_ID")
+        cert_id = os.getenv("EBAY_CERT_ID_PRD")
+        if not app_id or not cert_id:
+            return None
+
+        credentials = base64.b64encode(f"{app_id}:{cert_id}".encode()).decode()
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    "https://api.ebay.com/identity/v1/oauth2/token",
+                    headers={
+                        "Authorization": f"Basic {credentials}",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    data={
+                        "grant_type": "client_credentials",
+                        "scope": "https://api.ebay.com/oauth/api_scope",
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception:
+            logger.exception("eBay OAuth token request failed")
+            return None
+
+        token = data.get("access_token")
+        if not token:
+            return None
+        _ebay_token_cache["token"] = token
+        _ebay_token_cache["expires_at"] = now + data.get("expires_in", 7200)
+        return token
+
+
+async def _search_ebay_marketplace(query: str, token: str, marketplace: str) -> List[Dict]:
+    """Pojedyncze zapytanie item_summary/search dla jednego marketplace."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://api.ebay.com/buy/browse/v1/item_summary/search",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-EBAY-C-MARKETPLACE-ID": marketplace,
+                },
+                params={
+                    "q": query,
+                    "limit": "10",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        logger.exception("eBay Browse API call failed (marketplace=%s) for query: %s", marketplace, query)
+        return []
+
+    listings = []
+    for item in data.get("itemSummaries") or []:
+        try:
+            price = item.get("price") or {}
+            value = float(price.get("value", 0))
+            if value <= 0:
+                continue
+            currency = price.get("currency") or "GBP"
+            title = item.get("title", "")
+            listings.append({
+                "source": "ebay",
+                "price_original": value,
+                "currency_original": currency,
+                "price_pln": to_pln(value, currency),
+                "title": title[:80],
+            })
+        except Exception:
+            continue
+
+    return listings
+
+
+async def estimate_via_ebay_browse(query: str) -> List[Dict]:
+    """
+    eBay Browse API (item_summary/search) — produkcyjne, realne dane, ale tylko
+    aktywne oferty (Browse API nie wspiera wyszukiwania sprzedanych — filtr
+    soldItemsOnly jest przez eBay jawnie odrzucany, errorId 12002). To spójne
+    z estimate_via_gemini(), która też sięga po aktywne oferty gdy brak
+    sprzedanych transakcji, więc nie zmienia to metodologii wyceny.
+
+    Odpytuje kilka głównych marketplace'ów eBay równolegle (Browse API wymaga
+    jednego marketplace per request, w przeciwieństwie do starej Finding API,
+    która przeszukiwała cały eBay filtrując po walucie) i łączy wyniki.
+
+    Wymaga EBAY_APP_ID (produkcyjny App ID) + EBAY_CERT_ID_PRD w env — jeśli
+    brak (np. środowisko bez skonfigurowanych kluczy), zwraca [] i wycena
+    spada z powrotem na sam Gemini.
+    """
+    import asyncio
+
+    token = await _get_ebay_oauth_token()
+    if not token:
+        return []
+
+    results = await asyncio.gather(
+        *(_search_ebay_marketplace(query, token, mp) for mp in _EBAY_MARKETPLACES),
+        return_exceptions=True,
+    )
+    listings: List[Dict] = []
+    for r in results:
+        if isinstance(r, list):
+            listings.extend(r)
+
+    logger.info("eBay Browse API: %d wyników (marketplaces=%s) dla query: %s", len(listings), _EBAY_MARKETPLACES, query)
+    return listings
+
+
 async def estimate_via_ebay(query: str) -> List[Dict]:
     """
-    eBay Finding API — findCompletedItems.
-    Uwaga: EBAY_APP_ID=...SBX... to klucz sandbox (dane testowe).
-    Dla realnych danych potrzebny klucz produkcyjny (PRD).
+    NIEUŻYWANE od migracji na Browse API (patrz estimate_via_ebay_browse) —
+    zostawione jako punkt odniesienia/rollback. eBay Finding API
+    (findCompletedItems) jest trwale zablokowana na poziomie platformy dla
+    tego klucza: HTTP 418 z ebay-proxy-server niezależnie od auth, potwierdzone
+    bezpośrednim testem nawet z ważnym Bearer tokenem.
     """
     import httpx
 
@@ -267,7 +416,7 @@ async def estimate_via_ebay(query: str) -> List[Dict]:
         "SECURITY-APPNAME": app_id,
         "RESPONSE-DATA-FORMAT": "JSON",
         "keywords": query,
-        "categoryId": "32849",  # Soccer-International Clubs
+        "categoryId": "11725",  # Soccer-International Clubs (nieużywane — patrz docstring, zostawione dla historii)
         "itemFilter(0).name": "SoldItemsOnly",
         "itemFilter(0).value": "true",
         "itemFilter(1).name": "Currency",
@@ -388,9 +537,12 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Główna funkcja — łączy Gemini + eBay (gdy dostępny).
     """
-    gemini_result = await estimate_via_gemini(report_data)
+    import asyncio
 
-    ebay_listings = await estimate_via_ebay(build_search_query(report_data))
+    gemini_result, ebay_listings = await asyncio.gather(
+        estimate_via_gemini(report_data),
+        estimate_via_ebay_browse(build_search_query(report_data)),
+    )
     if ebay_listings:
         all_listings = (gemini_result.get("listings") or []) + ebay_listings
         stats = _recalculate_stats(all_listings)
