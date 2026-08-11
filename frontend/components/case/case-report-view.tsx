@@ -108,16 +108,31 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
     <div className="flex flex-1 flex-col gap-6 py-6 md:flex-row">
       <div className="flex-1 space-y-4">
           {isExample ? (
-            <div className="glass-card flex flex-wrap items-center justify-between gap-3 p-4">
+            <div className="glass-card flex flex-col gap-3 p-4">
               <span className="text-xs font-medium text-emerald-200">
                 🧾 To jest przykładowy raport LegitScore — prawdziwa analiza z naszego systemu.
               </span>
-              <Link
-                href="/analyze/form"
-                className="inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-md shadow-emerald-500/40 transition hover:bg-emerald-400"
-              >
-                Sprawdź koszulkę
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="https://legitscore.app"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-full border border-border/80 bg-slate-950/40 px-4 py-2 text-xs font-medium text-muted-foreground transition hover:border-emerald-400/70 hover:text-emerald-200"
+                >
+                  ← Strona główna
+                </a>
+                <a
+                  href={pdfUrl}
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/20"
+                >
+                  Pobierz raport PDF
+                </a>
+                <Link
+                  href="/analyze/form"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-md shadow-emerald-500/40 transition hover:bg-emerald-400"
+                >
+                  Sprawdź koszulkę
+                </Link>
+              </div>
             </div>
           ) : (
             <BackButton label="Wstecz" />
