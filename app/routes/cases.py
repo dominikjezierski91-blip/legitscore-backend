@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from app.models.decision import Decision
-from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, coverage_check, quality_check, red_flag_check, run_rule_engine, run_manufacturing_quality_check
+from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, combined_coverage_quality_check, red_flag_check, run_rule_engine, run_manufacturing_quality_check
 from app.services.consistency_check import run_player_club_consistency_check
 from app.services.kit_context_search import run_kit_context_search
 from app.services.sku_agent import run_sku_verification
@@ -508,11 +508,16 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
         )
 
         # ============================================================
-        # ETAP 1: Photo Coverage Check
+        # ETAP 1+2: Photo Coverage + Quality Check (połączone w jedno
+        # wywołanie Gemini — zdjęcia były wcześniej wysyłane dwukrotnie
+        # do dwóch osobnych calli; zweryfikowane na 20 realnych case'ach
+        # przez scripts/compare_coverage_quality_merge.py: 19/20 zgodności
+        # na polach wpływających na werdykt, 1 rozjazd to transient 503,
+        # nie różnica jakości modelu).
         # ============================================================
-        logger.info("[PRECHECK] case_id=%s stage=coverage coverage_assets_count=%d", case_id, len(asset_paths))
-        _update_progress("coverage", 8, "Sprawdzanie kompletności zdjęć...")
-        coverage_result = await coverage_check(asset_paths)
+        logger.info("[PRECHECK] case_id=%s stage=coverage+quality assets_count=%d", case_id, len(asset_paths))
+        _update_progress("coverage", 8, "Sprawdzanie kompletności i jakości zdjęć...")
+        coverage_result = await combined_coverage_quality_check(asset_paths)
 
         # Gating na podstawie twardych reguł REQUIRED_VIEWS — nie używamy can_continue z modelu.
         detected_views = _normalize_detected_views(coverage_result.get("detected_views") or {})
@@ -548,15 +553,9 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
         )
         _update_progress("quality", 14, "Ocena jakości zdjęć...")
 
-        # ============================================================
-        # ETAP 2: Photo Quality Check
-        # ============================================================
-        logger.info("[PRECHECK] case_id=%s stage=quality quality_assets_count=%d", case_id, len(asset_paths))
-        quality_result = await quality_check(asset_paths, detected_views=detected_views)
-
         # Blokuj tylko gdy problemy dotyczą krytycznych widoków (REQUIRED_VIEWS).
         # Problemy z identity_tag, material_closeup itp. nie blokują analizy.
-        quality_issues = quality_result.get("issues") or []
+        quality_issues = coverage_result.get("issues") or []
         blocking_quality_issues = [i for i in quality_issues if i.get("area") in _QUALITY_BLOCKING_VIEWS]
 
         if blocking_quality_issues:
@@ -564,7 +563,7 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
             case_data["status"] = "PRECHECK_FAILED"
             case_data["precheck_result"] = {
                 "stage": "quality",
-                "message": quality_result.get("message") or "Jakość kluczowych zdjęć jest niewystarczająca do przeprowadzenia analizy.",
+                "message": coverage_result.get("quality_message") or "Jakość kluczowych zdjęć jest niewystarczająca do przeprowadzenia analizy.",
                 "issues": blocking_quality_issues,
             }
             save_case(case_id, case_data)

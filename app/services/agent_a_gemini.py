@@ -141,6 +141,208 @@ IMPORTANT: The "message" field MUST be in Polish language, user-friendly, and sp
 Return JSON only. No markdown. No extra text."""
 
 
+COVERAGE_QUALITY_CHECK_PROMPT = """You are an inspection pre-check system for football jersey authentication.
+
+Your task is NOT to authenticate the jersey. You perform two checks in one pass:
+1. COVERAGE — which types of views are present in the provided image set.
+2. QUALITY — whether the images that ARE present are sharp/clear enough for a reliable inspection.
+
+=== PART 1: COVERAGE ===
+
+You must detect the following views:
+
+REQUIRED views (essential for forensic analysis):
+- front_full: full front view of the jersey (whole shirt visible)
+- back_full: full back view of the jersey (whole shirt visible)
+- crest_or_brand_closeup: close-up of the club crest or manufacturer logo (Nike, Adidas, etc.)
+- identity_tag: any identity tag — inner neck tag, neck print with washing instructions, product code tag, or wash label
+
+RECOMMENDED views (improve analysis but are NOT required):
+- material_closeup: close-up of fabric texture or material structure
+- paper_sku_tag: hanging paper tag with barcode or SKU number
+- patch_closeup: close-up of sleeve patches (league badge, cup patch, etc.)
+- personalization_closeup: close-up of player name or number if personalized
+- sleeve_details: sleeve area or armband details
+
+CRITICAL RULES for coverage:
+
+1. Photos from marketplace listings (Vinted, eBay, Allegro) often show the SAME jersey from different angles, with different lighting or backgrounds. This is NORMAL.
+2. Only flag "multiple items" if you are 100% certain the photos show genuinely DIFFERENT jerseys (different teams, different colors).
+3. A general full-body shot counts as front_full or back_full if the full side is visible.
+4. crest_or_brand_closeup is true ONLY if there is a dedicated close-up of the crest or logo — a partial logo visible in a general shot does NOT count.
+5. identity_tag is true if ANY of the following is visible: inner neck tag, neck label with product info, neck print, hang tag with product code.
+6. Do NOT judge authenticity. Only detect which views are present.
+7. Set coverage_can_continue=false only when at least one REQUIRED view is missing.
+
+=== PART 2: QUALITY ===
+
+Evaluate, for the view categories you marked PRESENT in Part 1 only:
+- image sharpness
+- distance from key elements
+- lighting
+- visibility of details
+- ability to inspect fabric texture
+- readability of tags or labels
+- clarity of crest or logo
+- clarity of personalization if present
+
+CRITICAL RULES for quality:
+
+1. Do not judge authenticity. Only judge whether inspection is possible.
+2. If images are blurry, too far away, too dark, or compressed, mark them as issues.
+3. Be conservative. If critical details cannot be inspected, the analysis should not continue.
+4. MUST NOT report a quality issue (e.g. "not_visible") for any category you marked ABSENT in detected_views in Part 1 — an absent category is a coverage gap, not a quality problem. Only raise quality issues for categories you marked PRESENT.
+5. Set quality_can_continue=false only if a PRESENT category has a blocking quality issue.
+
+=== OUTPUT ===
+
+Return ONLY this JSON object, no markdown, no extra text:
+
+{
+  "coverage_can_continue": true,
+  "detected_views": {
+    "front_full": true,
+    "back_full": false,
+    "crest_or_brand_closeup": true,
+    "identity_tag": false,
+    "material_closeup": true,
+    "paper_sku_tag": false,
+    "patch_closeup": false,
+    "personalization_closeup": false,
+    "sleeve_details": false
+  },
+  "missing_required": [],
+  "missing_optional": [],
+  "coverage_message": "",
+  "quality_can_continue": true,
+  "issues": [
+    {
+      "area": "material_closeup | tag_sku | crest_logo | personalization | general",
+      "issue": "blur | too_far | low_light | compression | not_visible"
+    }
+  ],
+  "quality_message": ""
+}
+
+In missing_required list the REQUIRED view keys that are absent.
+In missing_optional list the RECOMMENDED view keys that are absent.
+If coverage_can_continue=false, explain briefly in "coverage_message" what specific images are needed.
+If quality_can_continue=false, provide a short explanation in "quality_message".
+Both "coverage_message" and "quality_message" MUST be in Polish language, user-friendly, and specific (empty string if can_continue=true).
+Return JSON only. No markdown. No extra text."""
+
+
+async def combined_coverage_quality_check(asset_paths: List[str]) -> Dict[str, Any]:
+    """
+    Łączy coverage_check + quality_check w JEDNO wywołanie Gemini zamiast dwóch —
+    cel: ograniczyć 2x re-wysyłanie tych samych zdjęć. Używana produkcyjnie
+    w run-decision (app/routes/cases.py) od commitu "perf: połącz coverage_check
+    + quality_check w jedno wywołanie Gemini" — zweryfikowana na 20 realnych
+    case'ach przez scripts/compare_coverage_quality_merge.py przed wdrożeniem.
+
+    Stare coverage_check()/quality_check() zostały w tym pliku nietknięte
+    (nieużywane przez cases.py) jako szybka ścieżka rollbacku w razie potrzeby.
+
+    Zwraca dict z kluczami zgodnymi z połączeniem obu oryginalnych schematów:
+    coverage_can_continue, detected_views, missing_required, missing_optional,
+    coverage_message, quality_can_continue, issues, quality_message.
+    Przy błędzie: fail-open (can_continue=True po obu stronach), tak jak oryginały.
+    """
+    fallback = {
+        "coverage_can_continue": True,
+        "detected_views": {},
+        "missing_required": [],
+        "missing_optional": [],
+        "coverage_message": "",
+        "quality_can_continue": True,
+        "issues": [],
+        "quality_message": "",
+    }
+    if not asset_paths:
+        return {
+            **fallback,
+            "coverage_can_continue": False,
+            "missing_required": ["any_images"],
+            "coverage_message": "Nie przesłano żadnych zdjęć do analizy.",
+        }
+
+    client = _get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Gemini API key missing")
+
+    model = os.getenv("GEMINI_FAST_MODEL", "models/gemini-2.5-flash")
+
+    parts: List[types.Part] = [
+        types.Part(text="Analyze the attached images for coverage and quality. Return ONLY the JSON as specified.")
+    ]
+
+    valid_images = 0
+    for p in asset_paths:
+        path = Path(p)
+        if not path.exists():
+            continue
+        suffix = path.suffix.lower()
+        mime = "image/jpeg"
+        if suffix == ".png":
+            mime = "image/png"
+        elif suffix == ".webp":
+            mime = "image/webp"
+        parts.append(types.Part.from_bytes(data=path.read_bytes(), mime_type=mime))
+        valid_images += 1
+
+    if valid_images == 0:
+        return {
+            **fallback,
+            "coverage_can_continue": False,
+            "missing_required": ["any_images"],
+            "coverage_message": "Nie znaleziono prawidłowych plików zdjęć.",
+        }
+
+    logger.info("Combined coverage+quality check: sending %d images to model %s", valid_images, model)
+
+    try:
+        resp = await client.aio.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=parts)],
+            config=types.GenerateContentConfig(
+                system_instruction=COVERAGE_QUALITY_CHECK_PROMPT,
+                temperature=0.1,
+                response_mime_type="application/json",
+            ),
+        )
+    except Exception as e:
+        logger.exception("Combined coverage+quality check API error: %s", e)
+        return fallback
+
+    text = (resp.text or "").strip()
+    if not text:
+        logger.warning("Empty response from combined coverage+quality check")
+        return fallback
+
+    try:
+        result = json.loads(text)
+    except Exception:
+        try:
+            extracted = _extract_first_json_object(text)
+            result = json.loads(extracted)
+        except Exception:
+            logger.error("Non-JSON response from combined coverage+quality check: %r", text[:500])
+            return fallback
+
+    usage = getattr(resp, "usage_metadata", None)
+    result["_usage"] = {
+        "prompt_token_count": getattr(usage, "prompt_token_count", None),
+        "candidates_token_count": getattr(usage, "candidates_token_count", None),
+        "total_token_count": getattr(usage, "total_token_count", None),
+    } if usage else None
+
+    logger.info(
+        "Combined coverage+quality check result: coverage_can_continue=%s quality_can_continue=%s",
+        result.get("coverage_can_continue"), result.get("quality_can_continue"),
+    )
+    return result
+
+
 def _get_api_key() -> Optional[str]:
     return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
