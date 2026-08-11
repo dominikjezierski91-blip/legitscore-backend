@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, MessageCircle, CheckCircle2 } from "lucide-react";
 import { submitSupport, type SupportPayload } from "@/lib/api";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -94,6 +95,11 @@ function SupportModal({ preselectedType, user, reportId, analysisId, appSection,
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   function validate() {
     const e: Record<string, string> = {};
     if (!type) e.type = "Wybierz typ zgłoszenia.";
@@ -131,7 +137,9 @@ function SupportModal({ preselectedType, user, reportId, analysisId, appSection,
     }
   }
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center"
       onClick={onClose}
@@ -260,6 +268,7 @@ function SupportModal({ preselectedType, user, reportId, analysisId, appSection,
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 import { addToCollection, type CollectionItemPayload } from "@/lib/api";
@@ -257,7 +258,14 @@ function ModalShell({
   onClose: () => void;
   footer?: React.ReactNode;
 }) {
-  return (
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       onClick={onClose}
@@ -281,6 +289,7 @@ function ModalShell({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
