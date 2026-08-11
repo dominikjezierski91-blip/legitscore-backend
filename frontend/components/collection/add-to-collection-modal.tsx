@@ -138,7 +138,31 @@ export function AddToCollectionModal({ caseId, mode, reportData, onClose, onSave
   };
 
   return (
-    <ModalShell onClose={onClose}>
+    <ModalShell
+      onClose={onClose}
+      footer={
+        <>
+          {error && (
+            <p className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={loading}
+              className="flex-1 rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
+            >
+              {loading ? "Zapisywanie..." : "Zapisz do kolekcji"}
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-full border border-slate-600 px-4 py-2.5 text-sm text-slate-300 transition hover:border-slate-500"
+            >
+              Anuluj
+            </button>
+          </div>
+        </>
+      }
+    >
       <div className="space-y-5">
         <div>
           <h2 className="text-lg font-semibold text-slate-50">Dodaj do kolekcji</h2>
@@ -219,48 +243,43 @@ export function AddToCollectionModal({ caseId, mode, reportData, onClose, onSave
             />
           </div>
         </div>
-
-        {error && (
-          <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>
-        )}
-
-        <div className="flex gap-2">
-          <button
-            onClick={handleSave}
-            disabled={loading}
-            className="flex-1 rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
-          >
-            {loading ? "Zapisywanie..." : "Zapisz do kolekcji"}
-          </button>
-          <button
-            onClick={onClose}
-            className="rounded-full border border-slate-600 px-4 py-2.5 text-sm text-slate-300 transition hover:border-slate-500"
-          >
-            Anuluj
-          </button>
-        </div>
       </div>
     </ModalShell>
   );
 }
 
-function ModalShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function ModalShell({
+  children,
+  onClose,
+  footer,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  footer?: React.ReactNode;
+}) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md rounded-2xl border border-border/60 bg-slate-950 p-6 shadow-2xl max-h-[85dvh] overflow-y-auto overscroll-contain"
+        className="relative flex w-full max-w-md flex-col rounded-2xl border border-border/60 bg-slate-950 shadow-2xl max-h-[85dvh]"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-full p-1 text-slate-500 transition hover:text-slate-300"
+          className="absolute right-4 top-4 z-10 rounded-full p-1 text-slate-500 transition hover:text-slate-300"
         >
           <X className="h-4 w-4" />
         </button>
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
+          {children}
+        </div>
+        {footer && (
+          <div className="shrink-0 border-t border-border/50 bg-slate-950 p-4">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
