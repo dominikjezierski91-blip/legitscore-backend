@@ -115,19 +115,14 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
               <div className="flex flex-wrap gap-2">
                 <a
                   href="https://legitscore.app"
+                  target="_top"
                   className="inline-flex items-center justify-center gap-1.5 rounded-full border border-border/80 bg-slate-950/40 px-4 py-2 text-xs font-medium text-muted-foreground transition hover:border-emerald-400/70 hover:text-emerald-200"
                 >
                   ← Strona główna
                 </a>
-                <a
-                  href={pdfUrl}
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-1.5 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/20"
-                >
-                  Pobierz raport PDF
-                </a>
                 <Link
                   href="/analyze/form"
+                  target="_top"
                   className="inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-md shadow-emerald-500/40 transition hover:bg-emerald-400"
                 >
                   Sprawdź koszulkę
@@ -340,7 +335,10 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
             </section>
           )}
         </div>
-        <aside className="glass-card flex w-full max-w-xs flex-col justify-between p-5 md:p-6">
+        <aside className={cn(
+          "glass-card flex w-full max-w-xs flex-col justify-between p-5 md:p-6",
+          isExample && "order-first md:order-none"
+        )}>
           <div className="space-y-3 text-xs text-muted-foreground">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-200">
               Pełny raport PDF
@@ -352,6 +350,7 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
             </p>
             <a
               href={pdfUrl}
+              target="_top"
               rel="noopener noreferrer"
               className="mt-2 inline-flex w-full items-center justify-center rounded-full bg-emerald-500 px-4 py-2.5 text-xs font-medium text-slate-950 shadow-md shadow-emerald-500/40 transition hover:bg-emerald-400"
             >
