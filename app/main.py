@@ -95,16 +95,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers[header] = value
         # report-pdf jest celowo osadzany w <iframe> na własnej stronie raportu
         # (podgląd PDF zamiast wymuszania pobrania) — X-Frame-Options: DENY by to
-        # blokowało. Zamiast globalnego DENY, zawężamy embedowanie tylko do
-        # naszych własnych frontendów przez CSP frame-ancestors.
+        # blokowało. CSP frame-ancestors sprawdza CAŁY łańcuch ramek nadrzędnych,
+        # nie tylko bezpośredniego rodzica — zawężenie do samego app.legitscore.app
+        # blokowało podgląd wewnątrz narzędzi typu Lovable, które same osadzają
+        # naszą stronę w swoim iframe (podwójne zagnieżdżenie). Endpoint jest już
+        # dziś publicznie dostępny bez autoryzacji (samo case_id wystarczy, tak
+        # jak przy bezpośrednim pobraniu PDF), więc otwarte embedowanie nie
+        # odsłania niczego nowego — świadomie rezygnujemy z ograniczania originów.
         if _REPORT_PDF_PATH.match(request.url.path):
             if "X-Frame-Options" in response.headers:
                 del response.headers["X-Frame-Options"]
-            if "*" in ALLOWED_ORIGINS:
-                response.headers["Content-Security-Policy"] = "frame-ancestors *"
-            else:
-                ancestors = " ".join(o.strip() for o in ALLOWED_ORIGINS if o.strip())
-                response.headers["Content-Security-Policy"] = f"frame-ancestors 'self' {ancestors}".strip()
+            response.headers["Content-Security-Policy"] = "frame-ancestors *"
         return response
 
 
