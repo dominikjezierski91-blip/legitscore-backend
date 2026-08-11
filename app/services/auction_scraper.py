@@ -292,6 +292,148 @@ def _extract_images_from_html(html: str, base_url: str) -> Tuple[List[str], Dict
     return images, diagnostics
 
 
+_EBAY_DOMAIN_MARKETPLACE = {
+    "ebay.com": "EBAY_US",
+    "ebay.co.uk": "EBAY_GB",
+    "ebay.de": "EBAY_DE",
+}
+
+
+def _ebay_legacy_item_id(url: str) -> str | None:
+    """Wyciąga legacy item ID z linku eBay (np. /itm/305716156524 lub /itm/Tytul/305716156524)."""
+    match = re.search(r"/itm/(?:[^/?]+/)?(\d+)", url)
+    return match.group(1) if match else None
+
+
+def _ebay_marketplace_for_url(url: str) -> str:
+    domain = urlparse(url).netloc.lower().removeprefix("www.")
+    return _EBAY_DOMAIN_MARKETPLACE.get(domain, "EBAY_US")
+
+
+async def _fetch_ebay_images_via_browse_api(url: str) -> Tuple[List[Tuple[bytes, str]], Dict]:
+    """
+    eBay blokuje scraping HTML oferty na poziomie bot-detection (HTTP 403
+    niezależnie od nagłówków — potwierdzone w logach produkcyjnych). Zamiast
+    tego pobiera oficjalne zdjęcia przez Browse API (get_item_by_legacy_id),
+    tę samą integrację (OAuth2 client_credentials, wspólny token cache) co
+    market_value_agent.estimate_via_ebay_browse().
+    """
+    from app.services.market_value_agent import _get_ebay_oauth_token
+
+    item_id = _ebay_legacy_item_id(url)
+    if not item_id:
+        raise AuctionScraperError(
+            "Nie rozpoznano numeru oferty w linku eBay. Sprawdź czy link jest prawidłowy."
+        )
+
+    token = await _get_ebay_oauth_token()
+    if not token:
+        raise AuctionScraperError(
+            "Import z eBay jest chwilowo niedostępny (brak konfiguracji API)."
+        )
+
+    marketplace = _ebay_marketplace_for_url(url)
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            resp = await client.get(
+                "https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-EBAY-C-MARKETPLACE-ID": marketplace,
+                },
+                params={"legacy_item_id": item_id},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPStatusError as e:
+            logger.error("eBay Browse API item lookup failed: %s", e)
+            raise AuctionScraperError(
+                f"Nie udało się pobrać oferty z eBay (HTTP {e.response.status_code})."
+            )
+        except httpx.RequestError as e:
+            logger.error("eBay Browse API connection error: %s", e)
+            raise AuctionScraperError("Nie udało się połączyć z eBay API.")
+        except ValueError as e:
+            logger.error("eBay Browse API returned non-JSON response: %s", e)
+            raise AuctionScraperError("eBay zwrócił nieprawidłową odpowiedź.")
+
+        try:
+            image_urls: List[str] = []
+            main_image = (data.get("image") or {}).get("imageUrl")
+            if main_image:
+                image_urls.append(main_image)
+            for img in data.get("additionalImages") or []:
+                img_url = (img or {}).get("imageUrl")
+                if img_url and img_url not in image_urls:
+                    image_urls.append(img_url)
+        except (AttributeError, TypeError) as e:
+            logger.error("eBay Browse API returned unexpected item shape: %s", e)
+            raise AuctionScraperError("eBay zwrócił nieoczekiwany format danych oferty.")
+
+        if not image_urls:
+            raise AuctionScraperError("Nie znaleziono zdjęć w ofercie eBay.")
+
+        images: List[Tuple[bytes, str]] = []
+        download_log: List[Dict] = []
+        candidates: List[Dict] = []
+        drop_reasons_summary: Dict[str, int] = {}
+        for i, img_url in enumerate(image_urls):
+            try:
+                img_response = await client.get(img_url, headers=BROWSER_HEADERS)
+                img_response.raise_for_status()
+                content_type = img_response.headers.get("content-type", "")
+                if "png" in content_type:
+                    ext = ".png"
+                elif "webp" in content_type:
+                    ext = ".webp"
+                else:
+                    ext = ".jpg"
+                filename = f"auction_image_{i + 1}{ext}"
+                images.append((img_response.content, filename))
+                download_log.append({"url": img_url[:200], "filename": filename, "status": "ok"})
+                candidates.append({
+                    "url": img_url[:200],
+                    "source": "ebay_api",
+                    "status": "used",
+                    "drop_reason": None,
+                })
+            except Exception as e:
+                logger.warning("[SCRAPER] failed to download eBay image %s: %s", img_url[:100], e)
+                download_log.append({"url": img_url[:200], "filename": None, "status": "failed", "error": str(e)})
+                candidates.append({
+                    "url": img_url[:200],
+                    "source": "ebay_api",
+                    "status": "dropped",
+                    "drop_reason": "download_failed",
+                })
+                drop_reasons_summary["download_failed"] = drop_reasons_summary.get("download_failed", 0) + 1
+                continue
+
+        if not images:
+            raise AuctionScraperError("Nie udało się pobrać żadnego zdjęcia z oferty eBay.")
+
+        assets_extracted = len(image_urls)
+        assets_passed = len(images)
+        logger.info(
+            "[SCRAPER] provider=ebay via_api=True item_id=%s marketplace=%s assets_downloaded=%d/%d",
+            item_id, marketplace, assets_passed, assets_extracted,
+        )
+
+        return images, {
+            "source_url": url,
+            "provider": "ebay",
+            "assets_extracted_count": assets_extracted,
+            "assets_passed_to_model_count": assets_passed,
+            "incomplete_image_set": assets_passed < assets_extracted,
+            "drop_reasons_summary": drop_reasons_summary,
+            "candidates_total": assets_extracted,
+            "dropped_count": assets_extracted - assets_passed,
+            "candidates": candidates,
+            "download_log": download_log,
+        }
+
+
 def _extract_images_from_json(data, add_fn) -> None:
     """Rekurencyjnie wyciąga obrazy z JSON-LD."""
     if isinstance(data, dict):
@@ -322,6 +464,9 @@ async def fetch_auction_images(url: str) -> Tuple[List[Tuple[bytes, str]], Dict]
     url = validate_auction_url(url)
     provider = detect_provider(url)
     logger.info("[SCRAPER] provider=%s url=%s", provider, url)
+
+    if provider == "ebay":
+        return await _fetch_ebay_images_via_browse_api(url)
 
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         # Pobierz HTML strony
