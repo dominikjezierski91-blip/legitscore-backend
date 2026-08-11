@@ -1,6 +1,6 @@
 """
 Monitoring dashboard — endpoints do zarządzania ticketami wewnętrznymi.
-Dostępne tylko lokalnie (brak auth — tylko do użytku wewnętrznego).
+Tylko dla adminów (get_current_admin) — backoffice, nie publiczne.
 """
 import logging
 import os
@@ -9,8 +9,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from app.routes.auth import get_current_admin
+from app.services.database import User
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +86,7 @@ def _write_raw(content: str) -> None:
 # ---------------------------------------------------------------------------
 
 @router.get("/tickets")
-async def get_tickets():
+async def get_tickets(admin: User = Depends(get_current_admin)):
     """Zwraca listę ticketów z tickets.md jako JSON."""
     raw = _read_raw()
     tickets = _parse_tickets(raw)
@@ -104,7 +107,7 @@ class StatusUpdate(BaseModel):
 
 
 @router.post("/tickets/{ticket_id}/status")
-async def update_ticket_status(ticket_id: str, body: StatusUpdate):
+async def update_ticket_status(ticket_id: str, body: StatusUpdate, admin: User = Depends(get_current_admin)):
     """Aktualizuje status ticketu w tickets.md."""
     allowed = {"Nowy", "W trakcie", "Rozwiązany"}
     if body.status not in allowed:
@@ -132,7 +135,7 @@ async def update_ticket_status(ticket_id: str, body: StatusUpdate):
 
 
 @router.post("/tickets/{ticket_id}/resolve")
-async def resolve_ticket_with_ai(ticket_id: str):
+async def resolve_ticket_with_ai(ticket_id: str, admin: User = Depends(get_current_admin)):
     """Wywołuje Claude API z treścią ticketu — zwraca propozycję fixa."""
     try:
         from anthropic import Anthropic

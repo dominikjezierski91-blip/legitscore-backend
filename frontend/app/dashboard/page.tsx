@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { MonitoringSection } from "./components/monitoring-section";
+import { useAuth } from "@/components/auth/auth-provider";
+import { authHeaders } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -129,7 +132,7 @@ function fmtDate(iso: string | null): string {
 }
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const r = await fetch(`${API}${path}`, { cache: "no-store" });
+  const r = await fetch(`${API}${path}`, { cache: "no-store", headers: authHeaders() });
   if (!r.ok) throw new Error(`${r.status}`);
   return r.json();
 }
@@ -934,12 +937,29 @@ const TABS = [
 type TabId = typeof TABS[number]["id"];
 
 export default function DashboardPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
   const [tab, setTab] = useState<TabId>("overview");
 
-  // Support #monitoring hash from nav bug icon
+  // Support #monitoring / #submissions hash (np. z ikony błędu w nawigacji)
   useEffect(() => {
-    if (window.location.hash === "#monitoring") setTab("monitoring");
+    const hash = window.location.hash.slice(1);
+    if (hash === "monitoring" || hash === "submissions") setTab(hash);
   }, []);
+
+  useEffect(() => {
+    if (!loading && (!user || !user.is_admin)) {
+      router.replace("/login?next=" + encodeURIComponent("/dashboard"));
+    }
+  }, [loading, user, router]);
+
+  if (loading || !user || !user.is_admin) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-500">
+        {loading ? "Ładowanie…" : "Przekierowuję…"}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Bug, ChevronDown, ChevronUp, Loader2, CheckCircle2, Clock, Circle, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { authHeaders } from "@/lib/auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -41,7 +42,7 @@ type Filter = "Wszystkie" | "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 async function apiPost(path: string, body?: object) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -63,7 +64,7 @@ export function MonitoringSection() {
 
   async function fetchTickets() {
     try {
-      const res = await fetch(`${API_BASE}/api/monitoring/tickets`);
+      const res = await fetch(`${API_BASE}/api/monitoring/tickets`, { headers: authHeaders() });
       if (res.ok) setData(await res.json());
     } catch { /* ignore */ } finally {
       setLoading(false);

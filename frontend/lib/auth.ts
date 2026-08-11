@@ -22,3 +22,9 @@ export function clearToken(): void {
 export function isLoggedIn(): boolean {
   return !!getToken();
 }
+
+/** Nagłówek Authorization dla fetchy do endpointów wymagających logowania (np. backoffice). */
+export function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}

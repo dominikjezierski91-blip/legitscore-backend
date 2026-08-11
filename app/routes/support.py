@@ -108,8 +108,9 @@ async def create_submission(
 @router.get("/support")
 async def list_submissions(
     db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
 ):
-    """Lista wszystkich zgłoszeń (backoffice — publiczny dashboard)."""
+    """Lista wszystkich zgłoszeń (backoffice)."""
     items = (
         db.query(SupportSubmission)
         .order_by(SupportSubmission.created_at.desc())
@@ -122,6 +123,7 @@ async def list_submissions(
 async def get_submission(
     submission_id: str,
     db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
 ):
     """Szczegóły zgłoszenia (backoffice)."""
     item = db.query(SupportSubmission).filter(SupportSubmission.id == submission_id).first()
@@ -135,6 +137,7 @@ async def update_submission(
     submission_id: str,
     data: SupportSubmissionUpdate,
     db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
 ):
     """Aktualizuje status / notatki zgłoszenia (backoffice)."""
     item = db.query(SupportSubmission).filter(SupportSubmission.id == submission_id).first()

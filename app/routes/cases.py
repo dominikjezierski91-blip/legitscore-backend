@@ -32,7 +32,8 @@ from app.services.storage import (
 from app.services.auction_scraper import fetch_auction_images, AuctionScraperError
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, SessionLocal, CaseRecord
+from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, SessionLocal, CaseRecord, User
+from app.routes.auth import get_current_admin
 from app.services.security import (
     limiter,
     validate_upload_files,
@@ -1288,6 +1289,7 @@ async def list_all_cases(
     email: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=100),
+    admin: User = Depends(get_current_admin),
 ):
     """Lista wszystkich case'ów z bazy (dla dashboardu), z opcjonalnym filtrowaniem i paginacją."""
     return get_all_cases_from_db(
@@ -1303,56 +1305,56 @@ async def list_all_cases(
 
 @router.get("/dashboard/stats")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_stats(request: Request):
+async def get_stats(request: Request, admin: User = Depends(get_current_admin)):
     """Statystyki z bazy (dla dashboardu)."""
     return get_db_stats()
 
 
 @router.get("/dashboard/user-stats")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_user_stats_endpoint(request: Request):
+async def get_user_stats_endpoint(request: Request, admin: User = Depends(get_current_admin)):
     """Statystyki użytkowników dla dashboardu."""
     return get_user_stats()
 
 
 @router.get("/dashboard/users")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def list_users(request: Request):
+async def list_users(request: Request, admin: User = Depends(get_current_admin)):
     """Lista użytkowników ze statystykami."""
     return get_user_list()
 
 
 @router.get("/dashboard/metrics")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_metrics(request: Request):
+async def get_metrics(request: Request, admin: User = Depends(get_current_admin)):
     """Metryki produktowe dla dashboardu."""
     return get_dashboard_metrics()
 
 
 @router.get("/dashboard/activation")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_activation(request: Request):
+async def get_activation(request: Request, admin: User = Depends(get_current_admin)):
     """Metryki aktywacji użytkowników."""
     return get_activation_detail()
 
 
 @router.get("/dashboard/retention")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_retention(request: Request):
+async def get_retention(request: Request, admin: User = Depends(get_current_admin)):
     """Metryki retencji użytkowników."""
     return get_retention_metrics()
 
 
 @router.get("/dashboard/registrations")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_registrations(request: Request, days: int = Query(30, ge=1, le=90)):
+async def get_registrations(request: Request, days: int = Query(30, ge=1, le=90), admin: User = Depends(get_current_admin)):
     """Trend rejestracji (dzienny)."""
     return get_registration_trend(days=days)
 
 
 @router.get("/dashboard/users/{user_id}")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_user(request: Request, user_id: str):
+async def get_user(request: Request, user_id: str, admin: User = Depends(get_current_admin)):
     """Szczegóły użytkownika z listą analiz. user_id to adres e-mail — nie UUID case."""
     data = get_user_detail(user_id)
     if data is None:

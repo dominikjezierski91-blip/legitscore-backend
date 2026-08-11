@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 import { useCookieConsent } from "@/components/layout/cookie-consent-provider";
+import { authHeaders } from "@/lib/auth";
 
 type ShellProps = {
   children: ReactNode;
@@ -22,12 +23,13 @@ export function Shell({ children, className, subtitle }: ShellProps) {
   const [criticalCount, setCriticalCount] = useState(0);
 
   useEffect(() => {
+    if (!user?.is_admin) return;
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-    fetch(`${apiBase}/api/monitoring/tickets`)
+    fetch(`${apiBase}/api/monitoring/tickets`, { headers: authHeaders() })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d) setCriticalCount(d.critical_count ?? 0); })
       .catch(() => {});
-  }, []);
+  }, [user]);
 
   function handleLogout() {
     setLogoutOpen(false);
@@ -73,6 +75,11 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                 <Link href="/account" className="text-slate-400 transition hover:text-slate-200">
                   Konto
                 </Link>
+                {user.is_admin && (
+                  <Link href="/dashboard" className="text-slate-400 transition hover:text-slate-200">
+                    Dashboard
+                  </Link>
+                )}
                 <button
                   onClick={() => setLogoutOpen(true)}
                   className="text-slate-500 transition hover:text-slate-300"

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth/auth-provider";
+import { authHeaders } from "@/lib/auth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
@@ -41,6 +43,8 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [sub, setSub] = useState<Submission | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -50,9 +54,15 @@ export default function SubmissionDetailPage() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (!API_BASE_URL || !id) return;
+    if (!authLoading && (!user || !user.is_admin)) {
+      router.replace("/login?next=" + encodeURIComponent(`/dashboard/submissions/${id}`));
+    }
+  }, [authLoading, user, router, id]);
+
+  useEffect(() => {
+    if (!API_BASE_URL || !id || authLoading || !user?.is_admin) return;
     const apiBase = API_BASE_URL.replace(/\/$/, "");
-    fetch(`${apiBase}/api/support/${id}`, { cache: "no-store" })
+    fetch(`${apiBase}/api/support/${id}`, { cache: "no-store", headers: authHeaders() })
       .then(async (res) => {
         if (res.status === 404) { setNotFound(true); return; }
         const data = await res.json();
@@ -62,7 +72,7 @@ export default function SubmissionDetailPage() {
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, authLoading, user]);
 
   async function handleSave() {
     if (!API_BASE_URL || !id) return;
@@ -72,7 +82,7 @@ export default function SubmissionDetailPage() {
       const apiBase = API_BASE_URL.replace(/\/$/, "");
       const res = await fetch(`${apiBase}/api/support/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ status, internal_notes: notes }),
       });
       if (res.ok) {
@@ -85,6 +95,13 @@ export default function SubmissionDetailPage() {
     }
   }
 
+  if (authLoading || !user || !user.is_admin) {
+    return (
+      <div className="min-h-screen bg-slate-950 p-8 text-slate-400">
+        {authLoading ? "Ładowanie…" : "Przekierowuję…"}
+      </div>
+    );
+  }
   if (loading) {
     return <div className="min-h-screen bg-slate-950 p-8 text-slate-400">Ładowanie...</div>;
   }
@@ -96,7 +113,7 @@ export default function SubmissionDetailPage() {
     <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
-          <a href="/dashboard/submissions" className="text-xs text-slate-500 hover:text-slate-300">
+          <a href="/dashboard#submissions" className="text-xs text-slate-500 hover:text-slate-300">
             ← Zgłoszenia
           </a>
           <h1 className="mt-1 text-xl font-bold">Szczegóły zgłoszenia</h1>
