@@ -21,6 +21,21 @@ class TestSecurityHeaders:
         assert response.headers.get("X-XSS-Protection") == "1; mode=block"
         assert response.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
 
+    def test_report_pdf_exempted_from_x_frame_options(self):
+        """
+        report-pdf jest celowo osadzany w <iframe> na /przyklad (podgląd PDF) —
+        musi NIE mieć X-Frame-Options: DENY, i zamiast tego mieć CSP frame-ancestors,
+        żeby embedowanie w ogóle było możliwe. Wynik 404 (case nie istnieje) jest
+        tu nieistotny — middleware dokłada nagłówki do KAŻDEJ odpowiedzi na tej ścieżce.
+        """
+        response = client.get("/api/cases/nonexistent-case-id/report-pdf")
+        assert response.headers.get("X-Frame-Options") is None
+        assert "frame-ancestors" in response.headers.get("Content-Security-Policy", "")
+        # inne trasy nie są dotknięte tym wyjątkiem
+        other = client.get("/api/health")
+        assert other.headers.get("X-Frame-Options") == "DENY"
+        assert "Content-Security-Policy" not in other.headers
+
 
 class TestInputValidation:
     """Testy walidacji inputów."""

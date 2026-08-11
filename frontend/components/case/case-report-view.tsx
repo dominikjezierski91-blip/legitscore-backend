@@ -335,10 +335,7 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
             </section>
           )}
         </div>
-        <aside className={cn(
-          "glass-card flex w-full max-w-xs flex-col justify-between p-5 md:p-6",
-          isExample && "order-first md:order-none"
-        )}>
+        <aside className="glass-card flex w-full max-w-xs flex-col justify-between p-5 md:p-6">
           <div className="space-y-3 text-xs text-muted-foreground">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-200">
               Pełny raport PDF
@@ -348,6 +345,13 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
               przesłanek oraz dodatkowe komentarze. To dokument pomocniczy, nie
               certyfikat autentyczności.
             </p>
+            {isExample && (
+              <iframe
+                src={pdfUrl}
+                title="Podgląd raportu PDF"
+                className="h-[420px] w-full rounded-xl border border-border/50 bg-slate-950/40"
+              />
+            )}
             <a
               href={pdfUrl}
               target="_top"

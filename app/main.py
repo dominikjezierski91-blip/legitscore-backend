@@ -3,6 +3,7 @@ load_dotenv(override=True)
 
 import asyncio
 import os
+import re
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
@@ -79,12 +80,31 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 init_db()
 
 
+# Dokładna trasa GET /cases/{case_id}/report-pdf (patrz app/routes/cases.py) —
+# dopasowanie pełnej ścieżki, nie samego sufiksu, żeby przyszły endpoint o
+# nazwie kończącej się podobnie (np. .../thumbnail-report-pdf) nie dziedziczył
+# po cichu wyjątku od X-Frame-Options.
+_REPORT_PDF_PATH = re.compile(r"^/api/cases/[^/]+/report-pdf$")
+
+
 # Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         for header, value in SECURITY_HEADERS.items():
             response.headers[header] = value
+        # report-pdf jest celowo osadzany w <iframe> na własnej stronie raportu
+        # (podgląd PDF zamiast wymuszania pobrania) — X-Frame-Options: DENY by to
+        # blokowało. Zamiast globalnego DENY, zawężamy embedowanie tylko do
+        # naszych własnych frontendów przez CSP frame-ancestors.
+        if _REPORT_PDF_PATH.match(request.url.path):
+            if "X-Frame-Options" in response.headers:
+                del response.headers["X-Frame-Options"]
+            if "*" in ALLOWED_ORIGINS:
+                response.headers["Content-Security-Policy"] = "frame-ancestors *"
+            else:
+                ancestors = " ".join(o.strip() for o in ALLOWED_ORIGINS if o.strip())
+                response.headers["Content-Security-Policy"] = f"frame-ancestors 'self' {ancestors}".strip()
         return response
 
 
