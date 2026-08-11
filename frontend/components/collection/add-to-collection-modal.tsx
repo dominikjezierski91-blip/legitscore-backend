@@ -251,7 +251,7 @@ function ModalShell({ children, onClose }: { children: React.ReactNode; onClose:
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md rounded-2xl border border-border/60 bg-slate-950 p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="relative w-full max-w-md rounded-2xl border border-border/60 bg-slate-950 p-6 shadow-2xl max-h-[85dvh] overflow-y-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         <button
