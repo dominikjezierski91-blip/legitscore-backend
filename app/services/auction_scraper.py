@@ -1,5 +1,5 @@
 """
-Serwis do pobierania zdjęć z aukcji (Vinted, Allegro, eBay).
+Serwis do pobierania zdjęć z aukcji (Vinted, Allegro, eBay, Kleinanzeigen).
 Pobiera obrazy i zwraca je jako bajty do zapisu jako assets.
 """
 
@@ -13,7 +13,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_DOMAINS = ["vinted", "allegro", "ebay"]
+ALLOWED_DOMAINS = ["vinted", "allegro", "ebay", "kleinanzeigen"]
 
 # User-Agent przeglądarki - niektóre serwisy blokują boty
 BROWSER_HEADERS = {
@@ -26,7 +26,7 @@ BROWSER_HEADERS = {
 _SKIP_WORDS = ["avatar", "icon", "logo", "thumb", "50x", "100x", "32x", "64x"]
 
 # Zaufane domeny CDN obrazów dla znanych providerów (bez wymogu rozszerzenia pliku)
-_TRUSTED_IMAGE_DOMAINS = ["images.vinted.net", "images1.vinted.net", "images2.vinted.net"]
+_TRUSTED_IMAGE_DOMAINS = ["images.vinted.net", "images1.vinted.net", "images2.vinted.net", "img.kleinanzeigen.de"]
 
 
 class AuctionScraperError(Exception):
@@ -48,6 +48,8 @@ def detect_provider(url: str) -> str:
             return "allegro"
         elif "ebay" in domain_lower:
             return "ebay"
+        elif "kleinanzeigen" in domain_lower:
+            return "kleinanzeigen"
     except Exception:
         pass
     return "unknown"
@@ -77,7 +79,7 @@ def validate_auction_url(url: str) -> str:
 
     if not is_allowed:
         raise AuctionScraperError(
-            f"Nieobsługiwana domena. Dozwolone: Vinted, Allegro, eBay"
+            f"Nieobsługiwana domena. Dozwolone: Vinted, Allegro, eBay, Kleinanzeigen"
         )
 
     return url
@@ -157,6 +159,36 @@ def _extract_images_from_html(html: str, base_url: str) -> Tuple[List[str], Dict
     - images: lista znormalizowanych URL-i obrazów (po filtracji)
     - diagnostics: słownik z informacjami diagnostycznymi (per-kandidat)
     """
+    # Kleinanzeigen: strona oferty zawiera dalej sekcję "könnte dich auch
+    # interessieren" / "Andere Anzeigen" (podobne ogłoszenia) z miniaturkami
+    # INNYCH, niepowiązanych ofert pod tym samym wzorcem URL CDN
+    # (img.kleinanzeigen.de/api/v1/prod-ads/images/...). Ograniczamy całą
+    # ekstrakcję (wszystkie kroki poniżej, nie tylko krok 0) do fragmentu HTML
+    # w obrębie kontenera galerii — inaczej generyczne kroki (og:image/img/
+    # srcset) też złapałyby te niepowiązane zdjęcia, skoro img.kleinanzeigen.de
+    # jest zaufaną domeną CDN (patrz _TRUSTED_IMAGE_DOMAINS).
+    #
+    # Górną granicę cięcia wyznacza realny marker początku sekcji podobnych
+    # ofert (nie sztywna liczba znaków) — sztywne okno zawodzi przy większej
+    # liczbie zdjęć własnej galerii (każde zdjęcie to ~2000+ znaków markupu
+    # w realnym HTML, więc oferta z ~10+ zdjęciami może wypaść poza dowolne
+    # rozsądnie małe okno; potwierdzone na realnej ofercie z 12 zdjęciami,
+    # gdzie fixed-window 20000 znaków cicho gubił 2 z nich). Fallback na
+    # szerokie okno tylko gdy żaden marker nie występuje na stronie.
+    _ka_gallery_start = html.find('class="vip-image-gallery')
+    if _ka_gallery_start != -1:
+        _ka_end_markers = ("könnte dich auch interessieren", "Andere Anzeigen")
+        _ka_end = min(
+            (idx for idx in (html.find(m, _ka_gallery_start) for m in _ka_end_markers) if idx != -1),
+            default=-1,
+        )
+        if _ka_end == -1:
+            logger.warning(
+                "[SCRAPER] provider=kleinanzeigen brak markera końca galerii — używam szerokiego fallback okna"
+            )
+            _ka_end = _ka_gallery_start + 200000
+        html = html[_ka_gallery_start:_ka_end]
+
     images: List[str] = []
     seen_urls: set = set()      # znormalizowane URL-e (bez ?s=... sygnatury) dla deduplikacji
     candidates: List[Dict] = []  # log wszystkich kandydatów
@@ -223,6 +255,18 @@ def _extract_images_from_html(html: str, base_url: str) -> Tuple[List[str], Dict
             "status": "used",
             "drop_reason": None,
         })
+
+    # 0. Kleinanzeigen CDN — normalizuj do pełnowymiarowego rozmiaru ($_59) zanim
+    #    generyczne kroki (img/srcset/og:image) trafią na mniejsze warianty (np.
+    #    $_35 z galerii miniatur) tego samego zdjęcia. Dedup po ścieżce bazowej
+    #    (bez ?rule=...) sprawia, że ten wpis "wygrywa" i mniejsze warianty tego
+    #    samego zdjęcia zostają odrzucone jako duplikaty. `html` jest już
+    #    ograniczone do galerii tej oferty (patrz na górze funkcji).
+    for m in re.finditer(
+        r'https://img\.kleinanzeigen\.de/api/v1/prod-ads/images/[a-zA-Z0-9]+/[a-zA-Z0-9-]+',
+        html,
+    ):
+        try_add(m.group(0) + "?rule=$_59.AUTO", "kleinanzeigen_fullsize")
 
     # 1. og:image meta tags
     og_patterns = [

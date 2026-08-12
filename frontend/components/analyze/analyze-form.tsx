@@ -45,7 +45,8 @@ export function AnalyzeForm() {
     return (
       lower.includes("vinted") ||
       lower.includes("allegro") ||
-      lower.includes("ebay")
+      lower.includes("ebay") ||
+      lower.includes("kleinanzeigen")
     );
   };
 
@@ -72,8 +73,8 @@ export function AnalyzeForm() {
       } else {
         setError(
           user
-            ? "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay) i zaakceptowałeś zastrzeżenia."
-            : "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro lub eBay), podałeś poprawny adres email i zaakceptowałeś zastrzeżenia."
+            ? "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro, eBay lub Kleinanzeigen) i zaakceptowałeś zastrzeżenia."
+            : "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro, eBay lub Kleinanzeigen), podałeś poprawny adres email i zaakceptowałeś zastrzeżenia."
         );
       }
       return;
@@ -203,7 +204,7 @@ export function AnalyzeForm() {
                 />
                 <div>
                   <div className="text-sm font-medium text-slate-100">Wklej link do aukcji</div>
-                  <div className="text-xs text-muted-foreground">Vinted, Allegro lub eBay</div>
+                  <div className="text-xs text-muted-foreground">Vinted, Allegro, eBay, Kleinanzeigen</div>
                 </div>
               </label>
             </div>
@@ -230,6 +231,7 @@ export function AnalyzeForm() {
                   <span className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-300">Vinted</span>
                   <span className="rounded-full border border-orange-400/40 bg-orange-500/10 px-2.5 py-0.5 text-[11px] font-medium text-orange-300">Allegro</span>
                   <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-medium text-blue-300">eBay</span>
+                  <span className="rounded-full border border-red-400/40 bg-red-500/10 px-2.5 py-0.5 text-[11px] font-medium text-red-300">Kleinanzeigen</span>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">
@@ -240,12 +242,12 @@ export function AnalyzeForm() {
                     value={auctionUrl}
                     onChange={(e) => setAuctionUrl(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
-                    placeholder="https://www.vinted.pl/items/... lub https://allegro.pl/oferta/..."
+                    placeholder="https://www.vinted.pl/items/... lub https://www.kleinanzeigen.de/s-anzeige/..."
                   />
                 </div>
                 {auctionUrl && !isValidAuctionUrl(auctionUrl) && (
                   <p className="text-xs text-amber-300">
-                    Link musi prowadzić do Vinted, Allegro lub eBay.
+                    Link musi prowadzić do Vinted, Allegro, eBay lub Kleinanzeigen.
                   </p>
                 )}
                 <section className="rounded-2xl border border-emerald-500/20 bg-slate-900/60 p-4 text-xs text-muted-foreground">

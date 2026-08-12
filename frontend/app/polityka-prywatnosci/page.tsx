@@ -22,7 +22,7 @@ const CONTENT = `
 <ul>
   <li><strong>Zdjęcia koszulek</strong>, które przesyłasz do analizy (mogą zawierać widoczne tło i otoczenie — prosimy nie umieszczać na zdjęciach danych osób trzecich ani informacji, których nie chcesz udostępniać).</li>
   <li><strong>Adres e-mail</strong> — podawany w celu otrzymania raportu.</li>
-  <li><strong>Opcjonalny link do aukcji</strong> (np. Vinted, Allegro, eBay) i powiązane metadane, jeśli je podasz.</li>
+  <li><strong>Opcjonalny link do aukcji</strong> (np. Vinted, Allegro, eBay, Kleinanzeigen) i powiązane metadane, jeśli je podasz.</li>
   <li><strong>Dane techniczne</strong> — adres IP, informacje o urządzeniu i przeglądarce, logi serwera.</li>
   <li><strong>Dane analityczne</strong> — zdarzenia korzystania z serwisu, zbierane za pomocą plików cookies (za Twoją zgodą).</li>
 </ul>
