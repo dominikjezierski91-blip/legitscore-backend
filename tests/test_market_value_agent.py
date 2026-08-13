@@ -181,31 +181,86 @@ class TestEstimateViaEbayBrowse:
         assert len(listings) == len(mva._EBAY_MARKETPLACES) - 1
 
 
+class TestFilterListingsByCategory:
+    def test_no_filter_defined_for_category_returns_unchanged(self):
+        listings = [{"title": "replica jersey"}]
+        assert mva._filter_listings_by_category(listings, "edycja_limitowana") == listings
+
+    def test_unknown_or_empty_category_returns_unchanged(self):
+        listings = [{"title": "replica jersey"}]
+        assert mva._filter_listings_by_category(listings, "") == listings
+
+    def test_meczowa_excludes_replica_titles(self):
+        listings = [
+            {"title": "Match worn player issue jersey", "price_pln": 800},
+            {"title": "Official replica jersey", "price_pln": 100},
+            {"title": "Fan version shirt", "price_pln": 90},
+        ]
+        result = mva._filter_listings_by_category(listings, "meczowa")
+        assert len(result) == 1
+        assert result[0]["price_pln"] == 800
+
+    def test_oryginalna_sklepowa_excludes_match_worn_and_replica(self):
+        listings = [
+            {"title": "Authentic retail jersey", "price_pln": 250},
+            {"title": "Match worn player issue jersey", "price_pln": 800},
+            {"title": "Official replica jersey", "price_pln": 100},
+        ]
+        result = mva._filter_listings_by_category(listings, "oryginalna_sklepowa")
+        assert len(result) == 1
+        assert result[0]["price_pln"] == 250
+
+    def test_case_insensitive_matching(self):
+        listings = [{"title": "MATCH WORN Player Issue Jersey", "price_pln": 800}]
+        result = mva._filter_listings_by_category(listings, "oryginalna_sklepowa")
+        assert result == []
+
+    def test_missing_title_does_not_crash(self):
+        listings = [{"price_pln": 100}]
+        result = mva._filter_listings_by_category(listings, "meczowa")
+        assert result == listings
+
+    def test_oryginalna_sklepowa_excludes_fan_edition(self):
+        """Regresja: 'fan edition' był w liście wykluczeń dla 'meczowa', ale brakowało
+        go dla 'oryginalna_sklepowa' — oferta replikowa nazwana 'Fan Edition' zaniżałaby
+        medianę oryginalnej koszulki sklepowej bez tego wykluczenia."""
+        listings = [{"title": "Fan Edition Jersey 23/24", "price_pln": 90}]
+        result = mva._filter_listings_by_category(listings, "oryginalna_sklepowa")
+        assert result == []
+
+
 class TestEstimateMarketValueBlending:
-    def test_blends_gemini_and_ebay_when_both_have_data(self):
+    def test_prefers_ebay_over_gemini_when_both_have_data(self):
+        """eBay to realne, zweryfikowane dane API — ma priorytet nad Gemini,
+        który tylko samoraportuje wyniki własnego wyszukiwania. Gdy eBay ma
+        cokolwiek, wynik liczy się WYŁĄCZNIE z eBay, Gemini jest ignorowany."""
         async def fake_gemini(report_data):
             return {
-                "listings": [{"source": "gemini", "price_pln": 100}],
+                "listings": [{"source": "gemini", "price_pln": 100, "title": "koszulka"}],
                 "sample_size": 1,
                 "median_pln": 100,
                 "source": "gemini",
             }
 
         async def fake_ebay(query):
-            return [{"source": "ebay", "price_pln": 200}, {"source": "ebay", "price_pln": 300}]
+            return [
+                {"source": "ebay", "price_pln": 200, "title": "jersey"},
+                {"source": "ebay", "price_pln": 300, "title": "jersey"},
+            ]
 
         with patch.object(mva, "estimate_via_gemini", fake_gemini), \
              patch.object(mva, "estimate_via_ebay_browse", fake_ebay):
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
 
-        assert result["source"] == "gemini+ebay"
-        assert result["sample_size"] == 3
-        assert len(result["listings"]) == 3
+        assert result["source"] == "ebay"
+        assert result["sample_size"] == 2
+        assert len(result["listings"]) == 2
+        assert all(l["source"] == "ebay" for l in result["listings"])
 
     def test_falls_back_to_gemini_only_when_ebay_empty(self):
         async def fake_gemini(report_data):
             return {
-                "listings": [{"source": "gemini", "price_pln": 100}],
+                "listings": [{"source": "gemini", "price_pln": 100, "title": "koszulka"}],
                 "sample_size": 1,
                 "median_pln": 100,
                 "source": "gemini",
@@ -220,3 +275,115 @@ class TestEstimateMarketValueBlending:
 
         assert result["source"] == "gemini"
         assert result["sample_size"] == 1
+
+    def test_falls_back_to_gemini_when_all_ebay_listings_filtered_out_by_category(self):
+        """eBay zwraca wyniki, ale wszystkie odfiltrowane jako zły tier
+        (np. replica przy koszulce meczowej) — musi spaść na Gemini, nie
+        zwrócić pustego wyniku mimo że Gemini ma dobre dane."""
+        async def fake_gemini(report_data):
+            return {
+                "listings": [{"source": "gemini", "price_pln": 500, "title": "match worn jersey"}],
+                "sample_size": 1,
+                "median_pln": 500,
+                "source": "gemini",
+            }
+
+        async def fake_ebay(query):
+            return [{"source": "ebay", "price_pln": 100, "title": "official replica jersey"}]
+
+        with patch.object(mva, "estimate_via_gemini", fake_gemini), \
+             patch.object(mva, "estimate_via_ebay_browse", fake_ebay):
+            result = run(mva.estimate_market_value({"subject": {}, "verdict": {"verdict_category": "meczowa"}}))
+
+        assert result["source"] == "gemini"
+        assert result["sample_size"] == 1
+
+    def test_category_filter_excludes_wrong_tier_from_ebay_but_keeps_matching(self):
+        """Mieszanka pasujących i niepasujących ofert eBay dla koszulki meczowej —
+        replica musi odpaść, match-worn zostać."""
+        async def fake_gemini(report_data):
+            return {"listings": [], "sample_size": 0}
+
+        async def fake_ebay(query):
+            return [
+                {"source": "ebay", "price_pln": 800, "title": "Match worn player issue jersey"},
+                {"source": "ebay", "price_pln": 100, "title": "Official replica fan version"},
+            ]
+
+        with patch.object(mva, "estimate_via_gemini", fake_gemini), \
+             patch.object(mva, "estimate_via_ebay_browse", fake_ebay):
+            result = run(mva.estimate_market_value({"subject": {}, "verdict": {"verdict_category": "meczowa"}}))
+
+        assert result["source"] == "ebay"
+        assert result["sample_size"] == 1
+        assert result["listings"][0]["price_pln"] == 800
+
+    def test_gemini_not_called_when_ebay_alone_meets_reliability_threshold(self):
+        """Gemini Search Grounding kosztuje/ma limit — nie wołamy go wcale, jeśli
+        eBay samodzielnie ma wystarczająco dużo ofert (>= _MIN_RELIABLE_SAMPLE_SIZE)."""
+        gemini_call_count = 0
+
+        async def fake_gemini(report_data):
+            nonlocal gemini_call_count
+            gemini_call_count += 1
+            return {"listings": [], "sample_size": 0}
+
+        async def fake_ebay(query):
+            return [
+                {"source": "ebay", "price_pln": 200, "title": "jersey"},
+                {"source": "ebay", "price_pln": 300, "title": "jersey"},
+            ]
+
+        with patch.object(mva, "estimate_via_gemini", fake_gemini), \
+             patch.object(mva, "estimate_via_ebay_browse", fake_ebay):
+            result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
+
+        assert gemini_call_count == 0, "Gemini nie powinno być wołane gdy eBay wystarczył samodzielnie"
+        assert result["source"] == "ebay"
+        assert result["low_confidence"] is False
+
+    def test_lone_ebay_listing_below_threshold_combines_with_gemini_instead_of_being_used_alone(self):
+        """Regresja: jedna samotna oferta eBay (poniżej progu) nie może całkowicie
+        przyćmić bogatszych danych z Gemini — muszą się połączyć."""
+        async def fake_gemini(report_data):
+            return {
+                "listings": [
+                    {"source": "gemini", "price_pln": 400, "title": "koszulka"},
+                    {"source": "gemini", "price_pln": 450, "title": "koszulka"},
+                    {"source": "gemini", "price_pln": 420, "title": "koszulka"},
+                ],
+                "sample_size": 3,
+                "median_pln": 420,
+            }
+
+        async def fake_ebay(query):
+            return [{"source": "ebay", "price_pln": 500, "title": "jersey"}]
+
+        with patch.object(mva, "estimate_via_gemini", fake_gemini), \
+             patch.object(mva, "estimate_via_ebay_browse", fake_ebay):
+            result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
+
+        assert result["source"] == "ebay+gemini"
+        assert result["sample_size"] == 4
+        assert len(result["listings"]) == 4
+        assert result["low_confidence"] is False
+
+    def test_lone_ebay_listing_with_no_gemini_data_is_flagged_low_confidence(self):
+        """Kluczowa regresja: eBay ma tylko 1 ofertę (poniżej progu), Gemini nie
+        dorzuca nic (błąd/brak wyników/wszystko odfiltrowane) — combined ma wciąż
+        tylko 1 element. Wynik musi zostać zwrócony (nie ukrywamy jedynej ceny),
+        ale MUSI być jawnie oznaczony jako low_confidence, żeby nie wyglądał
+        identycznie jak wycena z solidną próbką."""
+        async def fake_gemini(report_data):
+            return {"listings": [], "sample_size": 0}
+
+        async def fake_ebay(query):
+            return [{"source": "ebay", "price_pln": 500, "title": "jersey"}]
+
+        with patch.object(mva, "estimate_via_gemini", fake_gemini), \
+             patch.object(mva, "estimate_via_ebay_browse", fake_ebay):
+            result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
+
+        assert result["source"] == "ebay"
+        assert result["sample_size"] == 1
+        assert result["low_confidence"] is True

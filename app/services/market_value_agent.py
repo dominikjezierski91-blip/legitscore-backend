@@ -41,6 +41,37 @@ _VERDICT_SEARCH_TERMS: dict = {
     "podrobka": "oryginalna",
 }
 
+# Frazy w tytule oferty, których obecność oznacza, że to NA PEWNO inny tier
+# cenowy niż werdykt tej koszulki — mimo że oferta pasuje po klubie/sezonie
+# (np. wyszukiwanie znajdzie zarówno meczowe, jak i replikowe koszulki tego
+# samego klubu i sezonu). Bez tego filtra jedna źle dobrana oferta potrafi
+# mocno zaniżyć/zawyżyć medianę (koszulka meczowa jest zwykle kilkukrotnie
+# droższa niż oficjalna replika tego samego klubu/sezonu). Filtrujemy tylko
+# te trzy kategorie, dla których pomylenie tieru ma duży wpływ cenowy —
+# celowo NIE filtrujemy edycja_limitowana/treningowa_custom/podrobka, gdzie
+# sygnał w tytule jest zbyt niejednoznaczny żeby bezpiecznie odrzucać oferty.
+_VERDICT_EXCLUDE_KEYWORDS: dict = {
+    "meczowa": ["replica", "replika", "fan version", "fan edition"],
+    "oryginalna_sklepowa": ["replica", "replika", "fan version", "fan edition", "match worn", "player issue", "player version"],
+    "oficjalna_replika": ["match worn", "player issue", "player version", "match issued"],
+}
+
+
+def _filter_listings_by_category(listings: List[Dict], verdict_category: str) -> List[Dict]:
+    """Odrzuca oferty, których tytuł wyraźnie wskazuje na inny tier cenowy niż
+    werdykt (patrz _VERDICT_EXCLUDE_KEYWORDS). Brak dopasowania kategorii w
+    mapie = brak filtrowania (zwraca listings bez zmian)."""
+    exclude_keywords = _VERDICT_EXCLUDE_KEYWORDS.get((verdict_category or "").strip())
+    if not exclude_keywords:
+        return listings
+    filtered = []
+    for listing in listings:
+        title_lower = (listing.get("title") or "").lower()
+        if any(kw in title_lower for kw in exclude_keywords):
+            continue
+        filtered.append(listing)
+    return filtered
+
 
 def _get_client() -> Optional[genai.Client]:
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -483,13 +514,16 @@ def _recalculate_stats(listings: List[Dict]) -> Dict[str, Any]:
 
 async def refresh_stale_market_values(max_items: int = 50) -> int:
     """
-    Odświeża wyceny dla pozycji kolekcji starszych niż 23h.
-    Wywoływana przez daily task o północy.
+    Odświeża wyceny dla pozycji kolekcji starszych niż 7 dni.
+    Wywoływana przez daily task o północy (sam task odpala się codziennie,
+    ale każda pozycja jest realnie odświeżana raz na 7 dni — cena używanej
+    koszulki nie zmienia się z dnia na dzień, więc częstszy refresh tylko
+    zużywałby niepotrzebnie darmowy limit Gemini Search Grounding).
     """
     from datetime import timedelta
     from app.services.database import SessionLocal, CollectionItem
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=23)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     db = SessionLocal()
     refreshed = 0
     try:
@@ -533,22 +567,67 @@ async def refresh_stale_market_values(max_items: int = 50) -> int:
     return refreshed
 
 
+_MIN_RELIABLE_SAMPLE_SIZE = 2  # 1 oferta to nie "wycena rynkowa", tylko przypadkowa cena
+
+
 async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Główna funkcja — łączy Gemini + eBay (gdy dostępny).
+    Główna funkcja — priorytet dla eBay (realne, zweryfikowane dane API) nad
+    Gemini (samoraportowane wyniki wyszukiwania, bez możliwości weryfikacji).
+    Obie listy są filtrowane po kategorii (patrz _filter_listings_by_category)
+    — oferty z tytułem wskazującym na inny tier cenowy niż werdykt (np.
+    "replica" dla koszulki meczowej) są odrzucane, żeby nie zniekształcały
+    mediany.
+
+    Kolejność (celowo NIE równoległa): najpierw eBay. Jeśli po filtrze ma
+    wystarczająco dużo ofert (_MIN_RELIABLE_SAMPLE_SIZE), Gemini w ogóle nie
+    jest wołane — oszczędza to płatny/limitowany Google Search Grounding i
+    skraca czas odpowiedzi (Gemini z retry jest wolniejsze niż samo eBay).
+    Gemini jest dociągane tylko gdy eBay nie wystarczył (za mało/zero ofert
+    po filtrze) — wtedy oba źródła są łączone (source="ebay+gemini" albo
+    samo "gemini" gdy eBay był całkiem pusty), żeby pojedyncza, samotna
+    oferta eBay nie przyćmiła bogatszych danych z Gemini.
     """
-    import asyncio
+    verdict_category = ((report_data.get("verdict") or {}).get("verdict_category") or "").strip()
+    query = build_search_query(report_data)
 
-    gemini_result, ebay_listings = await asyncio.gather(
-        estimate_via_gemini(report_data),
-        estimate_via_ebay_browse(build_search_query(report_data)),
-    )
-    if ebay_listings:
-        all_listings = (gemini_result.get("listings") or []) + ebay_listings
-        stats = _recalculate_stats(all_listings)
+    ebay_listings_raw = await estimate_via_ebay_browse(query)
+    ebay_listings = _filter_listings_by_category(ebay_listings_raw, verdict_category)
+
+    if len(ebay_listings) >= _MIN_RELIABLE_SAMPLE_SIZE:
+        stats = _recalculate_stats(ebay_listings)
+        # Drugie sprawdzenie progu: _recalculate_stats() dodatkowo odrzuca
+        # listingi bez poprawnej ceny (price_pln), więc liczba ofert PO
+        # filtrze kategorii (sprawdzona wyżej) może być większa niż liczba
+        # ofert faktycznie użytych w statystyce.
+        if stats.get("sample_size", 0) >= _MIN_RELIABLE_SAMPLE_SIZE:
+            stats["listings"] = ebay_listings
+            stats["source"] = "ebay"
+            stats["query_used"] = query
+            stats["low_confidence"] = False
+            return stats
+
+    # eBay nie wystarczył samodzielnie (za mało/zero ofert po filtrze) —
+    # dociągamy Gemini i łączymy oba źródła zamiast tracić dobre dane z eBay.
+    gemini_result = await estimate_via_gemini(report_data)
+    gemini_listings = _filter_listings_by_category(gemini_result.get("listings") or [], verdict_category)
+
+    combined = ebay_listings + gemini_listings
+    if combined:
+        stats = _recalculate_stats(combined)
         if stats.get("sample_size", 0) > 0:
-            gemini_result.update(stats)
-            gemini_result["listings"] = all_listings
-            gemini_result["source"] = "gemini+ebay"
+            stats["listings"] = combined
+            # Nawet po połączeniu obu źródeł może zostać poniżej progu (np.
+            # eBay=1 + Gemini=0) — flagujemy to jawnie zamiast cicho zwracać
+            # pojedynczą, przypadkową cenę jako pełnoprawną "wycenę rynkową".
+            stats["low_confidence"] = stats["sample_size"] < _MIN_RELIABLE_SAMPLE_SIZE
+            if ebay_listings and gemini_listings:
+                stats["source"] = "ebay+gemini"
+            elif ebay_listings:
+                stats["source"] = "ebay"
+            else:
+                stats["source"] = "gemini"
+            stats["query_used"] = gemini_result.get("query_used", query)
+            return stats
 
-    return gemini_result
+    return {"error": gemini_result.get("error") or "Brak wyników po odfiltrowaniu kategorii.", "sample_size": 0, "listings": []}
