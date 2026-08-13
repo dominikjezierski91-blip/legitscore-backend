@@ -1,6 +1,11 @@
 """
-Serwis do pobierania zdjęć z aukcji (Vinted, Allegro, eBay, Kleinanzeigen).
+Serwis do pobierania zdjęć z aukcji (Vinted, eBay, Kleinanzeigen).
 Pobiera obrazy i zwraca je jako bajty do zapisu jako assets.
+
+Allegro NIE jest obsługiwane — blokuje scraping na poziomie bot-detection
+(HTTP 403 niezależnie od nagłówków, potwierdzone w produkcji) i nie ma
+samoobsługowego, publicznego API (endpoint /offers/listing wymaga ręcznej
+weryfikacji/whitelisty przez zespół Allegro).
 """
 
 import json
@@ -13,7 +18,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_DOMAINS = ["vinted", "allegro", "ebay", "kleinanzeigen"]
+ALLOWED_DOMAINS = ["vinted", "ebay", "kleinanzeigen"]
 
 # User-Agent przeglądarki - niektóre serwisy blokują boty
 BROWSER_HEADERS = {
@@ -36,7 +41,7 @@ class AuctionScraperError(Exception):
 
 def detect_provider(url: str) -> str:
     """
-    Wykrywa dostawcę (Vinted, Allegro, eBay) na podstawie URL.
+    Wykrywa dostawcę (Vinted, eBay, Kleinanzeigen) na podstawie URL.
     Zwraca nazwę dostawcy lub 'unknown'.
     """
     try:
@@ -44,8 +49,6 @@ def detect_provider(url: str) -> str:
         domain_lower = parsed.netloc.lower()
         if "vinted" in domain_lower:
             return "vinted"
-        elif "allegro" in domain_lower:
-            return "allegro"
         elif "ebay" in domain_lower:
             return "ebay"
         elif "kleinanzeigen" in domain_lower:
@@ -79,7 +82,7 @@ def validate_auction_url(url: str) -> str:
 
     if not is_allowed:
         raise AuctionScraperError(
-            f"Nieobsługiwana domena. Dozwolone: Vinted, Allegro, eBay, Kleinanzeigen"
+            f"Nieobsługiwana domena. Dozwolone: Vinted, eBay, Kleinanzeigen"
         )
 
     return url

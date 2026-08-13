@@ -346,7 +346,7 @@ class ImportFromUrlRequest(BaseModel):
 @limiter.limit(RATE_LIMIT_UPLOAD)
 async def import_from_url(request: Request, case_id: str, req: ImportFromUrlRequest):
     """
-    Pobiera zdjęcia z linku do aukcji (Vinted, Allegro, eBay) i zapisuje jako assets.
+    Pobiera zdjęcia z linku do aukcji (Vinted, eBay, Kleinanzeigen) i zapisuje jako assets.
     Alternatywa dla ręcznego uploadu zdjęć.
     """
     case_id = validate_case_id(case_id)

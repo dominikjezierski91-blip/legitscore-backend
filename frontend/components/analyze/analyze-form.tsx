@@ -44,7 +44,6 @@ export function AnalyzeForm() {
     const lower = url.toLowerCase();
     return (
       lower.includes("vinted") ||
-      lower.includes("allegro") ||
       lower.includes("ebay") ||
       lower.includes("kleinanzeigen")
     );
@@ -73,8 +72,8 @@ export function AnalyzeForm() {
       } else {
         setError(
           user
-            ? "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro, eBay lub Kleinanzeigen) i zaakceptowałeś zastrzeżenia."
-            : "Upewnij się, że wkleiłeś prawidłowy link (Vinted, Allegro, eBay lub Kleinanzeigen), podałeś poprawny adres email i zaakceptowałeś zastrzeżenia."
+            ? "Upewnij się, że wkleiłeś prawidłowy link (Vinted, eBay lub Kleinanzeigen) i zaakceptowałeś zastrzeżenia."
+            : "Upewnij się, że wkleiłeś prawidłowy link (Vinted, eBay lub Kleinanzeigen), podałeś poprawny adres email i zaakceptowałeś zastrzeżenia."
         );
       }
       return;
@@ -204,7 +203,7 @@ export function AnalyzeForm() {
                 />
                 <div>
                   <div className="text-sm font-medium text-slate-100">Wklej link do aukcji</div>
-                  <div className="text-xs text-muted-foreground">Vinted, Allegro, eBay, Kleinanzeigen</div>
+                  <div className="text-xs text-muted-foreground">Vinted, eBay, Kleinanzeigen</div>
                 </div>
               </label>
             </div>
@@ -229,7 +228,6 @@ export function AnalyzeForm() {
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   <span className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-300">Vinted</span>
-                  <span className="rounded-full border border-orange-400/40 bg-orange-500/10 px-2.5 py-0.5 text-[11px] font-medium text-orange-300">Allegro</span>
                   <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-medium text-blue-300">eBay</span>
                   <span className="rounded-full border border-red-400/40 bg-red-500/10 px-2.5 py-0.5 text-[11px] font-medium text-red-300">Kleinanzeigen</span>
                 </div>
@@ -247,7 +245,7 @@ export function AnalyzeForm() {
                 </div>
                 {auctionUrl && !isValidAuctionUrl(auctionUrl) && (
                   <p className="text-xs text-amber-300">
-                    Link musi prowadzić do Vinted, Allegro, eBay lub Kleinanzeigen.
+                    Link musi prowadzić do Vinted, eBay lub Kleinanzeigen.
                   </p>
                 )}
                 <section className="rounded-2xl border border-emerald-500/20 bg-slate-900/60 p-4 text-xs text-muted-foreground">
