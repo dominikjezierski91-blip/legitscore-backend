@@ -132,7 +132,7 @@ export function AnalyzeForm() {
 
   return (
     <div className="grid gap-6 md:grid-cols-[minmax(0,2.1fr),minmax(0,1.1fr)]">
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         {/* HERO / PAGE HEADER */}
         <section className="space-y-4">
           <h1 className="text-xl font-semibold tracking-tight text-slate-50 md:text-2xl">
