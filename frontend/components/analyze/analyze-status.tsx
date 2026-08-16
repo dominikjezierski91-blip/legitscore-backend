@@ -8,6 +8,7 @@ import {
   clearPendingSubmission,
   getPendingSubmission,
 } from "@/lib/submission-store";
+import { useAuth } from "@/components/auth/auth-provider";
 import { Loader2, ShieldAlert, AlertTriangle, ArrowLeft, Camera } from "lucide-react";
 
 const DEBUG = typeof process !== "undefined" && process.env.NODE_ENV === "development";
@@ -28,6 +29,7 @@ type Props = {
 
 export function AnalyzeStatus({ caseId, mode }: Props) {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [precheckError, setPrecheckError] = useState<PrecheckError | null>(null);
   const [tick, setTick] = useState(0);
@@ -48,6 +50,17 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
       return () => {
         if (DEBUG) console.debug("[AnalyzeStatus] cleanup called (no caseId)");
       };
+    }
+
+    // Generowanie raportu (koszt Gemini) wymaga logowania — upload zdjęć wcześniej
+    // (na /analyze/form) zostaje anonimowy, brama jest dokładnie tu, przed runDecision.
+    if (authLoading) return;
+    if (!user) {
+      const qs = new URLSearchParams({ case_id: caseId });
+      if (mode) qs.set("mode", mode);
+      const next = `/analyze/status?${qs.toString()}`;
+      router.replace(`/login?next=${encodeURIComponent(next)}`);
+      return;
     }
 
     const id: string = caseId;
@@ -173,7 +186,7 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
       }
       if (DEBUG) console.debug("[AnalyzeStatus] cleanup called");
     };
-  }, [caseId, mode, router]);
+  }, [caseId, mode, router, user, authLoading]);
 
   const step = tick % 8;
 

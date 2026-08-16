@@ -33,7 +33,7 @@ from app.services.auction_scraper import fetch_auction_images, AuctionScraperErr
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
 from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, SessionLocal, CaseRecord, User
-from app.routes.auth import get_current_admin, get_optional_user
+from app.routes.auth import get_current_admin, get_current_user, get_optional_user
 from app.services.security import (
     limiter,
     validate_upload_files,
@@ -445,8 +445,17 @@ _LOCK_FILE = "analysis.lock"
 
 @router.post("/cases/{case_id}/run-decision")
 @limiter.limit(RATE_LIMIT_ANALYSIS)
-async def run_decision(request: Request, case_id: str, mode: str = Query("basic", description="basic | expert")):
-    """Uruchamia automatyczną analizę (Gemini), zapisuje decision + report_data.json, generuje report.txt i report.pdf."""
+async def run_decision(
+    request: Request,
+    case_id: str,
+    mode: str = Query("basic", description="basic | expert"),
+    current_user: User = Depends(get_current_user),
+):
+    """Uruchamia automatyczną analizę (Gemini), zapisuje decision + report_data.json, generuje report.txt i report.pdf.
+
+    Wymaga logowania — analiza kosztuje (wywołanie Gemini), więc gate jest tu, nie przy
+    uploadzie zdjęć. Case powstały anonimowo (POST /cases bez tokena) dostaje user_id
+    dopiero teraz, przy pierwszym (jedynym, patrz single-fire niżej) uruchomieniu analizy."""
     # Waliduj case_id
     case_id = validate_case_id(case_id)
 
@@ -454,8 +463,17 @@ async def run_decision(request: Request, case_id: str, mode: str = Query("basic"
     if mode not in ("basic", "expert"):
         raise HTTPException(status_code=400, detail="Nieprawidłowy tryb. Dozwolone: basic, expert")
 
+    # 404 dla nieistniejącego case'a MUSI paść przed jakimkolwiek zapisem do DB —
+    # inaczej dowolny podstawiony UUID tworzyłby osierocony wiersz w cases (zaśmieca
+    # metryki admina), zanim jeszcze wiadomo, że case w ogóle istnieje na dysku.
     case_data = load_case(case_id)
     status = case_data.get("status")
+
+    case_record = get_case_from_db(case_id)
+    if case_record is not None and case_record.user_id and case_record.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Ten case należy do innego konta.")
+    if case_record is None or not case_record.user_id:
+        save_case_to_db(case_id=case_id, user_id=current_user.id)
 
     artifacts_dir = CASES_DIR / case_id / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)

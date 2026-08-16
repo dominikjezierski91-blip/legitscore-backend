@@ -3,11 +3,42 @@ Testy bezpieczeństwa LegitScore API.
 Uruchom: pytest tests/test_security.py -v
 """
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
+from app.services.auth_service import create_access_token, hash_password
+from app.services.database import SessionLocal, User
 
 client = TestClient(app)
+
+
+def _auth_headers_for_new_user():
+    """Tworzy tymczasowego usera i zwraca (headers, cleanup_callable)."""
+    db = SessionLocal()
+    user = User(
+        id=str(uuid.uuid4()),
+        email=f"qa-security-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash=hash_password("not-a-real-password"),
+        is_admin=False,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_access_token(user.id, is_admin=user.is_admin)
+    user_id = user.id
+    db.close()
+
+    def cleanup():
+        cleanup_db = SessionLocal()
+        u = cleanup_db.query(User).filter(User.id == user_id).first()
+        if u:
+            cleanup_db.delete(u)
+            cleanup_db.commit()
+        cleanup_db.close()
+
+    return {"Authorization": f"Bearer {token}"}, cleanup
 
 
 class TestSecurityHeaders:
@@ -74,14 +105,17 @@ class TestInputValidation:
         assert response.status_code in (400, 404)
 
     def test_invalid_mode_rejected(self):
-        """Nieprawidłowy mode jest odrzucany."""
-        # Najpierw utwórz case
-        case_response = client.post("/api/cases", json={"regulamin_accepted": True})
-        case_id = case_response.json()["case_id"]
+        """Nieprawidłowy mode jest odrzucany (dla zalogowanego usera — run-decision wymaga auth)."""
+        headers, cleanup = _auth_headers_for_new_user()
+        try:
+            case_response = client.post("/api/cases", json={"regulamin_accepted": True})
+            case_id = case_response.json()["case_id"]
 
-        response = client.post(f"/api/cases/{case_id}/run-decision?mode=invalid")
-        assert response.status_code == 400
-        assert "tryb" in response.json()["detail"].lower() or "mode" in response.json()["detail"].lower()
+            response = client.post(f"/api/cases/{case_id}/run-decision?mode=invalid", headers=headers)
+            assert response.status_code == 400
+            assert "tryb" in response.json()["detail"].lower() or "mode" in response.json()["detail"].lower()
+        finally:
+            cleanup()
 
 
 class TestFileUploadValidation:
