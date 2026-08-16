@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ProfileSurveyModal } from "@/components/onboarding/profile-survey-modal";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
+import { SocialLoginButtons } from "@/components/auth/social-login-buttons";
 import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 
 function RegisterForm() {
@@ -161,6 +162,18 @@ function RegisterForm() {
               {loading ? "Tworzenie konta..." : "Załóż konto"}
             </button>
           </form>
+
+          <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-600">
+            <span className="h-px flex-1 bg-border/60" />
+            albo
+            <span className="h-px flex-1 bg-border/60" />
+          </div>
+
+          <SocialLoginButtons
+            consentAccepted={acceptedTerms}
+            consent={{ regulaminVersion: REGULAMIN_VERSION, privacyVersion: PRIVACY_VERSION }}
+            onError={setError}
+          />
 
           <p className="text-center text-xs text-muted-foreground">
             Masz już konto?{" "}

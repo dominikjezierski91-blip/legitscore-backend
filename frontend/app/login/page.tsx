@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
+import { SocialLoginButtons } from "@/components/auth/social-login-buttons";
+import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 
 function LoginForm() {
   const { login, user } = useAuth();
@@ -12,6 +14,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/collection";
 
+  const [socialConsent, setSocialConsent] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,39 @@ function LoginForm() {
               Analizuj autentyczność koszulek i zarządzaj swoją kolekcją w jednym miejscu.
             </p>
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <SocialLoginButtons
+            consentAccepted={socialConsent}
+            consent={{ regulaminVersion: REGULAMIN_VERSION, privacyVersion: PRIVACY_VERSION }}
+            onError={setError}
+          />
+          <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={socialConsent}
+              onChange={(e) => setSocialConsent(e.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-border bg-slate-950/70 text-emerald-500 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+            />
+            <span>
+              Akceptuję{" "}
+              <Link href="/regulamin" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
+                Regulamin
+              </Link>{" "}
+              i{" "}
+              <Link href="/polityka-prywatnosci" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
+                Politykę prywatności
+              </Link>{" "}
+              (dotyczy zakładania nowego konta przez Google/Facebook).
+            </span>
+          </label>
+        </div>
+
+        <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-600">
+          <span className="h-px flex-1 bg-border/60" />
+          albo emailem
+          <span className="h-px flex-1 bg-border/60" />
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

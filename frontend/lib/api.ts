@@ -186,6 +186,38 @@ export async function authLogin(
   });
 }
 
+export async function authGoogle(
+  idToken: string,
+  consent?: { regulaminVersion: string; privacyVersion: string }
+): Promise<{ token: string; user: { id: string; email: string; is_admin: boolean } }> {
+  return request("/api/auth/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id_token: idToken,
+      regulamin_accepted: !!consent,
+      regulamin_version: consent?.regulaminVersion,
+      privacy_version: consent?.privacyVersion,
+    }),
+  });
+}
+
+export async function authFacebook(
+  accessToken: string,
+  consent?: { regulaminVersion: string; privacyVersion: string }
+): Promise<{ token: string; user: { id: string; email: string; is_admin: boolean } }> {
+  return request("/api/auth/facebook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      access_token: accessToken,
+      regulamin_accepted: !!consent,
+      regulamin_version: consent?.regulaminVersion,
+      privacy_version: consent?.privacyVersion,
+    }),
+  });
+}
+
 export type AuthMeResponse = {
   id: string;
   email: string;

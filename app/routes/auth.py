@@ -1,4 +1,5 @@
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -11,6 +12,12 @@ from app.services.database import get_db, User, CollectionItem, PasswordResetTok
 from app.services.auth_service import hash_password, verify_password, create_access_token, decode_access_token
 from app.services.email_service import send_welcome_email, send_password_reset_email
 from app.services.security import limiter, get_client_ip, validate_text_field, RATE_LIMIT_DEFAULT
+from app.services.oauth_service import (
+    verify_google_id_token,
+    verify_facebook_access_token,
+    OAuthVerificationError,
+    OAuthIdentity,
+)
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
@@ -31,6 +38,22 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class GoogleAuthRequest(BaseModel):
+    id_token: str = Field(max_length=4096)
+    # Wymagane TYLKO gdy to pierwsze logowanie tym kontem Google (zakłada nowego usera) —
+    # przy kolejnych logowaniach istniejącego usera front może wysłać False/pominąć.
+    regulamin_accepted: bool = False
+    regulamin_version: Optional[str] = None
+    privacy_version: Optional[str] = None
+
+
+class FacebookAuthRequest(BaseModel):
+    access_token: str = Field(max_length=2048)
+    regulamin_accepted: bool = False
+    regulamin_version: Optional[str] = None
+    privacy_version: Optional[str] = None
 
 
 # ── Helper: wyciągnij usera z tokena ─────────────────────────
@@ -122,6 +145,116 @@ async def login(data: LoginRequest, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Nieprawidłowy email lub hasło.")
 
+    token = create_access_token(user.id, is_admin=user.is_admin)
+    return {"token": token, "user": {"id": user.id, "email": user.email, "is_admin": user.is_admin}}
+
+
+def _login_or_create_oauth_user(
+    identity: OAuthIdentity,
+    request: Request,
+    db: Session,
+    background_tasks: BackgroundTasks,
+    regulamin_accepted: bool,
+    regulamin_version: Optional[str],
+    privacy_version: Optional[str],
+) -> User:
+    """Loguje istniejące konto po oauth_sub, albo zakłada nowe (409 gdy email już zajęty)."""
+    user = db.query(User).filter(
+        User.oauth_provider == identity.provider, User.oauth_sub == identity.sub
+    ).first()
+    if user is not None:
+        return user
+
+    if identity.email:
+        email = identity.email.strip().lower()
+        existing = db.query(User).filter(User.email == email).first()
+        if existing is not None:
+            # CELOWO nie logujemy i nie linkujemy automatycznie po samym dopasowaniu emaila:
+            # "zweryfikowany email" u dostawcy dowodzi własności emaila TERAZ, a nie że to
+            # ta sama osoba, która kiedyś założyła to konto — ktoś, kto tymczasowo przejął
+            # cudzą skrzynkę (np. wygasła domena, phishing), mógłby się tak połączyć z cudzym
+            # kontem trwale, bo reset hasła nie unieważnia powiązania OAuth. Zamiast tego
+            # user musi połączyć konto świadomie, będąc już zalogowany hasłem (przyszła praca).
+            raise HTTPException(
+                status_code=409,
+                detail="Konto z tym adresem email już istnieje. Zaloguj się hasłem.",
+            )
+
+    if not regulamin_accepted:
+        raise HTTPException(
+            status_code=400,
+            detail="Wymagana jest akceptacja Regulaminu i Polityki prywatności przed założeniem konta.",
+        )
+    if not identity.email:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{identity.provider.capitalize()} nie udostępnił zweryfikowanego adresu e-mail — wymagany do założenia konta.",
+        )
+
+    email = identity.email.strip().lower()
+    regulamin_version_v = validate_text_field(regulamin_version, "regulamin_version", 50) if regulamin_version else None
+    privacy_version_v = validate_text_field(privacy_version, "privacy_version", 50) if privacy_version else None
+
+    user = User(
+        id=str(uuid.uuid4()),
+        email=email,
+        password_hash=hash_password(secrets.token_urlsafe(32)),
+        is_admin=False,
+        created_at=datetime.now(timezone.utc),
+        oauth_provider=identity.provider,
+        oauth_sub=identity.sub,
+        regulamin_accepted=True,
+        regulamin_version=regulamin_version_v,
+        privacy_version=privacy_version_v,
+        consent_timestamp=datetime.now(timezone.utc),
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    background_tasks.add_task(send_welcome_email, email, identity.name or "")
+    return user
+
+
+@router.post("/auth/google")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def auth_google(
+    request: Request,
+    data: GoogleAuthRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    try:
+        identity = verify_google_id_token(data.id_token)
+    except OAuthVerificationError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    user = _login_or_create_oauth_user(
+        identity, request, db, background_tasks,
+        data.regulamin_accepted, data.regulamin_version, data.privacy_version,
+    )
+    token = create_access_token(user.id, is_admin=user.is_admin)
+    return {"token": token, "user": {"id": user.id, "email": user.email, "is_admin": user.is_admin}}
+
+
+@router.post("/auth/facebook")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def auth_facebook(
+    request: Request,
+    data: FacebookAuthRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    try:
+        identity = verify_facebook_access_token(data.access_token)
+    except OAuthVerificationError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    user = _login_or_create_oauth_user(
+        identity, request, db, background_tasks,
+        data.regulamin_accepted, data.regulamin_version, data.privacy_version,
+    )
     token = create_access_token(user.id, is_admin=user.is_admin)
     return {"token": token, "user": {"id": user.id, "email": user.email, "is_admin": user.is_admin}}
 

@@ -2,7 +2,9 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { getToken, setToken, clearToken, type AuthUser } from "@/lib/auth";
-import { authMe, authLogin, authRegister } from "@/lib/api";
+import { authMe, authLogin, authRegister, authGoogle, authFacebook } from "@/lib/api";
+
+type Consent = { regulaminVersion: string; privacyVersion: string };
 
 type AuthContextType = {
   user: AuthUser | null;
@@ -12,8 +14,10 @@ type AuthContextType = {
     email: string,
     password: string,
     passwordConfirm: string,
-    consent: { regulaminVersion: string; privacyVersion: string }
+    consent: Consent
   ) => Promise<void>;
+  loginWithGoogle: (idToken: string, consent?: Consent) => Promise<void>;
+  loginWithFacebook: (accessToken: string, consent?: Consent) => Promise<void>;
   logout: () => void;
 };
 
@@ -52,13 +56,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   };
 
+  const loginWithGoogle = async (idToken: string, consent?: Consent) => {
+    const res = await authGoogle(idToken, consent);
+    setToken(res.token);
+    setUser(res.user);
+  };
+
+  const loginWithFacebook = async (accessToken: string, consent?: Consent) => {
+    const res = await authFacebook(accessToken, consent);
+    setToken(res.token);
+    setUser(res.user);
+  };
+
   const logout = () => {
     clearToken();
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, register, loginWithGoogle, loginWithFacebook, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

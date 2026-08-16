@@ -77,6 +77,13 @@ class User(Base):
     is_admin = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # Logowanie społecznościowe (Google/Facebook). Konto założone przez OAuth
+    # dostaje losowe, nieznane userowi password_hash (żeby kolumna została NOT NULL
+    # bez migracji istniejącej tabeli) — logowanie hasłem jest dla niego niemożliwe,
+    # dopóki nie ustawi hasła przez "zapomniałem hasła".
+    oauth_provider = Column(String, nullable=True)  # "google" / "facebook"
+    oauth_sub = Column(String, nullable=True)        # unikalny ID usera u dostawcy
+
     # Profil użytkownika (opcjonalne — zbierany po rejestracji)
     user_type = Column(String, nullable=True)                          # kolekcjoner / okazjonalny_kupujacy / sprzedajacy
     collection_size_range = Column(String, nullable=True)              # 0-5 / 6-20 / 21-50 / 50+
@@ -190,6 +197,7 @@ def init_db():
     _migrate_consent_fields()
     _migrate_user_consent_fields()
     _migrate_case_user_id()
+    _migrate_user_oauth_fields()
 
 
 def _migrate_password_reset_tokens():
@@ -327,6 +335,27 @@ def _migrate_case_user_id():
             conn.execute(__import__("sqlalchemy").text(
                 "CREATE INDEX IF NOT EXISTS ix_cases_user_id ON cases (user_id)"
             ))
+        conn.commit()
+
+
+def _migrate_user_oauth_fields():
+    """Dodaje kolumny oauth_provider/oauth_sub do users + indeks pod lookup po dostawcy."""
+    new_columns = [
+        ("oauth_provider", "TEXT"),
+        ("oauth_sub", "TEXT"),
+    ]
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(users)")
+        )}
+        for col_name, col_type in new_columns:
+            if col_name not in existing:
+                conn.execute(__import__("sqlalchemy").text(
+                    f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"
+                ))
+        conn.execute(__import__("sqlalchemy").text(
+            "CREATE INDEX IF NOT EXISTS ix_users_oauth ON users (oauth_provider, oauth_sub)"
+        ))
         conn.commit()
 
 
