@@ -33,7 +33,7 @@ from app.services.auction_scraper import fetch_auction_images, AuctionScraperErr
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
 from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, SessionLocal, CaseRecord, User
-from app.routes.auth import get_current_admin
+from app.routes.auth import get_current_admin, get_optional_user
 from app.services.security import (
     limiter,
     validate_upload_files,
@@ -272,8 +272,11 @@ class CreateCaseRequest(BaseModel):
 
 @router.post("/cases")
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def create_case_endpoint(request: Request, req: Optional[CreateCaseRequest] = None):
-    """Tworzy nowy case i zwraca case_id. Zapisuje email, link do oferty, kontekst i zgodę na Regulamin/Politykę."""
+async def create_case_endpoint(request: Request, req: Optional[CreateCaseRequest] = None, current_user: Optional[User] = Depends(get_optional_user)):
+    """Tworzy nowy case i zwraca case_id. Zapisuje email, link do oferty, kontekst i zgodę na Regulamin/Politykę.
+
+    Upload może być anonimowy — jeśli jednak request niesie ważny token (user już zalogowany),
+    case zostaje od razu powiązany z jego kontem, żeby trafił do Historii (patrz Faza 2 planu kont)."""
     if req is None or req.regulamin_accepted is not True:
         raise HTTPException(
             status_code=400,
@@ -291,6 +294,7 @@ async def create_case_endpoint(request: Request, req: Optional[CreateCaseRequest
 
     save_case_to_db(
         case_id=case_id,
+        user_id=current_user.id if current_user else None,
         email=validated_email,
         consent_at=datetime.now(timezone.utc) if validated_email else None,
         offer_link=offer_link,

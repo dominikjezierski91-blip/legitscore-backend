@@ -24,6 +24,10 @@ class CaseRecord(Base):
     case_id = Column(String, primary_key=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # Właściciel (jeśli case powstał u zalogowanego usera) — nullable, bo upload zdjęć
+    # może być anonimowy (login wymagany dopiero przed analizą, patrz Faza 1)
+    user_id = Column(String, index=True, nullable=True)
+
     # Dane kontaktowe (RODO)
     email = Column(String, nullable=True)
     consent_at = Column(DateTime, nullable=True)  # Data wyrażenia zgody
@@ -185,6 +189,7 @@ def init_db():
     _migrate_password_reset_tokens()
     _migrate_consent_fields()
     _migrate_user_consent_fields()
+    _migrate_case_user_id()
 
 
 def _migrate_password_reset_tokens():
@@ -309,6 +314,22 @@ def _migrate_user_profile_fields():
         conn.commit()
 
 
+def _migrate_case_user_id():
+    """Dodaje kolumnę user_id do cases (powiązanie analizy z zalogowanym userem)."""
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(cases)")
+        )}
+        if "user_id" not in existing:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE cases ADD COLUMN user_id TEXT"
+            ))
+            conn.execute(__import__("sqlalchemy").text(
+                "CREATE INDEX IF NOT EXISTS ix_cases_user_id ON cases (user_id)"
+            ))
+        conn.commit()
+
+
 def get_db():
     """Dependency dla FastAPI."""
     db = SessionLocal()
@@ -320,6 +341,7 @@ def get_db():
 
 def save_case_to_db(
     case_id: str,
+    user_id: Optional[str] = None,
     model: Optional[str] = None,
     prompt_version: Optional[str] = None,
     verdict_category: Optional[str] = None,
@@ -345,6 +367,8 @@ def save_case_to_db(
             record = CaseRecord(case_id=case_id)
             db.add(record)
 
+        if user_id is not None:
+            record.user_id = user_id
         if model is not None:
             record.model = model
         if prompt_version is not None:

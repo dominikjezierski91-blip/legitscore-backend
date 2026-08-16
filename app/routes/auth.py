@@ -55,6 +55,21 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+def get_optional_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
+    """Jak get_current_user, ale zwraca None zamiast 401 gdy brak/nieważny token.
+
+    Do endpointów, które mają działać zarówno anonimowo, jak i dla zalogowanych
+    (np. tworzenie case'a — login jest wymagany dopiero przy analizie, nie przy uploadzie).
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    payload = decode_access_token(auth[7:])
+    if not payload:
+        return None
+    return db.query(User).filter(User.id == payload["sub"]).first()
+
+
 # ── Endpoints ────────────────────────────────────────────────
 
 @router.post("/auth/register")
