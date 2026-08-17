@@ -455,6 +455,9 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
         Analiza zajmuje zwykle 3–4 minuty. LegitScore dostarcza
         raport ryzyka — nie certyfikat autentyczności.
       </p>
+      <p className="text-[11px] font-medium text-amber-300/90 text-center">
+        Nie zamykaj tego okna do czasu zakończenia analizy.
+      </p>
     </div>
   );
 }

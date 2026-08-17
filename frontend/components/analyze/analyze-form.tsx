@@ -132,8 +132,8 @@ export function AnalyzeForm() {
             <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
               BETA
             </span>
-            <span className="rounded-full border border-border/70 bg-slate-950/60 px-3 py-1 text-slate-200">
-              Wymaga darmowego konta
+            <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
+              Pierwsza analiza gratis po założeniu konta
             </span>
             <span className="rounded-full border border-border/70 bg-slate-950/60 px-3 py-1 text-slate-200">
               Raport ryzyka, nie gwarancja

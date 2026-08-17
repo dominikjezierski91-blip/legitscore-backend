@@ -79,7 +79,7 @@ function RegisterForm() {
             <ul className="space-y-1.5 text-xs text-slate-300">
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
-                Analiza autentyczności koszulek AI
+                Pierwsza analiza autentyczności koszulek gratis
               </li>
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
@@ -144,7 +144,8 @@ function RegisterForm() {
                 <Link href="/polityka-prywatnosci" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
                   Politykę prywatności
                 </Link>
-                .
+                . Mam świadomość, że LegitScore dostarcza raport ryzyka, nie
+                gwarancję autentyczności.
               </span>
             </label>
 

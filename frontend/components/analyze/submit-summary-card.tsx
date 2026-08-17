@@ -136,9 +136,9 @@ export function SubmitSummaryCard({
             <ArrowRight className="h-3 w-3" />
           </button>
         </div>
-        <div className="text-xs text-muted-foreground">
-          <div>Wymaga darmowego konta.</div>
-          <div>Raport ryzyka, nie gwarancja.</div>
+        <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+          <span className="font-medium text-emerald-300">Pierwsza analiza gratis po założeniu konta.</span>
+          <span>Raport ryzyka, nie gwarancja.</span>
         </div>
       </div>
       </div>
