@@ -83,7 +83,11 @@ function RegisterForm() {
             <ul className="space-y-1.5 text-xs text-slate-300">
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
-                Pierwsza analiza autentyczności koszulek gratis
+                Sprawdzaj autentyczność swoich koszulek
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-emerald-400 font-semibold">✓</span>
+                Pierwsza analiza gratis
               </li>
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
