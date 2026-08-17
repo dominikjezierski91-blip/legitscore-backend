@@ -86,12 +86,14 @@ export function SubmitSummaryCard({
               status={auctionUrl && isValidUrl ? "ok" : "warn"}
             />
           )}
-          <SummaryRow
-            icon={<Mail className="h-3 w-3" />}
-            label="Email kontaktowy"
-            value={email ? email : "niepodany (opcjonalnie)"}
-            status="ok"
-          />
+          {email && (
+            <SummaryRow
+              icon={<Mail className="h-3 w-3" />}
+              label="Konto"
+              value={email}
+              status="ok"
+            />
+          )}
           <SummaryRow
             icon={<ShieldCheck className="h-3 w-3" />}
             label="Zgoda"

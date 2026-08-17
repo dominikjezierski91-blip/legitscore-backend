@@ -15,9 +15,6 @@ import { useAuth } from "@/components/auth/auth-provider";
 
 type InputMode = "photos" | "url";
 
-// Ten sam wzorzec co EMAIL_REGEX w app/services/security.py (backend).
-const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-
 export function AnalyzeForm() {
   const { user } = useAuth();
   const [inputMode, setInputMode] = useState<InputMode>("photos");
@@ -49,14 +46,8 @@ export function AnalyzeForm() {
     );
   };
 
-  const isValidEmail = (value: string) => EMAIL_REGEX.test(value.trim());
-  // Email jest opcjonalny (login i tak jest wymagany przed analizą — patrz Faza 1) —
-  // ale jeśli ktoś coś wpisał, ma to być poprawny adres, nie śmieci do backendu.
-  const isEmailOkToSubmit = email.trim() === "" || isValidEmail(email);
-
   const canSubmit =
     acceptedDisclaimer &&
-    isEmailOkToSubmit &&
     !submitting &&
     (inputMode === "photos"
       ? files.length >= minImages
@@ -66,9 +57,7 @@ export function AnalyzeForm() {
     setError(null);
 
     if (!canSubmit) {
-      if (!isEmailOkToSubmit) {
-        setError("Podany adres email jest nieprawidłowy — popraw go albo zostaw puste pole.");
-      } else if (inputMode === "photos") {
+      if (inputMode === "photos") {
         setError("Upewnij się, że dodałeś minimum 7 zdjęć i zaakceptowałeś zastrzeżenia.");
       } else {
         setError("Upewnij się, że wkleiłeś prawidłowy link (Vinted, eBay lub Kleinanzeigen) i zaakceptowałeś zastrzeżenia.");
@@ -295,7 +284,7 @@ export function AnalyzeForm() {
             <span className="flex h-6 w-6 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/10 text-[11px] text-emerald-200">
               3
             </span>
-            <span>{user ? "Dodaj kontekst (opcjonalnie)" : "Dane kontaktowe i kontekst (opcjonalnie)"}</span>
+            <span>Dodaj kontekst (opcjonalnie)</span>
           </div>
           <div className="rounded-2xl shadow-[0_18px_45px_rgba(16,185,129,0.25)]">
           <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 backdrop-blur space-y-3">
@@ -305,32 +294,10 @@ export function AnalyzeForm() {
                 <span className="font-medium text-emerald-300">{user.email}</span>.
               </p>
             ) : (
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Email (opcjonalnie)
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-xl border border-border/70 bg-slate-950/40 px-3 py-2 text-sm outline-none ring-emerald-500/40 placeholder:text-slate-500 focus:ring"
-                  placeholder="np. twoj.email@example.com"
-                />
-                <p className="pt-1 text-xs italic text-muted-foreground">
-                  Przed uruchomieniem analizy poprosimy Cię o zalogowanie się lub
-                  założenie darmowego konta — to on będzie adresem powiązanym z
-                  raportem. Jeśli podasz e-mail tutaj, przetwarzamy go zgodnie z{" "}
-                  <Link
-                    href="/polityka-prywatnosci"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-emerald-300 underline"
-                  >
-                    Polityką prywatności
-                  </Link>
-                  .
-                </p>
-              </div>
+              <p className="text-xs text-slate-400">
+                Przed uruchomieniem analizy poprosimy Cię o zalogowanie się lub
+                założenie darmowego konta — nie musisz podawać adresu email tutaj.
+              </p>
             )}
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">
