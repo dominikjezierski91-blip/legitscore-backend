@@ -17,8 +17,7 @@ export function ReportTypeSelector({ value, onChange }: Props) {
           Wybierz typ raportu
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Obie wersje są darmowe w becie. EXPERT dostarcza pełną dokumentację
-          wartości kolekcjonerskiej.
+          EXPERT dostarcza pełną dokumentację wartości kolekcjonerskiej.
         </p>
       </div>
       <div className="grid gap-3 md:grid-cols-2">

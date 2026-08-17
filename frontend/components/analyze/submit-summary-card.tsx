@@ -137,7 +137,7 @@ export function SubmitSummaryCard({
           </button>
         </div>
         <div className="text-xs text-muted-foreground">
-          <div>Darmowe w becie — wymaga darmowego konta.</div>
+          <div>Wymaga darmowego konta.</div>
           <div>Raport ryzyka, nie gwarancja.</div>
         </div>
       </div>
