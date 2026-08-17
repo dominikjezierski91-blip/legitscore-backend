@@ -89,8 +89,8 @@ export function SubmitSummaryCard({
           <SummaryRow
             icon={<Mail className="h-3 w-3" />}
             label="Email kontaktowy"
-            value={email || "niepodany"}
-            status={email ? "ok" : "warn"}
+            value={email ? email : "niepodany (opcjonalnie)"}
+            status="ok"
           />
           <SummaryRow
             icon={<ShieldCheck className="h-3 w-3" />}
@@ -121,7 +121,8 @@ export function SubmitSummaryCard({
           <button
             type="button"
             onClick={onSubmit}
-            disabled={!canSubmit || submitting}
+            disabled={submitting}
+            aria-disabled={!canSubmit}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-xs font-semibold shadow-lg transition",
               canSubmit && !submitting

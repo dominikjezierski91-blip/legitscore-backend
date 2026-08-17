@@ -50,10 +50,13 @@ export function AnalyzeForm() {
   };
 
   const isValidEmail = (value: string) => EMAIL_REGEX.test(value.trim());
+  // Email jest opcjonalny (login i tak jest wymagany przed analizą — patrz Faza 1) —
+  // ale jeśli ktoś coś wpisał, ma to być poprawny adres, nie śmieci do backendu.
+  const isEmailOkToSubmit = email.trim() === "" || isValidEmail(email);
 
   const canSubmit =
     acceptedDisclaimer &&
-    isValidEmail(email) &&
+    isEmailOkToSubmit &&
     !submitting &&
     (inputMode === "photos"
       ? files.length >= minImages
@@ -63,18 +66,12 @@ export function AnalyzeForm() {
     setError(null);
 
     if (!canSubmit) {
-      if (inputMode === "photos") {
-        setError(
-          user
-            ? "Upewnij się, że dodałeś minimum 7 zdjęć i zaakceptowałeś zastrzeżenia."
-            : "Upewnij się, że dodałeś minimum 7 zdjęć, podałeś poprawny adres email i zaakceptowałeś zastrzeżenia."
-        );
+      if (!isEmailOkToSubmit) {
+        setError("Podany adres email jest nieprawidłowy — popraw go albo zostaw puste pole.");
+      } else if (inputMode === "photos") {
+        setError("Upewnij się, że dodałeś minimum 7 zdjęć i zaakceptowałeś zastrzeżenia.");
       } else {
-        setError(
-          user
-            ? "Upewnij się, że wkleiłeś prawidłowy link (Vinted, eBay lub Kleinanzeigen) i zaakceptowałeś zastrzeżenia."
-            : "Upewnij się, że wkleiłeś prawidłowy link (Vinted, eBay lub Kleinanzeigen), podałeś poprawny adres email i zaakceptowałeś zastrzeżenia."
-        );
+        setError("Upewnij się, że wkleiłeś prawidłowy link (Vinted, eBay lub Kleinanzeigen) i zaakceptowałeś zastrzeżenia.");
       }
       return;
     }
@@ -298,7 +295,7 @@ export function AnalyzeForm() {
             <span className="flex h-6 w-6 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/10 text-[11px] text-emerald-200">
               3
             </span>
-            <span>{user ? "Dodaj kontekst (opcjonalnie)" : "Podaj dane kontaktowe i kontekst"}</span>
+            <span>{user ? "Dodaj kontekst (opcjonalnie)" : "Dane kontaktowe i kontekst (opcjonalnie)"}</span>
           </div>
           <div className="rounded-2xl shadow-[0_18px_45px_rgba(16,185,129,0.25)]">
           <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-slate-900/70 p-5 backdrop-blur space-y-3">
@@ -310,7 +307,7 @@ export function AnalyzeForm() {
             ) : (
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">
-                  Email (wymagany)
+                  Email (opcjonalnie)
                 </label>
                 <input
                   type="email"
@@ -320,8 +317,9 @@ export function AnalyzeForm() {
                   placeholder="np. twoj.email@example.com"
                 />
                 <p className="pt-1 text-xs italic text-muted-foreground">
-                  Podając adres e-mail i przesyłając zdjęcia, akceptujesz
-                  przetwarzanie danych zgodnie z{" "}
+                  Przed uruchomieniem analizy poprosimy Cię o zalogowanie się lub
+                  założenie darmowego konta — to on będzie adresem powiązanym z
+                  raportem. Jeśli podasz e-mail tutaj, przetwarzamy go zgodnie z{" "}
                   <Link
                     href="/polityka-prywatnosci"
                     target="_blank"
@@ -330,7 +328,7 @@ export function AnalyzeForm() {
                   >
                     Polityką prywatności
                   </Link>
-                  . Zdjęcia analizujemy z użyciem zewnętrznych usług analitycznych.
+                  .
                 </p>
               </div>
             )}
