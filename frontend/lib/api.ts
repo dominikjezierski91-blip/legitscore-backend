@@ -50,6 +50,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+export type HistoriaItem = {
+  case_id: string;
+  created_at: string | null;
+  verdict_category: string | null;
+  confidence_percent: number | null;
+  confidence_level: string | null;
+  label: string | null;
+  summary: string | null;
+};
+
+export async function getMyReports(): Promise<HistoriaItem[]> {
+  return request("/api/me/reports");
+}
+
 export async function createCase(
   email?: string,
   offerLink?: string,

@@ -66,6 +66,9 @@ export function Shell({ children, className, subtitle }: ShellProps) {
             )}
             {user ? (
               <>
+                <Link href="/historia" className="text-slate-400 transition hover:text-slate-200">
+                  Historia
+                </Link>
                 <Link href="/collection" className="text-slate-400 transition hover:text-slate-200">
                   Kolekcja
                 </Link>

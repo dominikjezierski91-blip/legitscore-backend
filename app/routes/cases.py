@@ -32,7 +32,7 @@ from app.services.storage import (
 from app.services.auction_scraper import fetch_auction_images, AuctionScraperError
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, SessionLocal, CaseRecord, User
+from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_cases_for_user, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, SessionLocal, CaseRecord, User
 from app.routes.auth import get_current_admin, get_current_user, get_optional_user
 from app.services.security import (
     limiter,
@@ -308,6 +308,31 @@ async def create_case_endpoint(request: Request, req: Optional[CreateCaseRequest
     )
 
     return {"case_id": case_id}
+
+
+@router.get("/me/reports")
+async def list_my_reports(current_user: User = Depends(get_current_user)):
+    """Historia — wszystkie analizy zalogowanego usera (nie tylko te dodane do Kolekcji).
+
+    Czyta wyłącznie CaseRecord (DB) — zero rekalkulacji, zgodnie z zasadą snapshot
+    consistency. Case bez jeszcze zapisanego werdyktu (w trakcie/błąd) i tak się pojawia,
+    z verdict_category=None — front pokazuje go jako "w trakcie" zamiast pomijać."""
+    records = get_cases_for_user(current_user.id)
+    reports = []
+    for record in records:
+        verdict = {}
+        if isinstance(record.report_data, dict):
+            verdict = record.report_data.get("verdict") or {}
+        reports.append({
+            "case_id": record.case_id,
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+            "verdict_category": record.verdict_category,
+            "confidence_percent": verdict.get("confidence_percent"),
+            "confidence_level": verdict.get("confidence_level"),
+            "label": verdict.get("label"),
+            "summary": verdict.get("summary"),
+        })
+    return reports
 
 
 @router.post("/cases/{case_id}/assets")

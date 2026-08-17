@@ -2,7 +2,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean, Float, func as _sqla_func
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -499,6 +499,20 @@ def get_case_from_db(case_id: str) -> Optional[CaseRecord]:
     db = SessionLocal()
     try:
         return db.query(CaseRecord).filter(CaseRecord.case_id == case_id).first()
+    finally:
+        db.close()
+
+
+def get_cases_for_user(user_id: str) -> List[CaseRecord]:
+    """Wszystkie case'y zalogowanego usera (Historia), najnowsze pierwsze."""
+    db = SessionLocal()
+    try:
+        return (
+            db.query(CaseRecord)
+            .filter(CaseRecord.user_id == user_id)
+            .order_by(CaseRecord.created_at.desc())
+            .all()
+        )
     finally:
         db.close()
 
