@@ -7,7 +7,9 @@ import resend
 logger = logging.getLogger(__name__)
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-FROM_EMAIL = "info@legitscore.com"
+# legitscore.app jest realną domeną produktu (app.legitscore.app itd.) — legitscore.com
+# nigdy nie było zweryfikowane w Resend. Env var na wypadek zmiany bez redeployu.
+FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "info@legitscore.app")
 FROM_NAME = "LegitScore"
 
 
