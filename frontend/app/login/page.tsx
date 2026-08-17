@@ -8,6 +8,13 @@ import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 import { SocialLoginButtons } from "@/components/auth/social-login-buttons";
 import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 
+// Przyciski OAuth renderują się tylko gdy te env vary są ustawione (patrz
+// social-login-buttons.tsx) — checkbox zgody i separator mają się pokazywać
+// dokładnie w tych samych warunkach, inaczej wisi "zgoda" bez żadnych przycisków pod nią.
+const OAUTH_AVAILABLE = Boolean(
+  process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_FACEBOOK_APP_ID
+);
+
 function LoginForm() {
   const { login, user } = useAuth();
   const router = useRouter();
@@ -53,38 +60,42 @@ function LoginForm() {
           </div>
         </div>
 
-        <div className="space-y-2">
-          <SocialLoginButtons
-            consentAccepted={socialConsent}
-            consent={{ regulaminVersion: REGULAMIN_VERSION, privacyVersion: PRIVACY_VERSION }}
-            onError={setError}
-          />
-          <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={socialConsent}
-              onChange={(e) => setSocialConsent(e.target.checked)}
-              className="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-border bg-slate-950/70 text-emerald-500 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
-            />
-            <span>
-              Akceptuję{" "}
-              <Link href="/regulamin" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
-                Regulamin
-              </Link>{" "}
-              i{" "}
-              <Link href="/polityka-prywatnosci" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
-                Politykę prywatności
-              </Link>{" "}
-              (dotyczy zakładania nowego konta przez Google/Facebook).
-            </span>
-          </label>
-        </div>
+        {OAUTH_AVAILABLE && (
+          <>
+            <div className="space-y-2">
+              <SocialLoginButtons
+                consentAccepted={socialConsent}
+                consent={{ regulaminVersion: REGULAMIN_VERSION, privacyVersion: PRIVACY_VERSION }}
+                onError={setError}
+              />
+              <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={socialConsent}
+                  onChange={(e) => setSocialConsent(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 cursor-pointer rounded border-border bg-slate-950/70 text-emerald-500 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+                />
+                <span>
+                  Akceptuję{" "}
+                  <Link href="/regulamin" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
+                    Regulamin
+                  </Link>{" "}
+                  i{" "}
+                  <Link href="/polityka-prywatnosci" target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline">
+                    Politykę prywatności
+                  </Link>{" "}
+                  (dotyczy zakładania nowego konta przez Google/Facebook).
+                </span>
+              </label>
+            </div>
 
-        <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-600">
-          <span className="h-px flex-1 bg-border/60" />
-          albo emailem
-          <span className="h-px flex-1 bg-border/60" />
-        </div>
+            <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-600">
+              <span className="h-px flex-1 bg-border/60" />
+              albo emailem
+              <span className="h-px flex-1 bg-border/60" />
+            </div>
+          </>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
