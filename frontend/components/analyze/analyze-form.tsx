@@ -150,6 +150,9 @@ export function AnalyzeForm() {
               Darmowe w becie
             </span>
             <span className="rounded-full border border-border/70 bg-slate-950/60 px-3 py-1 text-slate-200">
+              Wymaga darmowego konta
+            </span>
+            <span className="rounded-full border border-border/70 bg-slate-950/60 px-3 py-1 text-slate-200">
               Raport ryzyka, nie gwarancja
             </span>
           </div>

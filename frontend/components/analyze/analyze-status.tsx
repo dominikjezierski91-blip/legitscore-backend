@@ -54,14 +54,9 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
 
     // Generowanie raportu (koszt Gemini) wymaga logowania — upload zdjęć wcześniej
     // (na /analyze/form) zostaje anonimowy, brama jest dokładnie tu, przed runDecision.
-    if (authLoading) return;
-    if (!user) {
-      const qs = new URLSearchParams({ case_id: caseId });
-      if (mode) qs.set("mode", mode);
-      const next = `/analyze/status?${qs.toString()}`;
-      router.replace(`/login?next=${encodeURIComponent(next)}`);
-      return;
-    }
+    // Renderujemy ekran logowania NA MIEJSCU (patrz return niżej) zamiast przekierowywać —
+    // efekt tylko czeka, nic tu nie robi, dopóki user się nie zaloguje.
+    if (authLoading || !user) return;
 
     const id: string = caseId;
     let cancelled = false;
@@ -189,6 +184,51 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
   }, [caseId, mode, router, user, authLoading]);
 
   const step = tick % 8;
+
+  // Brama logowania — zdjęcia są wysłane, ale generowanie raportu (koszt Gemini)
+  // wymaga konta. Pokazujemy to na miejscu (nie przekierowujemy w ciemno), z jasnym
+  // rozróżnieniem "mam konto" / "nie mam konta", bo to dwie różne akcje.
+  if (!authLoading && !user && caseId) {
+    const qs = new URLSearchParams({ case_id: caseId });
+    if (mode) qs.set("mode", mode);
+    const next = `/analyze/status?${qs.toString()}`;
+    const nextParam = `?next=${encodeURIComponent(next)}`;
+
+    return (
+      <div className="glass-card flex w-full max-w-md flex-col gap-5 p-6 md:p-8 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20">
+          <Camera className="h-6 w-6 text-emerald-400" />
+        </div>
+        <div className="space-y-1.5">
+          <h1 className="text-lg font-semibold tracking-tight text-slate-50">
+            Zdjęcia gotowe do analizy
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Pierwsza analiza jest darmowa dla zalogowanych użytkowników.
+            Zaloguj się albo załóż darmowe konto, żeby ją uruchomić i zobaczyć wynik.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link
+            href={`/register${nextParam}`}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+          >
+            Załóż darmowe konto
+          </Link>
+          <Link
+            href={`/login${nextParam}`}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-slate-600 px-5 py-2.5 text-sm text-slate-300 transition hover:border-slate-500 hover:text-slate-100"
+          >
+            Mam już konto
+          </Link>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Zdjęcia zostają zapisane — po zalogowaniu analiza ruszy automatycznie,
+          bez ponownego wgrywania.
+        </p>
+      </div>
+    );
+  }
 
   // UI dla błędu prechecka
   if (precheckError) {
