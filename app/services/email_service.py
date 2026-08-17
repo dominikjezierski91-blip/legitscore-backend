@@ -77,3 +77,31 @@ Zespół LegitScore""",
     except Exception as e:
         logger.error(f"Błąd wysyłania emaila reset hasła do {to_email}: {e}")
         return False
+
+
+def send_verification_email(to_email: str, verify_link: str) -> bool:
+    """Wysyła email z linkiem do potwierdzenia adresu. Zwraca True jeśli sukces."""
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY nie ustawiony — pomijam email weryfikacji adresu")
+        return False
+    try:
+        params: resend.Emails.SendParams = {
+            "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+            "to": [to_email],
+            "subject": "Potwierdź swój adres email — LegitScore",
+            "text": f"""Cześć!
+
+Potwierdź, że to Twój adres email, klikając poniższy link (ważny przez 24 godziny):
+
+{verify_link}
+
+Jeśli nie zakładałeś konta w LegitScore — zignoruj tę wiadomość.
+
+Zespół LegitScore""",
+        }
+        resend.Emails.send(params)
+        logger.info(f"Email weryfikacyjny wysłany do {to_email}")
+        return True
+    except Exception as e:
+        logger.error(f"Błąd wysyłania emaila weryfikacyjnego do {to_email}: {e}")
+        return False

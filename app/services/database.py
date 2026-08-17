@@ -84,6 +84,12 @@ class User(Base):
     oauth_provider = Column(String, nullable=True)  # "google" / "facebook"
     oauth_sub = Column(String, nullable=True)        # unikalny ID usera u dostawcy
 
+    # Weryfikacja adresu email. Konta OAuth dostają True od razu (dostawca już to
+    # zweryfikował). Konta email/hasło startują jako False — patrz EmailVerificationToken.
+    # Na razie TYLKO śledzimy ten sygnał (soft launch), nic go jeszcze nie blokuje —
+    # przyda się w Fazie 4 (free-tier) do utrudnienia zakładania wielu kont na fikcyjne emaile.
+    email_verified = Column(Boolean, default=False, nullable=False)
+
     # Profil użytkownika (opcjonalne — zbierany po rejestracji)
     user_type = Column(String, nullable=True)                          # kolekcjoner / okazjonalny_kupujacy / sprzedajacy
     collection_size_range = Column(String, nullable=True)              # 0-5 / 6-20 / 21-50 / 50+
@@ -186,6 +192,15 @@ class PasswordResetToken(Base):
     used = Column(Boolean, default=False, nullable=False)
 
 
+class EmailVerificationToken(Base):
+    __tablename__ = "email_verification_tokens"
+
+    token = Column(String, primary_key=True)
+    user_id = Column(String, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+
+
 def init_db():
     """Tworzy tabele jeśli nie istnieją + migruje nowe kolumny."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -198,6 +213,7 @@ def init_db():
     _migrate_user_consent_fields()
     _migrate_case_user_id()
     _migrate_user_oauth_fields()
+    _migrate_user_email_verified()
 
 
 def _migrate_password_reset_tokens():
@@ -356,6 +372,23 @@ def _migrate_user_oauth_fields():
         conn.execute(__import__("sqlalchemy").text(
             "CREATE INDEX IF NOT EXISTS ix_users_oauth ON users (oauth_provider, oauth_sub)"
         ))
+        conn.commit()
+
+
+def _migrate_user_email_verified():
+    """Dodaje email_verified do users; backfilluje True dla już istniejących kont OAuth
+    (dostawca zweryfikował ich email dawno temu, zanim ta kolumna w ogóle istniała)."""
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(users)")
+        )}
+        if "email_verified" not in existing:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.execute(__import__("sqlalchemy").text(
+                "UPDATE users SET email_verified = 1 WHERE oauth_provider IS NOT NULL"
+            ))
         conn.commit()
 
 

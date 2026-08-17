@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
-import { getCollection, changePassword, deleteAccount, exportUserData, authMe, updateUserProfile, type AuthMeResponse } from "@/lib/api";
-import { Loader2, User, LogOut, Download, ChevronDown, ChevronUp, Shield, Trash2 } from "lucide-react";
+import { getCollection, changePassword, deleteAccount, exportUserData, authMe, updateUserProfile, resendVerification, type AuthMeResponse } from "@/lib/api";
+import { Loader2, User, LogOut, Download, ChevronDown, ChevronUp, Shield, Trash2, MailWarning } from "lucide-react";
 
 const USER_TYPE_OPTIONS = [
   { value: "kolekcjoner", label: "Kolekcjoner" },
@@ -57,6 +57,10 @@ export default function AccountPage() {
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Weryfikacja emaila
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) { router.replace("/login?next=/account"); return; }
@@ -76,6 +80,18 @@ export default function AccountPage() {
     logout();
     router.replace("/analyze");
   };
+
+  async function handleResendVerification() {
+    setResendLoading(true);
+    try {
+      await resendVerification();
+      setResendSent(true);
+    } catch {
+      // Cichy fail — to tylko wygoda, nic tu nie blokujemy.
+    } finally {
+      setResendLoading(false);
+    }
+  }
 
   async function handleChangePassword() {
     setPwError(null);
@@ -152,6 +168,28 @@ export default function AccountPage() {
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">Moje konto</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">Ustawienia i dane konta</p>
       </div>
+
+      {profile && !profile.email_verified && (
+        <div className="glass-card flex flex-col gap-2 border border-amber-500/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2.5">
+            <MailWarning className="h-4 w-4 shrink-0 text-amber-400" />
+            <p className="text-xs text-amber-200">
+              {resendSent
+                ? "Wysłaliśmy nowy link — sprawdź skrzynkę."
+                : "Nie potwierdziłeś jeszcze adresu email. Sprawdź skrzynkę albo wyślij link ponownie."}
+            </p>
+          </div>
+          {!resendSent && (
+            <button
+              onClick={handleResendVerification}
+              disabled={resendLoading}
+              className="shrink-0 rounded-full border border-amber-500/40 px-3 py-1.5 text-[11px] font-medium text-amber-200 transition hover:bg-amber-500/10 disabled:opacity-60"
+            >
+              {resendLoading ? "Wysyłanie..." : "Wyślij ponownie"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── PROFIL ─────────────────────────────────────────────── */}
       <div className="glass-card p-5 space-y-4">

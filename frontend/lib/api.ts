@@ -222,6 +222,7 @@ export type AuthMeResponse = {
   id: string;
   email: string;
   is_admin: boolean;
+  email_verified: boolean;
   user_type: string | null;
   collection_size_range: string | null;
   profile_survey_completed_at: string | null;
@@ -384,5 +385,17 @@ export async function resetPassword(token: string, new_password: string): Promis
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token, new_password }),
   });
+}
+
+export async function verifyEmail(token: string): Promise<{ ok: boolean }> {
+  return request("/api/auth/verify-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function resendVerification(): Promise<{ ok: boolean; already_verified: boolean }> {
+  return request("/api/auth/resend-verification", { method: "POST" });
 }
 

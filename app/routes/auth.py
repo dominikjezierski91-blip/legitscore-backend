@@ -8,9 +8,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app.services.database import get_db, User, CollectionItem, PasswordResetToken
+from app.services.database import get_db, User, CollectionItem, PasswordResetToken, EmailVerificationToken
 from app.services.auth_service import hash_password, verify_password, create_access_token, decode_access_token
-from app.services.email_service import send_welcome_email, send_password_reset_email
+from app.services.email_service import send_welcome_email, send_password_reset_email, send_verification_email
 from app.services.security import limiter, get_client_ip, validate_text_field, RATE_LIMIT_DEFAULT
 from app.services.oauth_service import (
     verify_google_id_token,
@@ -96,6 +96,7 @@ def get_optional_user(request: Request, db: Session = Depends(get_db)) -> Option
 # ── Endpoints ────────────────────────────────────────────────
 
 @router.post("/auth/register")
+@limiter.limit(RATE_LIMIT_DEFAULT)
 async def register(request: Request, data: RegisterRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if len(data.password) < 8:
         raise HTTPException(status_code=400, detail="Hasło musi mieć co najmniej 8 znaków.")
@@ -121,6 +122,7 @@ async def register(request: Request, data: RegisterRequest, background_tasks: Ba
         password_hash=hash_password(data.password),
         is_admin=False,
         created_at=datetime.now(timezone.utc),
+        email_verified=False,
         regulamin_accepted=True,
         regulamin_version=regulamin_version,
         privacy_version=privacy_version,
@@ -133,9 +135,25 @@ async def register(request: Request, data: RegisterRequest, background_tasks: Ba
     db.refresh(user)
 
     token = create_access_token(user.id, is_admin=user.is_admin)
-    # Email powitalny — BackgroundTasks (nie blokuje odpowiedzi)
+    # Email powitalny + link weryfikacyjny — BackgroundTasks (nie blokuje odpowiedzi).
+    # Weryfikacja na razie NICZEGO nie blokuje (soft launch) — tylko zapisujemy sygnał.
     background_tasks.add_task(send_welcome_email, email)
+    _send_verification_email(db, user, background_tasks)
     return {"token": token, "user": {"id": user.id, "email": user.email, "is_admin": user.is_admin}}
+
+
+def _send_verification_email(db: Session, user: User, background_tasks: BackgroundTasks) -> None:
+    """Unieważnia stare tokeny weryfikacji tego usera, tworzy nowy i wysyła link."""
+    db.query(EmailVerificationToken).filter(
+        EmailVerificationToken.user_id == user.id,
+        EmailVerificationToken.used == False,  # noqa: E712
+    ).update({"used": True})
+    token = str(uuid.uuid4())
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    db.add(EmailVerificationToken(token=token, user_id=user.id, expires_at=expires_at, used=False))
+    db.commit()
+    verify_link = f"{FRONTEND_URL}/verify-email?token={token}"
+    background_tasks.add_task(send_verification_email, user.email, verify_link)
 
 
 @router.post("/auth/login")
@@ -203,6 +221,7 @@ def _login_or_create_oauth_user(
         created_at=datetime.now(timezone.utc),
         oauth_provider=identity.provider,
         oauth_sub=identity.sub,
+        email_verified=True,  # dostawca (Google/Facebook) już to zweryfikował
         regulamin_accepted=True,
         regulamin_version=regulamin_version_v,
         privacy_version=privacy_version_v,
@@ -265,6 +284,7 @@ async def me(current_user: User = Depends(get_current_user)):
         "id": current_user.id,
         "email": current_user.email,
         "is_admin": current_user.is_admin,
+        "email_verified": current_user.email_verified,
         "user_type": getattr(current_user, "user_type", None),
         "collection_size_range": getattr(current_user, "collection_size_range", None),
         "profile_survey_completed_at": (
@@ -373,6 +393,10 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(max_length=128)
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(max_length=36)
+
+
 @router.post("/auth/change-password")
 async def change_password(
     data: ChangePasswordRequest,
@@ -400,6 +424,7 @@ async def delete_account(
 ):
     db.query(CollectionItem).filter(CollectionItem.user_id == current_user.id).delete()
     db.query(PasswordResetToken).filter(PasswordResetToken.user_id == current_user.id).delete()
+    db.query(EmailVerificationToken).filter(EmailVerificationToken.user_id == current_user.id).delete()
     db.delete(current_user)
     db.commit()
     return {"ok": True}
@@ -492,6 +517,48 @@ async def reset_password(request: Request, data: ResetPasswordRequest, db: Sessi
     return {"ok": True}
 
 
+@router.post("/auth/verify-email")
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def verify_email(request: Request, data: VerifyEmailRequest, db: Session = Depends(get_db)):
+    """Weryfikuje token z linku i oznacza email jako potwierdzony. Nic tym samym NIE blokuje."""
+    record = db.query(EmailVerificationToken).filter(EmailVerificationToken.token == data.token).first()
+    if not record:
+        raise HTTPException(status_code=400, detail="Nieprawidłowy lub wygasły link weryfikacyjny.")
+    if record.used:
+        raise HTTPException(status_code=400, detail="Ten link weryfikacyjny został już użyty.")
+    now = datetime.now(timezone.utc)
+    expires = record.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if now > expires:
+        raise HTTPException(status_code=400, detail="Link weryfikacyjny wygasł. Poproś o nowy w ustawieniach konta.")
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Nieprawidłowy lub wygasły link weryfikacyjny.")
+    user.email_verified = True
+    db.query(EmailVerificationToken).filter(
+        EmailVerificationToken.user_id == user.id,
+        EmailVerificationToken.used == False,  # noqa: E712
+    ).update({"used": True})
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/auth/resend-verification")
+@limiter.limit("5/minute")
+async def resend_verification(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Wysyła nowy link weryfikacyjny zalogowanemu userowi, jeśli jeszcze nie potwierdził emaila."""
+    if current_user.email_verified:
+        return {"ok": True, "already_verified": True}
+    _send_verification_email(db, current_user, background_tasks)
+    return {"ok": True, "already_verified": False}
+
+
 @router.delete("/admin/users/{user_id}")
 async def admin_delete_user(
     user_id: str,
@@ -505,6 +572,7 @@ async def admin_delete_user(
         raise HTTPException(status_code=400, detail="Nie możesz usunąć własnego konta.")
     db.query(CollectionItem).filter(CollectionItem.user_id == user.id).delete()
     db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.id).delete()
+    db.query(EmailVerificationToken).filter(EmailVerificationToken.user_id == user.id).delete()
     db.delete(user)
     db.commit()
     return {"ok": True}
