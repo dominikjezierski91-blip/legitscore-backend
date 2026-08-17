@@ -321,8 +321,10 @@ async def list_my_reports(current_user: User = Depends(get_current_user)):
     reports = []
     for record in records:
         verdict = {}
+        subject = {}
         if isinstance(record.report_data, dict):
             verdict = record.report_data.get("verdict") or {}
+            subject = record.report_data.get("subject") or {}
         reports.append({
             "case_id": record.case_id,
             "created_at": record.created_at.isoformat() if record.created_at else None,
@@ -331,6 +333,8 @@ async def list_my_reports(current_user: User = Depends(get_current_user)):
             "confidence_level": verdict.get("confidence_level"),
             "label": verdict.get("label"),
             "summary": verdict.get("summary"),
+            "club": subject.get("club"),
+            "player_name": subject.get("player_name"),
         })
     return reports
 

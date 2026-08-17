@@ -16,6 +16,14 @@ const VERDICT_META: Record<string, { label: string; bg: string; text: string }> 
   treningowa_custom: { label: "Treningowa / custom", bg: "bg-slate-500/20", text: "text-slate-300" },
 };
 
+// Ten sam zestaw co na /collection — model potrafi zwrócić placeholder zamiast
+// realnej wartości, gdy nie ustalił klubu/zawodnika ze zdjęć.
+const UNKNOWN_VALUES = new Set(["nieustalone", "unknown", "brak", "—", "n/a", "", "nie dotyczy", "niezweryfikowane"]);
+function knownOrNull(value: string | null): string | null {
+  if (!value) return null;
+  return UNKNOWN_VALUES.has(value.trim().toLowerCase()) ? null : value;
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "";
   try {
@@ -91,6 +99,9 @@ export default function HistoriaPage() {
           {items.map((item) => {
             const meta = item.verdict_category ? VERDICT_META[item.verdict_category] : null;
             const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+            const club = knownOrNull(item.club);
+            const player = knownOrNull(item.player_name);
+            const subjectLine = [club, player].filter(Boolean).join(" · ");
             return (
               <Link
                 key={item.case_id}
@@ -101,6 +112,7 @@ export default function HistoriaPage() {
                   <img
                     src={`${apiBase}/api/cases/${item.case_id}/thumbnail`}
                     alt=""
+                    loading="lazy"
                     className="h-full w-full object-cover"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                   />
@@ -123,6 +135,9 @@ export default function HistoriaPage() {
                       </span>
                     )}
                   </div>
+                  {subjectLine && (
+                    <p className="truncate text-xs font-medium text-slate-200">{subjectLine}</p>
+                  )}
                   {item.summary && (
                     <p className="truncate text-xs text-slate-300">{item.summary}</p>
                   )}

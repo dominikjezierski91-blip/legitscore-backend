@@ -58,6 +58,8 @@ export type HistoriaItem = {
   confidence_level: string | null;
   label: string | null;
   summary: string | null;
+  club: string | null;
+  player_name: string | null;
 };
 
 export async function getMyReports(): Promise<HistoriaItem[]> {

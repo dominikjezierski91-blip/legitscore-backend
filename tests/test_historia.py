@@ -113,7 +113,11 @@ class TestListMyReports:
                     "confidence_level": "wysoki",
                     "label": "Oryginalna sklepowa",
                     "summary": "Zgodność z SKU i materiałem.",
-                }
+                },
+                "subject": {
+                    "club": "FC Barcelona",
+                    "player_name": "Lewandowski",
+                },
             },
         ))
         db.commit()
@@ -133,6 +137,8 @@ class TestListMyReports:
             assert item["confidence_level"] == "wysoki"
             assert item["label"] == "Oryginalna sklepowa"
             assert item["summary"] == "Zgodność z SKU i materiałem."
+            assert item["club"] == "FC Barcelona"
+            assert item["player_name"] == "Lewandowski"
         finally:
             db = SessionLocal()
             db.query(CaseRecord).filter(CaseRecord.case_id == case_id).delete()
