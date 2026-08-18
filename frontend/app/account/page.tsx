@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
-import { getCollection, changePassword, deleteAccount, exportUserData, authMe, updateUserProfile, resendVerification, type AuthMeResponse } from "@/lib/api";
+import Link from "next/link";
+import { getCollection, changePassword, deleteAccount, exportUserData, authMe, updateUserProfile, resendVerification, getCredits, type AuthMeResponse } from "@/lib/api";
 import { Loader2, User, LogOut, Download, ChevronDown, ChevronUp, Shield, Trash2, MailWarning } from "lucide-react";
 
 const USER_TYPE_OPTIONS = [
@@ -35,6 +36,7 @@ export default function AccountPage() {
   const { user, loading: authLoading, logout } = useAuth();
   const router = useRouter();
   const [itemCount, setItemCount] = useState<number | null>(null);
+  const [credits, setCredits] = useState<number | null>(null);
   const [profile, setProfile] = useState<AuthMeResponse | null>(null);
 
   // Profil
@@ -67,6 +69,9 @@ export default function AccountPage() {
     getCollection()
       .then((items) => setItemCount(items.length))
       .catch(() => setItemCount(0));
+    getCredits()
+      .then((res) => setCredits(res.credits))
+      .catch(() => setCredits(null));
     authMe()
       .then((data) => {
         setProfile(data);
@@ -233,6 +238,15 @@ export default function AccountPage() {
             <div className="flex justify-between text-xs">
               <span className="text-slate-500">Koszulki w kolekcji</span>
               <span className="text-slate-200">{itemCount === null ? "…" : itemCount}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500">Dostępne analizy</span>
+              <span className="flex items-center gap-2">
+                <span className="text-slate-200">{credits === null ? "…" : credits}</span>
+                <Link href="/billing" className="text-emerald-400 underline underline-offset-2 hover:text-emerald-300">
+                  Kup więcej
+                </Link>
+              </span>
             </div>
             {profileSaved && <p className="text-xs text-emerald-400">Zapisano.</p>}
           </div>

@@ -1,0 +1,78 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { getCredits } from "@/lib/api";
+import { CheckCircle2, Loader2 } from "lucide-react";
+
+// Stripe może dostarczyć webhook (checkout.session.completed) z niewielkim opóźnieniem
+// względem przekierowania usera na tę stronę — dopytujemy saldo kilka razy zamiast
+// pokazać stare kredyty od razu.
+const POLL_ATTEMPTS = 5;
+const POLL_INTERVAL_MS = 1500;
+
+export default function BillingSuccessPage() {
+  const [credits, setCredits] = useState<number | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    let initialCredits: number | null = null;
+
+    async function poll() {
+      for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+        if (cancelled) return;
+        try {
+          const res = await getCredits();
+          if (attempt === 0) initialCredits = res.credits;
+          if (cancelled) return;
+          setCredits(res.credits);
+          if (initialCredits !== null && res.credits > initialCredits) {
+            setChecking(false);
+            return;
+          }
+        } catch {
+          // ignoruj pojedynczy błąd, spróbuj ponownie
+        }
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+      if (!cancelled) setChecking(false);
+    }
+
+    poll();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
+      <div className="glass-card flex max-w-sm flex-col items-center gap-4 p-8">
+        {checking ? (
+          <Loader2 className="h-10 w-10 animate-spin text-emerald-400" />
+        ) : (
+          <CheckCircle2 className="h-10 w-10 text-emerald-400" />
+        )}
+        <div>
+          <p className="text-lg font-semibold text-slate-50">
+            {checking ? "Potwierdzamy płatność..." : "Płatność zaakceptowana"}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {credits !== null
+              ? `Dostępne kredyty: ${credits}`
+              : "Za chwilę zobaczysz doliczone kredyty."}
+          </p>
+        </div>
+        <Link
+          href="/analyze/form"
+          className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-slate-950 shadow-md shadow-emerald-500/30 transition hover:bg-emerald-400"
+        >
+          Sprawdź koszulkę
+        </Link>
+        <Link href="/account" className="text-xs text-muted-foreground underline underline-offset-2">
+          Wróć do konta
+        </Link>
+      </div>
+    </div>
+  );
+}

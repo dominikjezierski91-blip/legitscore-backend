@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getCase, runDecision, uploadAssets, importFromUrl } from "@/lib/api";
+import { getCase, runDecision, uploadAssets, importFromUrl, ApiError } from "@/lib/api";
 import {
   clearPendingSubmission,
   getPendingSubmission,
@@ -31,6 +31,7 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [noCredits, setNoCredits] = useState(false);
   const [precheckError, setPrecheckError] = useState<PrecheckError | null>(null);
   const [tick, setTick] = useState(0);
   const [progress, setProgress] = useState<{ stage: string; percent: number; label: string } | null>(null);
@@ -144,6 +145,12 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
         } catch (e: any) {
           clearPendingSubmission();
           if (cancelled || errorHandledRef.current) return;
+
+          if (e instanceof ApiError && e.status === 402) {
+            errorHandledRef.current = true;
+            setNoCredits(true);
+            return;
+          }
 
           try {
             const caseData: any = await getCase(id);
@@ -342,6 +349,31 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
             Wróć
           </Link>
         </div>
+      </div>
+    );
+  }
+
+  // UI dla braku kredytów (402) — osobny CTA zamiast generycznego błędu
+  if (noCredits) {
+    return (
+      <div className="glass-card flex w-full max-w-md flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20">
+          <ShieldAlert className="h-6 w-6 text-emerald-400" />
+        </div>
+        <div className="space-y-1">
+          <h1 className="text-lg font-semibold tracking-tight text-slate-50">
+            Wykorzystałeś dostępne analizy
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Zdjęcia zostały zapisane — kup kolejną analizę, żeby dokończyć sprawdzenie.
+          </p>
+        </div>
+        <Link
+          href="/billing"
+          className="mt-2 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+        >
+          Kup analizy
+        </Link>
       </div>
     );
   }

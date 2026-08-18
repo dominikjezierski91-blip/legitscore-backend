@@ -9,6 +9,14 @@ if (!API_BASE_URL) {
   );
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!API_BASE_URL) {
     throw new Error("Brak konfiguracji backendu (NEXT_PUBLIC_API_BASE_URL).");
@@ -39,7 +47,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       detail = res.statusText;
     }
-    throw new Error(detail || `Request failed with status ${res.status}`);
+    throw new ApiError(detail || `Request failed with status ${res.status}`, res.status);
   }
 
   // run-decision may return JSON object; some endpoints return simple objects
@@ -175,7 +183,8 @@ export async function authRegister(
   email: string,
   password: string,
   passwordConfirm: string,
-  consent: { regulaminVersion: string; privacyVersion: string }
+  consent: { regulaminVersion: string; privacyVersion: string },
+  promoCode?: string
 ): Promise<{ token: string; user: { id: string; email: string; is_admin: boolean } }> {
   return request("/api/auth/register", {
     method: "POST",
@@ -187,6 +196,7 @@ export async function authRegister(
       regulamin_accepted: true,
       regulamin_version: consent.regulaminVersion,
       privacy_version: consent.privacyVersion,
+      ...(promoCode ? { promo_code: promoCode } : {}),
     }),
   });
 }
@@ -413,5 +423,39 @@ export async function verifyEmail(token: string): Promise<{ ok: boolean }> {
 
 export async function resendVerification(): Promise<{ ok: boolean; already_verified: boolean }> {
   return request("/api/auth/resend-verification", { method: "POST" });
+}
+
+// ── Billing ──────────────────────────────────────────────────
+
+export type BillingPackage = {
+  credits: number;
+  price_pln_grosz: number;
+  label: string;
+};
+
+export type BillingPackageKey = "single" | "pack3" | "pack10";
+
+export async function getPricing(): Promise<{ packages: Record<BillingPackageKey, BillingPackage> }> {
+  return request("/api/billing/pricing");
+}
+
+export async function getCredits(): Promise<{ credits: number }> {
+  return request("/api/billing/credits");
+}
+
+export async function createCheckout(pkg: BillingPackageKey): Promise<{ checkout_url: string }> {
+  return request("/api/billing/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ package: pkg }),
+  });
+}
+
+export async function redeemPromoCode(code: string): Promise<{ ok: boolean; message: string; credits: number }> {
+  return request("/api/billing/promo/redeem", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
 }
 

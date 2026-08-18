@@ -26,6 +26,7 @@ function RegisterForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSurvey, setShowSurvey] = useState(false);
+  const [promoCode, setPromoCode] = useState(searchParams.get("promo") || "");
 
   useEffect(() => {
     // Tylko dla już zalogowanych przed wypełnieniem formularza
@@ -45,10 +46,16 @@ function RegisterForm() {
     }
     setLoading(true);
     try {
-      await register(email.trim(), password, passwordConfirm, {
-        regulaminVersion: REGULAMIN_VERSION,
-        privacyVersion: PRIVACY_VERSION,
-      });
+      await register(
+        email.trim(),
+        password,
+        passwordConfirm,
+        {
+          regulaminVersion: REGULAMIN_VERSION,
+          privacyVersion: PRIVACY_VERSION,
+        },
+        promoCode.trim() || undefined
+      );
       // Konto utworzone — pokaż opcjonalny krok profilowania
       setShowSurvey(true);
     } catch (err: any) {
@@ -133,6 +140,19 @@ function RegisterForm() {
                 onChange={(e) => setPasswordConfirm(e.target.value)}
                 className="w-full rounded-xl border border-border/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/30"
                 placeholder="••••••••"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-300">
+                Kod zaproszenia <span className="text-slate-500">(opcjonalnie)</span>
+              </label>
+              <input
+                type="text"
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value)}
+                className="w-full rounded-xl border border-border/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="np. BETA10"
               />
             </div>
 

@@ -14,7 +14,8 @@ type AuthContextType = {
     email: string,
     password: string,
     passwordConfirm: string,
-    consent: Consent
+    consent: Consent,
+    promoCode?: string
   ) => Promise<void>;
   loginWithGoogle: (idToken: string, consent?: Consent) => Promise<void>;
   loginWithFacebook: (accessToken: string, consent?: Consent) => Promise<void>;
@@ -49,9 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string,
     passwordConfirm: string,
-    consent: { regulaminVersion: string; privacyVersion: string }
+    consent: { regulaminVersion: string; privacyVersion: string },
+    promoCode?: string
   ) => {
-    const res = await authRegister(email, password, passwordConfirm, consent);
+    const res = await authRegister(email, password, passwordConfirm, consent, promoCode);
     setToken(res.token);
     setUser(res.user);
   };
