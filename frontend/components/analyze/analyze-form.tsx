@@ -7,7 +7,7 @@ import { MultiImageUploader } from "./multi-image-uploader";
 import { ReportType, ReportTypeSelector } from "./report-type-selector";
 import { SubmissionDisclaimer } from "./submission-disclaimer";
 import { SubmitSummaryCard } from "./submit-summary-card";
-import { createCase, getCredits } from "@/lib/api";
+import { createCase, getCredits, authMe } from "@/lib/api";
 import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 import { setPendingSubmission } from "@/lib/submission-store";
 import { useRouter } from "next/navigation";
@@ -28,6 +28,10 @@ export function AnalyzeForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitPhase, setSubmitPhase] = useState<"idle" | "creating" | "uploading" | "navigating">("idle");
   const [credits, setCredits] = useState<number | null>(null);
+  // Regulamin już zaakceptowany w aktualnej wersji przy rejestracji — checkbox
+  // przy analizie jest wtedy zbędnym powtórzeniem tego samego kroku. Domyślnie
+  // true (wymagany), dopóki nie potwierdzimy inaczej z /auth/me.
+  const [regulaminCheckboxNeeded, setRegulaminCheckboxNeeded] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -37,11 +41,19 @@ export function AnalyzeForm() {
   useEffect(() => {
     if (!user) {
       setCredits(null);
+      setRegulaminCheckboxNeeded(true);
       return;
     }
     getCredits()
       .then((res) => setCredits(res.credits))
       .catch(() => setCredits(null));
+    authMe()
+      .then((res) => {
+        const upToDate = res.regulamin_version === REGULAMIN_VERSION;
+        setRegulaminCheckboxNeeded(!upToDate);
+        if (upToDate) setAcceptedDisclaimer(true);
+      })
+      .catch(() => setRegulaminCheckboxNeeded(true));
   }, [user]);
 
   const minImages = 7;
@@ -333,6 +345,7 @@ export function AnalyzeForm() {
           <SubmissionDisclaimer
             accepted={acceptedDisclaimer}
             onChange={setAcceptedDisclaimer}
+            showCheckbox={regulaminCheckboxNeeded}
           />
         </section>
 

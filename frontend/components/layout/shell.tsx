@@ -2,13 +2,14 @@
 
 import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
-import { Bug } from "lucide-react";
+import { Bug, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 import { useCookieConsent } from "@/components/layout/cookie-consent-provider";
 import { authHeaders } from "@/lib/auth";
+import { getCredits } from "@/lib/api";
 
 type ShellProps = {
   children: ReactNode;
@@ -20,6 +21,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
   const { user } = useAuth();
   const { openSettings } = useCookieConsent();
   const [criticalCount, setCriticalCount] = useState(0);
+  const [credits, setCredits] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user?.is_admin) return;
@@ -28,6 +30,16 @@ export function Shell({ children, className, subtitle }: ShellProps) {
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d) setCriticalCount(d.critical_count ?? 0); })
       .catch(() => {});
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setCredits(null);
+      return;
+    }
+    getCredits()
+      .then((res) => setCredits(res.credits))
+      .catch(() => setCredits(null));
   }, [user]);
 
   return (
@@ -46,6 +58,16 @@ export function Shell({ children, className, subtitle }: ShellProps) {
             {subtitle ? (
               <span className="text-muted-foreground">{subtitle}</span>
             ) : null}
+            {user && credits !== null && (
+              <Link
+                href="/billing"
+                title="Dostępne analizy — kliknij, żeby dokupić"
+                className="flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300 transition hover:bg-emerald-500/20"
+              >
+                <Sparkles className="h-3 w-3" />
+                {credits}
+              </Link>
+            )}
             {criticalCount > 0 && (
               <Link
                 href="/dashboard#monitoring"

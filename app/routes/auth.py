@@ -294,6 +294,7 @@ async def me(current_user: User = Depends(get_current_user)):
         "email": current_user.email,
         "is_admin": current_user.is_admin,
         "email_verified": current_user.email_verified,
+        "regulamin_version": getattr(current_user, "regulamin_version", None),
         "user_type": getattr(current_user, "user_type", None),
         "collection_size_range": getattr(current_user, "collection_size_range", None),
         "profile_survey_completed_at": (

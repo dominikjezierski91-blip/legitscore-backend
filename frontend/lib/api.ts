@@ -249,6 +249,7 @@ export type AuthMeResponse = {
   email: string;
   is_admin: boolean;
   email_verified: boolean;
+  regulamin_version: string | null;
   user_type: string | null;
   collection_size_range: string | null;
   profile_survey_completed_at: string | null;
