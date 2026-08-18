@@ -606,7 +606,6 @@ async def run_decision(
                 "detected_views": detected_views,
             }
             save_case(case_id, case_data)
-            refund_credit(current_user.id)
 
             logger.warning(
                 "[PRECHECK] case_id=%s stage=coverage precheck_result=FAILED missing=%s",
@@ -639,7 +638,6 @@ async def run_decision(
                 "issues": blocking_quality_issues,
             }
             save_case(case_id, case_data)
-            refund_credit(current_user.id)
 
             logger.warning(
                 "[PRECHECK] case_id=%s stage=quality precheck_result=FAILED blocking_areas=%s",
@@ -685,7 +683,6 @@ async def run_decision(
             raw_path = artifacts_dir / "decision_raw.txt"
             with open(raw_path, "w", encoding="utf-8") as f:
                 f.write(json.dumps(decision_dict, indent=2, ensure_ascii=False))
-            refund_credit(current_user.id)
             raise HTTPException(status_code=422, detail="Decision validation failed")
 
         artifact_path = save_artifact(case_id, "decision", decision_model.model_dump())
@@ -1115,7 +1112,18 @@ async def run_decision(
         logger.debug("run-decision finished for case %s", case_id)
         return {"ok": True, "artifact": artifact_path}
     except HTTPException:
-        # HTTPException z prechecków - nie nadpisuj statusu ERROR, propaguj dalej
+        # Każdy HTTPException z tej ścieżki (precheck, walidacja Decision, albo błąd
+        # rzucony głęboko wewnątrz wywołania Gemini w agent_a_gemini.py — np. 502/503
+        # przy przejściowej awarii API) oznacza, że kredyt pobrany wyżej nie przełożył
+        # się na żaden użyteczny wynik — zwracamy go zawsze, w jednym miejscu, zamiast
+        # rozrzucać refund_credit() po każdym możliwym raise (łatwo wtedy pominąć nowy).
+        refund_credit(current_user.id)
+        # Prechecki same ustawiają swój status (PRECHECK_FAILED) przed raise — nie
+        # nadpisuj go. Ale jeśli status wciąż jest IN_PROGRESS (np. błąd Gemini, który
+        # nigdy nie ustawił własnego statusu), case zostałby tak oznaczony na zawsze.
+        if case_data.get("status") == "IN_PROGRESS":
+            case_data["status"] = "ERROR"
+            save_case(case_id, case_data)
         raise
     except Exception:
         case_data["status"] = "ERROR"

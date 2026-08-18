@@ -2739,16 +2739,21 @@ class GeminiAgentA:
                         "hint": "Set GEMINI_MODEL to an available model (e.g. models/gemini-2.5-flash)",
                     },
                 )
+            # Szczegóły techniczne (type/status/msg) są już zalogowane wyżej —
+            # user dostaje tylko czytelny komunikat, nie surowy wyjątek z SDK.
             raise HTTPException(
                 status_code=502,
-                detail=f"Gemini API error: {type(e).__name__}",
+                detail="Chwilowy problem z usługą analizy AI. Spróbuj ponownie za chwilę.",
             )
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
 
         text = (resp.text or "").strip()
         if not text:
-            raise HTTPException(status_code=502, detail="Empty response from Gemini")
+            raise HTTPException(
+                status_code=502,
+                detail="Chwilowy problem z usługą analizy AI. Spróbuj ponownie za chwilę.",
+            )
 
         # Parse JSON with fallback extraction
         try:

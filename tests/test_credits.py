@@ -8,10 +8,13 @@ na prawdziwej bazie deweloperskiej, tworząc tymczasowe rekordy z losowym sufiks
 i sprzątając je w bloku finally.
 """
 import uuid
+from unittest.mock import patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.storage import load_case, save_case
 from app.services.auth_service import create_access_token, hash_password
 from app.services.database import (
     SessionLocal,
@@ -241,5 +244,54 @@ class TestRunDecisionCreditGate:
             assert response.status_code == 402
             # Bez kredytu nie mogliśmy w ogóle dotrzeć do sprawdzenia assetów/Gemini.
             assert get_user_credits(user.id) == 0
+        finally:
+            _cleanup(user.id)
+
+    def test_gemini_failure_mid_pipeline_refunds_credit(self):
+        """Regresja na realny incydent (2026-08-18): GeminiAgentA().analyze() rzucił
+        HTTPException(502, ...) (ServerError od Gemini) w środku pipeline'u — to
+        omijało refund_credit, bo tylko precheck/walidacja miały własny refund przed
+        swoim raise, a każdy INNY HTTPException z tej ścieżki (w tym właśnie ten z
+        analyze()) zjadał kredyt bezpowrotnie. Naprawa: jeden centralny refund w
+        `except HTTPException` obejmujący całą ścieżkę. Mockujemy dokładnie tę samą
+        funkcję, która zawiodła na produkcji (nie combined_coverage_quality_check —
+        ta w realnym kodzie łapie błędy Gemini wewnętrznie i nigdy nie rzuca)."""
+        user = _make_user(credits=1)
+        token = create_access_token(user.id, is_admin=False)
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            case_response = client.post(
+                "/api/cases", json={"regulamin_accepted": True}, headers=headers
+            )
+            case_id = case_response.json()["case_id"]
+
+            # Wstrzykujemy fałszywy asset bezpośrednio do case'a na dysku — omijamy
+            # realny upload/walidację obrazu.
+            case_data = load_case(case_id)
+            case_data["assets"] = [{"path": f"cases/{case_id}/assets/fake.jpg"}]
+            save_case(case_id, case_data)
+
+            # Precheck musi przejść (wymagane widoki wykryte), żeby pipeline w ogóle
+            # dotarł do GeminiAgentA().analyze() — to tam nastąpił realny incydent.
+            fake_coverage_result = {
+                "detected_views": {"front_full": True, "crest_or_brand_closeup": True},
+                "issues": [],
+                "missing_optional": [],
+            }
+
+            with patch(
+                "app.routes.cases.combined_coverage_quality_check",
+                return_value=fake_coverage_result,
+            ), patch(
+                "app.routes.cases.GeminiAgentA.analyze",
+                side_effect=HTTPException(status_code=502, detail="Chwilowy problem z usługą analizy AI."),
+            ):
+                response = client.post(f"/api/cases/{case_id}/run-decision", headers=headers)
+
+            assert response.status_code == 502
+            assert get_user_credits(user.id) == 1  # kredyt wrócił
+
+            case_data_after = load_case(case_id)
+            assert case_data_after.get("status") == "ERROR"
         finally:
             _cleanup(user.id)

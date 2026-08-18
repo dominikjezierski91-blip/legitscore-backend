@@ -164,9 +164,6 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
               <p className="font-mono text-sm text-emerald-300">
                 {caseId.slice(0, 8).toUpperCase()}
               </p>
-              <p className="text-[10px] text-slate-500">
-                Pełny ID: {caseId}
-              </p>
               {mode && (
                 <p className="text-[11px] text-muted-foreground">
                   Tryb raportu:{" "}
