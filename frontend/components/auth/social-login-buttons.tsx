@@ -90,6 +90,7 @@ export function SocialLoginButtons({
             size: "large",
             width: 320,
             text: "continue_with",
+            shape: "pill",
             locale: "pl",
           });
         }

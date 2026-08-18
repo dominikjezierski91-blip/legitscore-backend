@@ -63,11 +63,6 @@ function LoginForm() {
         {OAUTH_AVAILABLE && (
           <>
             <div className="space-y-2">
-              <SocialLoginButtons
-                consentAccepted={socialConsent}
-                consent={{ regulaminVersion: REGULAMIN_VERSION, privacyVersion: PRIVACY_VERSION }}
-                onError={setError}
-              />
               <label className="flex items-start gap-2 text-[11px] text-muted-foreground">
                 <input
                   type="checkbox"
@@ -87,6 +82,11 @@ function LoginForm() {
                   (dotyczy zakładania nowego konta przez Google/Facebook).
                 </span>
               </label>
+              <SocialLoginButtons
+                consentAccepted={socialConsent}
+                consent={{ regulaminVersion: REGULAMIN_VERSION, privacyVersion: PRIVACY_VERSION }}
+                onError={setError}
+              />
             </div>
 
             <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-600">
