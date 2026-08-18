@@ -26,6 +26,8 @@ type Props = {
   onSubmit: () => void;
   submitting: boolean;
   submitPhase?: "idle" | "creating" | "uploading" | "navigating";
+  isLoggedIn?: boolean;
+  credits?: number | null;
 };
 
 export function SubmitSummaryCard({
@@ -40,6 +42,8 @@ export function SubmitSummaryCard({
   onSubmit,
   submitting,
   submitPhase = "idle",
+  isLoggedIn = false,
+  credits = null,
 }: Props) {
   const submitLabel =
     submitPhase === "creating" ? "Tworzę sprawę..." :
@@ -137,7 +141,21 @@ export function SubmitSummaryCard({
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-          <span className="font-medium text-emerald-300">Pierwsza analiza gratis po założeniu konta.</span>
+          {!isLoggedIn ? (
+            <span className="font-medium text-emerald-300">Pierwsza analiza gratis po założeniu konta.</span>
+          ) : credits === null ? null : credits > 0 ? (
+            <span className="font-medium text-emerald-300">
+              Dostępne analizy: {credits}.
+            </span>
+          ) : (
+            <span className="font-medium text-amber-300">
+              Wykorzystałeś dostępne analizy —{" "}
+              <Link href="/billing" className="underline underline-offset-2">
+                kup kolejną
+              </Link>
+              .
+            </span>
+          )}
           <span>Raport ryzyka, nie gwarancja.</span>
         </div>
       </div>

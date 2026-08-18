@@ -7,7 +7,7 @@ import { MultiImageUploader } from "./multi-image-uploader";
 import { ReportType, ReportTypeSelector } from "./report-type-selector";
 import { SubmissionDisclaimer } from "./submission-disclaimer";
 import { SubmitSummaryCard } from "./submit-summary-card";
-import { createCase } from "@/lib/api";
+import { createCase, getCredits } from "@/lib/api";
 import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 import { setPendingSubmission } from "@/lib/submission-store";
 import { useRouter } from "next/navigation";
@@ -27,10 +27,21 @@ export function AnalyzeForm() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitPhase, setSubmitPhase] = useState<"idle" | "creating" | "uploading" | "navigating">("idle");
+  const [credits, setCredits] = useState<number | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     if (user?.email) setEmail(user.email);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setCredits(null);
+      return;
+    }
+    getCredits()
+      .then((res) => setCredits(res.credits))
+      .catch(() => setCredits(null));
   }, [user]);
 
   const minImages = 7;
@@ -345,6 +356,8 @@ export function AnalyzeForm() {
         onSubmit={handleSubmit}
         submitting={submitting}
         submitPhase={submitPhase}
+        isLoggedIn={Boolean(user)}
+        credits={credits}
       />
     </div>
   );
