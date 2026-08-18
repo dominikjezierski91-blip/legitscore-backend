@@ -32,7 +32,7 @@ from app.services.storage import (
 from app.services.auction_scraper import fetch_auction_images, AuctionScraperError
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_cases_for_user, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, SessionLocal, CaseRecord, User
+from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_cases_for_user, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, consume_credit, refund_credit, SessionLocal, CaseRecord, User
 from app.routes.auth import get_current_admin, get_current_user, get_optional_user
 from app.services.security import (
     limiter,
@@ -510,28 +510,47 @@ async def run_decision(
     decision_path = artifacts_dir / "decision.json"
     report_data_path = artifacts_dir / "report_data.json"
 
-    # Twarda idempotencja: lock lub finalne artefakty -> nie uruchamiaj analizy ponownie.
-    if lock_path.exists():
-        logger.debug("run-decision skipped for case %s because lock exists", case_id)
-        return {"ok": True, "status": status, "skipped": True}
+    # Twarda idempotencja: finalne artefakty -> nie uruchamiaj analizy ponownie.
     if decision_path.exists() or report_data_path.exists():
         logger.debug("run-decision skipped for case %s because final artifacts already exist", case_id)
         return {"ok": True, "status": status or "DECIDED", "skipped": True}
 
+    # Atomowe utworzenie locka (O_EXCL) zamiast exists()-then-touch() — dwa niemal
+    # równoczesne requesty (dubel-klik, retry z frontu) muszą się tu realnie
+    # wykluczyć, inaczej oba przeszłyby dalej i oba pobrałyby kredyt za jedną analizę.
     lock_created = False
-    lock_path.touch()
-    lock_created = True
+    try:
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(lock_fd)
+        lock_created = True
+    except FileExistsError:
+        logger.debug("run-decision skipped for case %s because lock exists", case_id)
+        return {"ok": True, "status": status, "skipped": True}
+
+    # Kredyt pobierany atomowo TERAZ (przed odpaleniem Gemini) — nie po sukcesie —
+    # dopiero PO wygraniu locka, żeby tylko jeden z równoległych requestów w ogóle
+    # dotarł do tego punktu. Zwracany (refund_credit) na każdej ścieżce błędu
+    # poniżej, więc user nie płaci za nieudaną analizę.
+    if not consume_credit(current_user.id):
+        lock_path.unlink(missing_ok=True)
+        lock_created = False
+        raise HTTPException(
+            status_code=402,
+            detail="Brak dostępnych kredytów. Kup analizę lub pakiet, aby kontynuować.",
+        )
 
     assets = case_data.get("assets") or []
     if not assets:
         lock_path.unlink(missing_ok=True)
         lock_created = False
+        refund_credit(current_user.id)
         raise HTTPException(status_code=400, detail="No assets available for decision")
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         lock_path.unlink(missing_ok=True)
         lock_created = False
+        refund_credit(current_user.id)
         raise HTTPException(status_code=500, detail="Missing GEMINI_API_KEY")
 
     case_data["status"] = "IN_PROGRESS"
@@ -587,6 +606,7 @@ async def run_decision(
                 "detected_views": detected_views,
             }
             save_case(case_id, case_data)
+            refund_credit(current_user.id)
 
             logger.warning(
                 "[PRECHECK] case_id=%s stage=coverage precheck_result=FAILED missing=%s",
@@ -619,6 +639,7 @@ async def run_decision(
                 "issues": blocking_quality_issues,
             }
             save_case(case_id, case_data)
+            refund_credit(current_user.id)
 
             logger.warning(
                 "[PRECHECK] case_id=%s stage=quality precheck_result=FAILED blocking_areas=%s",
@@ -664,6 +685,7 @@ async def run_decision(
             raw_path = artifacts_dir / "decision_raw.txt"
             with open(raw_path, "w", encoding="utf-8") as f:
                 f.write(json.dumps(decision_dict, indent=2, ensure_ascii=False))
+            refund_credit(current_user.id)
             raise HTTPException(status_code=422, detail="Decision validation failed")
 
         artifact_path = save_artifact(case_id, "decision", decision_model.model_dump())
@@ -1098,6 +1120,7 @@ async def run_decision(
     except Exception:
         case_data["status"] = "ERROR"
         save_case(case_id, case_data)
+        refund_credit(current_user.id)
         logger.exception("run-decision failed for case %s; status set to ERROR", case_id)
         raise
     finally:

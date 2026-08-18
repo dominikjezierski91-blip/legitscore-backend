@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean, Float, func as _sqla_func
+from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean, Float, UniqueConstraint, func as _sqla_func
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -103,6 +103,65 @@ class User(Base):
     consent_timestamp = Column(DateTime, nullable=True)
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
+
+    # Saldo kredytów na analizy (Faza 4). Nowe konto dostaje 1 (pierwsza analiza
+    # zawsze darmowa) — patrz _migrate_user_credits(). Doładowywane zakupem (Stripe)
+    # lub kodem promo/allowlistą.
+    credits = Column(Integer, default=1, nullable=False)
+
+
+class PromoCode(Base):
+    """Kod zaproszenia doładowujący darmowe kredyty przy rejestracji (np. link
+    ?promo=KOD wysyłany wybranym userom testowym)."""
+    __tablename__ = "promo_codes"
+
+    code = Column(String, primary_key=True)
+    credits = Column(Integer, nullable=False)
+    max_uses = Column(Integer, nullable=True)  # None = bez limitu
+    used_count = Column(Integer, default=0, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class PromoRedemption(Base):
+    """Log wykorzystania kodu promo — jeden user może wykorzystać dany kod tylko raz,
+    nawet jeśli kod sam w sobie dopuszcza wielu userów (max_uses > 1). Unique constraint
+    jest twardym backstopem przeciw double-redeem przy równoległych żądaniach — patrz
+    redeem_promo_code()."""
+    __tablename__ = "promo_redemptions"
+    __table_args__ = (UniqueConstraint("user_id", "code", name="ux_promo_redemptions_user_code"),)
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, index=True, nullable=False)
+    code = Column(String, index=True, nullable=False)
+    redeemed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class AllowlistedEmail(Base):
+    """Ręcznie dodane adresy e-mail (np. wybrani testerzy) dostające darmowe kredyty
+    automatycznie przy rejestracji/logowaniu tym adresem."""
+    __tablename__ = "allowlisted_emails"
+
+    email = Column(String, primary_key=True)
+    credits = Column(Integer, nullable=False, default=1)
+    redeemed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class CreditPurchase(Base):
+    """Log zakupu kredytów przez Stripe — chroni przed podwójnym doliczeniem kredytów
+    przy retry webhooka (idempotencja po stripe_session_id)."""
+    __tablename__ = "credit_purchases"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, index=True, nullable=False)
+    stripe_session_id = Column(String, unique=True, nullable=False)
+    package = Column(String, nullable=False)  # single / pack3 / pack10
+    credits = Column(Integer, nullable=False)
+    amount_pln_grosz = Column(Integer, nullable=False)
+    status = Column(String, default="pending", nullable=False)  # pending / completed
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime, nullable=True)
 
 
 class CollectionItem(Base):
@@ -214,6 +273,8 @@ def init_db():
     _migrate_case_user_id()
     _migrate_user_oauth_fields()
     _migrate_user_email_verified()
+    _migrate_user_credits()
+    _migrate_promo_redemptions_unique()
 
 
 def _migrate_password_reset_tokens():
@@ -390,6 +451,256 @@ def _migrate_user_email_verified():
                 "UPDATE users SET email_verified = 1 WHERE oauth_provider IS NOT NULL"
             ))
         conn.commit()
+
+
+def _migrate_user_credits():
+    """Dodaje credits do users (Faza 4 — limit darmowych analiz). Nowe konta mają
+    default=1 w kolumnie. Dla już istniejących kont: 1 minus liczba już zdecydowanych
+    analiz tego usera (żeby nie dać bonusowej darmowej analizy komuś, kto już z niej
+    skorzystał), nigdy poniżej 0."""
+    with engine.connect() as conn:
+        sqla = __import__("sqlalchemy")
+        existing = {row[1] for row in conn.execute(
+            sqla.text("PRAGMA table_info(users)")
+        )}
+        if "credits" not in existing:
+            conn.execute(sqla.text(
+                "ALTER TABLE users ADD COLUMN credits INTEGER NOT NULL DEFAULT 1"
+            ))
+            conn.execute(sqla.text("""
+                UPDATE users SET credits = MAX(
+                    0,
+                    1 - (
+                        SELECT COUNT(*) FROM cases
+                        WHERE cases.user_id = users.id
+                        AND cases.verdict_category IS NOT NULL
+                    )
+                )
+            """))
+        conn.commit()
+
+
+def _migrate_promo_redemptions_unique():
+    """Backstop: gwarantuje unikalny indeks (user_id, code) na promo_redemptions
+    nawet jeśli tabela powstała wcześniej (np. lokalnie, przed dodaniem
+    UniqueConstraint do modelu) — Base.metadata.create_all nie modyfikuje już
+    istniejących tabel."""
+    with engine.connect() as conn:
+        sqla = __import__("sqlalchemy")
+        conn.execute(sqla.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_promo_redemptions_user_code "
+            "ON promo_redemptions (user_id, code)"
+        ))
+        conn.commit()
+
+
+def get_user_credits(user_id: str) -> int:
+    """Aktualne saldo kredytów usera."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        return user.credits if user else 0
+    finally:
+        db.close()
+
+
+def consume_credit(user_id: str) -> bool:
+    """Atomowo odejmuje 1 kredyt, jeśli user ma saldo > 0. Zwraca True jeśli się udało
+    (jeden UPDATE ... WHERE credits > 0 — bezpieczne przy równoległych requestach)."""
+    db = SessionLocal()
+    try:
+        updated = (
+            db.query(User)
+            .filter(User.id == user_id, User.credits > 0)
+            .update({User.credits: User.credits - 1}, synchronize_session=False)
+        )
+        db.commit()
+        return updated > 0
+    finally:
+        db.close()
+
+
+def refund_credit(user_id: str) -> None:
+    """Zwraca 1 kredyt (np. gdy analiza zakończyła się błędem po pobraniu kredytu)."""
+    add_credits(user_id, 1)
+
+
+def add_credits(user_id: str, amount: int) -> Optional[int]:
+    """Dolicza kredyty userowi atomowo (UPDATE ... SET credits = credits + amount,
+    nie read-modify-write) — bezpieczne przy równoległych wywołaniach (np. dwa
+    refundy blisko siebie w czasie). Zwraca nowe saldo albo None jeśli user nie istnieje."""
+    if amount <= 0:
+        return get_user_credits(user_id)
+    db = SessionLocal()
+    try:
+        updated = (
+            db.query(User)
+            .filter(User.id == user_id)
+            .update({User.credits: User.credits + amount}, synchronize_session=False)
+        )
+        db.commit()
+        if updated == 0:
+            return None
+        return get_user_credits(user_id)
+    finally:
+        db.close()
+
+
+def redeem_promo_code(user_id: str, code: str) -> tuple[bool, str]:
+    """Wykorzystuje kod promo dla usera. Zwraca (sukces, komunikat).
+
+    Bezpieczne przy równoległych żądaniach: (1) wstawienie PromoRedemption jako
+    pierwsze — unique constraint (user_id, code) łapie double-redeem tego samego
+    usera nawet przy wyścigu; (2) used_count inkrementowany atomowym UPDATE z
+    warunkiem WHERE (nie przekroczy max_uses nawet przy wielu userach naraz)."""
+    from sqlalchemy.exc import IntegrityError
+
+    code = (code or "").strip()
+    if not code:
+        return False, "Brak kodu."
+    db = SessionLocal()
+    try:
+        promo = db.query(PromoCode).filter(PromoCode.code == code).first()
+        if not promo:
+            return False, "Nieprawidłowy kod."
+        if promo.expires_at and promo.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+            return False, "Kod wygasł."
+
+        db.add(PromoRedemption(user_id=user_id, code=code))
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            return False, "Już wykorzystałeś ten kod."
+
+        q = db.query(PromoCode).filter(PromoCode.code == code)
+        if promo.max_uses is not None:
+            q = q.filter(PromoCode.used_count < promo.max_uses)
+        updated = q.update({PromoCode.used_count: PromoCode.used_count + 1}, synchronize_session=False)
+        if updated == 0:
+            db.rollback()
+            return False, "Kod został już w pełni wykorzystany."
+
+        user_updated = (
+            db.query(User)
+            .filter(User.id == user_id)
+            .update({User.credits: User.credits + promo.credits}, synchronize_session=False)
+        )
+        if user_updated == 0:
+            db.rollback()
+            return False, "Użytkownik nie istnieje."
+
+        db.commit()
+        return True, f"Doliczono {promo.credits} kredyt(ów)."
+    finally:
+        db.close()
+
+
+def apply_allowlist_if_matched(user_id: str, email: str) -> int:
+    """Wywoływane przy rejestracji — jeśli e-mail jest na allowliście i jeszcze
+    nie odebrany, dolicza kredyty. Zwraca liczbę doliczonych kredytów (0 jeśli brak).
+    Atomowy UPDATE z WHERE redeemed_at IS NULL — dwa równoległe wywołania dla tego
+    samego e-maila (np. rejestracja + OAuth login ścigające się) doliczą tylko raz."""
+    db = SessionLocal()
+    try:
+        entry = db.query(AllowlistedEmail).filter(
+            AllowlistedEmail.email == email.lower(), AllowlistedEmail.redeemed_at.is_(None)
+        ).first()
+        if not entry:
+            return 0
+
+        updated = (
+            db.query(AllowlistedEmail)
+            .filter(AllowlistedEmail.email == email.lower(), AllowlistedEmail.redeemed_at.is_(None))
+            .update({AllowlistedEmail.redeemed_at: datetime.now(timezone.utc)}, synchronize_session=False)
+        )
+        if updated == 0:
+            return 0  # ktoś inny właśnie to odebrał między SELECT a UPDATE
+
+        user_updated = (
+            db.query(User)
+            .filter(User.id == user_id)
+            .update({User.credits: User.credits + entry.credits}, synchronize_session=False)
+        )
+        db.commit()
+        return entry.credits if user_updated else 0
+    finally:
+        db.close()
+
+
+def create_credit_purchase(
+    user_id: str,
+    stripe_session_id: str,
+    package: str,
+    credits: int,
+    amount_pln_grosz: int,
+) -> None:
+    """Zapisuje pending zakup zaraz po utworzeniu Stripe Checkout Session."""
+    db = SessionLocal()
+    try:
+        db.add(CreditPurchase(
+            user_id=user_id,
+            stripe_session_id=stripe_session_id,
+            package=package,
+            credits=credits,
+            amount_pln_grosz=amount_pln_grosz,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
+def complete_credit_purchase(stripe_session_id: str, fallback: Optional[dict] = None) -> bool:
+    """Finalizuje zakup po webhooku checkout.session.completed — idempotentne przez
+    atomowy UPDATE ... WHERE status != 'completed' (drugi/równoległy webhook dla tej
+    samej sesji nie doliczy kredytów drugi raz, w przeciwieństwie do poprzedniej
+    wersji opartej o odczyt-potem-zapis).
+
+    `fallback` (opcjonalny dict: user_id/package/credits/amount_pln_grosz) odtwarza
+    rekord CreditPurchase z metadata sesji Stripe, gdyby create_credit_purchase()
+    nie zdążył zapisać go do bazy (np. proces padł między utworzeniem sesji
+    Stripe a zapisem) — bez tego user zapłaciłby i nie dostał kredytów."""
+    db = SessionLocal()
+    try:
+        purchase = db.query(CreditPurchase).filter(
+            CreditPurchase.stripe_session_id == stripe_session_id
+        ).first()
+        if purchase is None:
+            if not fallback:
+                return False
+            purchase = CreditPurchase(
+                user_id=fallback["user_id"],
+                stripe_session_id=stripe_session_id,
+                package=fallback.get("package", "unknown"),
+                credits=int(fallback["credits"]),
+                amount_pln_grosz=int(fallback.get("amount_pln_grosz") or 0),
+                status="pending",
+            )
+            db.add(purchase)
+            db.flush()
+
+        updated = (
+            db.query(CreditPurchase)
+            .filter(
+                CreditPurchase.stripe_session_id == stripe_session_id,
+                CreditPurchase.status != "completed",
+            )
+            .update(
+                {CreditPurchase.status: "completed", CreditPurchase.completed_at: datetime.now(timezone.utc)},
+                synchronize_session=False,
+            )
+        )
+        if updated == 0:
+            db.rollback()
+            return False
+
+        db.query(User).filter(User.id == purchase.user_id).update(
+            {User.credits: User.credits + purchase.credits}, synchronize_session=False
+        )
+        db.commit()
+        return True
+    finally:
+        db.close()
 
 
 def get_db():

@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app.services.database import get_db, User, CollectionItem, PasswordResetToken, EmailVerificationToken
+from app.services.database import get_db, User, CollectionItem, PasswordResetToken, EmailVerificationToken, apply_allowlist_if_matched, redeem_promo_code
 from app.services.auth_service import hash_password, verify_password, create_access_token, decode_access_token
 from app.services.email_service import send_welcome_email, send_password_reset_email, send_verification_email
 from app.services.security import limiter, get_client_ip, validate_text_field, RATE_LIMIT_DEFAULT
@@ -33,6 +33,7 @@ class RegisterRequest(BaseModel):
     regulamin_accepted: bool = False
     regulamin_version: Optional[str] = None
     privacy_version: Optional[str] = None
+    promo_code: Optional[str] = Field(default=None, max_length=64)
 
 
 class LoginRequest(BaseModel):
@@ -134,6 +135,13 @@ async def register(request: Request, data: RegisterRequest, background_tasks: Ba
     db.commit()
     db.refresh(user)
 
+    # Darmowe kredyty dla wybranych userów (Faza 4) — allowlista po adresie e-mail
+    # (dodawana ręcznie) i/lub kod zaproszenia wklejony w linku rejestracyjnym.
+    # Obie ścieżki są non-fatal — błędny/nieznany kod nie blokuje rejestracji.
+    apply_allowlist_if_matched(user.id, user.email)
+    if data.promo_code:
+        redeem_promo_code(user.id, data.promo_code)
+
     token = create_access_token(user.id, is_admin=user.is_admin)
     # Email powitalny + link weryfikacyjny — BackgroundTasks (nie blokuje odpowiedzi).
     # Weryfikacja na razie NICZEGO nie blokuje (soft launch) — tylko zapisujemy sygnał.
@@ -232,6 +240,7 @@ def _login_or_create_oauth_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    apply_allowlist_if_matched(user.id, user.email)
     background_tasks.add_task(send_welcome_email, email, identity.name or "")
     return user
 
