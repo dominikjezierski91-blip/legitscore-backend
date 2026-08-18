@@ -2,7 +2,7 @@
 
 import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
-import { X, Bug } from "lucide-react";
+import { Bug } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -17,9 +17,8 @@ type ShellProps = {
 };
 
 export function Shell({ children, className, subtitle }: ShellProps) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { openSettings } = useCookieConsent();
-  const [logoutOpen, setLogoutOpen] = useState(false);
   const [criticalCount, setCriticalCount] = useState(0);
 
   useEffect(() => {
@@ -30,11 +29,6 @@ export function Shell({ children, className, subtitle }: ShellProps) {
       .then((d) => { if (d) setCriticalCount(d.critical_count ?? 0); })
       .catch(() => {});
   }, [user]);
-
-  function handleLogout() {
-    setLogoutOpen(false);
-    logout();
-  }
 
   return (
     <div className="min-h-screen gradient-bg">
@@ -83,12 +77,6 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                     Dashboard
                   </Link>
                 )}
-                <button
-                  onClick={() => setLogoutOpen(true)}
-                  className="text-slate-500 transition hover:text-slate-300"
-                >
-                  Wyloguj
-                </button>
               </>
             ) : (
               <>
@@ -133,43 +121,6 @@ export function Shell({ children, className, subtitle }: ShellProps) {
           </p>
         </footer>
       </div>
-
-      {/* Logout confirmation modal */}
-      {logoutOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setLogoutOpen(false)}
-        >
-          <div
-            className="glass-card relative w-full max-w-sm space-y-4 rounded-2xl p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setLogoutOpen(false)}
-              className="absolute right-4 top-4 rounded-full p-1 text-slate-500 transition hover:text-slate-300"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            <p className="pr-6 text-sm font-medium text-slate-100">
-              Czy na pewno chcesz się wylogować?
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={handleLogout}
-                className="flex-1 rounded-full bg-red-500/80 py-2 text-sm font-medium text-white transition hover:bg-red-500"
-              >
-                Wyloguj się
-              </button>
-              <button
-                onClick={() => setLogoutOpen(false)}
-                className="flex-1 rounded-full border border-slate-600/60 py-2 text-sm font-medium text-slate-300 transition hover:text-slate-100"
-              >
-                Anuluj
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

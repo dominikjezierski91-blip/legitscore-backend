@@ -43,13 +43,6 @@ const VERDICT_OPTIONS = [
   { value: "podrobka", label: "Podróbka" },
 ];
 
-const CONFIDENCE_LABELS: Record<string, string> = {
-  bardzo_wysoki: "Bardzo wysoka",
-  wysoki: "Wysoka",
-  sredni: "Średnia",
-  ograniczony: "Ograniczona",
-};
-
 // Feature 3: extend SortKey
 type SortKey = "newest" | "oldest" | "club" | "expensive" | "cheap";
 
@@ -684,8 +677,6 @@ function CollectionCard({
     bg: "bg-slate-500/20",
     text: "text-slate-300",
   };
-  const confLabel = CONFIDENCE_LABELS[(item.confidence_level || "").toLowerCase()];
-
   const purchasePln = (() => {
     if (!item.purchase_price) return null;
     const price = parseFloat(String(item.purchase_price).replace(",", "."));
@@ -999,18 +990,6 @@ function CollectionCard({
                   <>
                     <dt className="text-slate-500">Źródło zakupu</dt>
                     <dd className="text-slate-300">{item.purchase_source}</dd>
-                  </>
-                )}
-                {confLabel && (
-                  <>
-                    <dt className="text-slate-500">Pewność analizy</dt>
-                    <dd className="text-slate-300">{confLabel}</dd>
-                  </>
-                )}
-                {item.report_mode && (
-                  <>
-                    <dt className="text-slate-500">Tryb raportu</dt>
-                    <dd className="text-slate-300">{item.report_mode === "expert" ? "Expert" : "Basic"}</dd>
                   </>
                 )}
                 {item.sku && (
