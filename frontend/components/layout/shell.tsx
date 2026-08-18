@@ -66,9 +66,6 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                 <Link href="/collection" className="text-slate-400 transition hover:text-slate-200">
                   Kolekcja
                 </Link>
-                <Link href="/billing" className="text-slate-400 transition hover:text-slate-200">
-                  Kup analizy
-                </Link>
                 <Link href="/contact" className="text-slate-400 transition hover:text-slate-200">
                   Kontakt
                 </Link>
