@@ -143,15 +143,19 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
           clearPendingSubmission();
           // Polling wykryje DECIDED i przekieruje — nic tu nie robimy
         } catch (e: any) {
-          clearPendingSubmission();
           if (cancelled || errorHandledRef.current) return;
 
           if (e instanceof ApiError && e.status === 402) {
+            // Celowo NIE czyścimy pendingSubmission — zdjęcia są już wgrane pod
+            // tym case_id. Po zakupie kredytów (/billing/success) wracamy tu z
+            // powrotem i wznawiamy dokładnie tę samą analizę, bez każenia userowi
+            // wgrywać zdjęć drugi raz.
             errorHandledRef.current = true;
             setNoCredits(true);
             return;
           }
 
+          clearPendingSubmission();
           try {
             const caseData: any = await getCase(id);
             if (caseData?.status === "DECIDED") return;
