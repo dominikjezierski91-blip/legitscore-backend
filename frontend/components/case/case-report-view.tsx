@@ -335,8 +335,8 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
             </section>
           )}
         </div>
-        <aside className="glass-card flex w-full max-w-xs flex-col justify-between p-5 md:p-6">
-          <div className="space-y-3 text-xs text-muted-foreground">
+        <aside className="flex w-full flex-col gap-4 md:max-w-xs">
+          <section className="glass-card space-y-3 p-5 text-xs text-muted-foreground md:p-6">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-200">
               Pełny raport PDF
             </div>
@@ -360,47 +360,47 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
             >
               Pobierz pełny raport PDF
             </a>
-          </div>
+          </section>
+
           {!isExample && (
-            <div className="mt-4 border-t border-border/40 pt-4">
+            <section className="glass-card p-5 md:p-6">
               <AddToCollectionCta
-                  caseId={caseId}
-                  mode={mode}
-                  reportData={reportData}
-                  autoOpen={autoOpenCollection}
-                />
-            </div>
+                caseId={caseId}
+                mode={mode}
+                reportData={reportData}
+                autoOpen={autoOpenCollection}
+              />
+            </section>
           )}
+
           {!isExample && (
-            <div className="mt-4 border-t border-border/40 pt-4">
+            <section className="glass-card p-5 md:p-6">
               <RatingBalls caseId={caseId} />
-            </div>
+            </section>
           )}
+
           {!isExample && (
-            <div className="mt-8">
-              <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 p-5 shadow-lg shadow-black/20 ring-1 ring-slate-800/60">
-                <SupportWidget
-                  reportId={reportId ?? undefined}
-                  analysisId={caseId}
-                  appSection="report"
-                />
-              </div>
-            </div>
+            <section className="glass-card p-5 md:p-6">
+              <SupportWidget
+                reportId={reportId ?? undefined}
+                analysisId={caseId}
+                appSection="report"
+              />
+            </section>
           )}
-          <div className="mt-4 border-t border-border/40 pt-4">
+
+          <section className="glass-card space-y-3 p-5 md:p-6">
             <Link
               href="/analyze/form"
               className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-4 py-2.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
             >
               {isExample ? "Sprawdź swoją koszulkę" : "Nowa analiza"}
             </Link>
-          </div>
-          <div className="mt-4 space-y-1 text-[11px] text-muted-foreground">
-            <p>
+            <p className="text-[11px] text-muted-foreground">
               LegitScore jest w wersji beta. Raport opisuje ryzyko na podstawie
               przesłanych zdjęć i nie stanowi gwarancji ani certyfikatu.
             </p>
-          </div>
+          </section>
         </aside>
     </div>
   );
