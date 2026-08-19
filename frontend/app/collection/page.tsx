@@ -445,7 +445,7 @@ export default function CollectionPage() {
                   }
                 </button>
                 {expandedGroups.has(club) && (
-                  <div className="flex flex-col gap-3 border-t border-border/30 p-3">
+                  <div className="grid grid-cols-2 gap-3 border-t border-border/30 p-3 sm:grid-cols-3 lg:grid-cols-4">
                     {groupItems.map((item) => (
                       <CollectionCard
                         key={item.id}
@@ -462,7 +462,7 @@ export default function CollectionPage() {
           </div>
         ) : (
           filtered.length > 0 && (
-            <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               {filtered.map((item) => (
                 <CollectionCard
                   key={item.id}
@@ -556,7 +556,7 @@ function PortfolioStats({ items }: { items: any[] }) {
 
 // ── Jersey Thumbnail ──────────────────────────────────────────
 
-function JerseyThumbnail({ item }: { item: any }) {
+function JerseyThumbnail({ item, expanded }: { item: any; expanded?: boolean }) {
   const [imgError, setImgError] = useState(false);
   const isRisky = item.verdict_category === "podrobka";
   const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
@@ -569,8 +569,8 @@ function JerseyThumbnail({ item }: { item: any }) {
     : null;
 
   const wrapperClass = cn(
-    "relative flex h-16 w-11 flex-shrink-0 overflow-hidden rounded-lg border shadow-inner",
-    isRisky ? "border-red-500/40" : "border-emerald-500/20"
+    "relative w-full overflow-hidden border-b border-white/5 transition-all duration-300",
+    expanded ? "aspect-[16/10]" : "aspect-[4/3]"
   );
 
   if (src && !imgError) {
@@ -582,8 +582,8 @@ function JerseyThumbnail({ item }: { item: any }) {
   }
 
   return (
-    <div className={cn(wrapperClass, isRisky ? "bg-red-950/40" : "bg-slate-800/60")}>
-      <svg viewBox="0 0 44 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-full w-full p-1">
+    <div className={cn(wrapperClass, "flex items-center justify-center", isRisky ? "bg-red-950/40" : "bg-slate-800/60")}>
+      <svg viewBox="0 0 44 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-16 w-11 opacity-70">
         <path d="M8 8 L4 18 L12 20 L12 56 L32 56 L32 20 L40 18 L36 8 L28 12 Q22 15 16 12 Z"
           fill={isRisky ? "rgba(239,68,68,0.15)" : "rgba(16,185,129,0.12)"}
           stroke={isRisky ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.35)"}
@@ -759,113 +759,105 @@ function CollectionCard({
   const isAnalyzed = !item.is_manual && item.report_id;
 
   return (
-    <div className="glass-card overflow-hidden">
-      {/* Collapsed view */}
-      <div className="flex items-start gap-3 p-3">
-        <div className="relative shrink-0" onClick={() => photoRef.current?.click()} title="Zmień zdjęcie">
-          <JerseyThumbnail item={item} />
-          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/0 opacity-0 transition hover:bg-black/40 hover:opacity-100 cursor-pointer">
-            <Upload className="h-3 w-3 text-white" />
-          </div>
-          <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+    <div className={cn("glass-card overflow-hidden", expanded && "col-span-full")}>
+      {/* Photo header — pełna szerokość karty */}
+      <div className="relative" onClick={() => photoRef.current?.click()} title="Zmień zdjęcie">
+        <JerseyThumbnail item={item} expanded={expanded} />
+        <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition hover:bg-black/40 hover:opacity-100 cursor-pointer">
+          <Upload className="h-5 w-5 text-white" />
+        </div>
+        <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+
+        <div className="absolute right-2 top-2 flex items-center gap-1">
+          {isAnalyzed && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-950/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 backdrop-blur">
+              <ShieldCheck className="h-2.5 w-2.5" />
+              LS
+            </span>
+          )}
+          {item.is_manual && (
+            <span className="inline-flex items-center rounded-full bg-slate-950/80 px-2 py-0.5 text-[10px] font-medium text-slate-300 backdrop-blur">
+              ręcznie
+            </span>
+          )}
         </div>
 
-        <div className="min-w-0 flex-1">
-          {/* Row 1: Club name + badges | Edit + Delete */}
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <p className="truncate font-semibold leading-tight text-slate-100">
-                  {item.club || "Nieznany klub"}
-                </p>
-                <div className="flex shrink-0 items-center gap-1">
-                  {isAnalyzed && (
-                    <span className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-1 py-px text-[8px] font-semibold uppercase tracking-wide text-emerald-400">
-                      <ShieldCheck className="h-2 w-2" />
-                      LS
-                    </span>
-                  )}
-                  {item.is_manual && (
-                    <span className="inline-flex items-center rounded-full border border-slate-600/40 bg-slate-700/40 px-1.5 py-px text-[8px] font-medium text-slate-400">
-                      ręcznie
-                    </span>
-                  )}
-                </div>
-              </div>
+        {item.verdict_category && (
+          <span className="absolute bottom-2 left-2 rounded-full bg-slate-950/85 px-2.5 py-1 text-xs font-semibold backdrop-blur">
+            <span className={vm.text}>{vm.short}</span>
+          </span>
+        )}
+      </div>
 
-              {/* Row 2: Player name + number */}
-              {(item.player_name || item.player_number) && (
-                <p className="mt-0.5 truncate text-xs font-medium leading-tight text-slate-300">
-                  {item.player_name}{item.player_number ? ` #${item.player_number}` : ""}
-                </p>
-              )}
+      {/* Collapsed content */}
+      <div className="p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-semibold leading-tight text-slate-100">
+              {item.club || "Nieznany klub"}
+            </p>
 
-              {/* Row 3: Brand + season */}
-              {(item.brand || item.season) && (
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  {[item.brand, fmtSeason(item.season)].filter(Boolean).join(" · ")}
-                </p>
-              )}
-            </div>
+            {(item.player_name || item.player_number) && (
+              <p className="mt-0.5 truncate text-sm font-medium leading-tight text-slate-300">
+                {item.player_name}{item.player_number ? ` #${item.player_number}` : ""}
+              </p>
+            )}
 
-            <div className="flex shrink-0 items-center gap-0.5 ml-1">
-              <button
-                onClick={() => { setEditing(!editing); setExpanded(true); }}
-                className="rounded-full p-1.5 text-slate-600 transition hover:text-emerald-400"
-                aria-label="Edytuj"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="rounded-full p-1.5 text-slate-600 transition hover:text-red-400"
-                aria-label="Usuń z kolekcji"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
+            {(item.brand || item.season) && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {[item.brand, fmtSeason(item.season)].filter(Boolean).join(" · ")}
+              </p>
+            )}
           </div>
 
-          {/* Row 4: Market value + gain/loss (prominent) */}
-          {marketValue != null && (
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-emerald-300">
-                ~{Math.round(marketValue).toLocaleString("pl-PL")} PLN
-              </span>
-              {gainPln != null && (
-                <span className={cn(
-                  "flex items-center gap-0.5 text-xs font-medium",
-                  gainPln >= 0 ? "text-emerald-400" : "text-red-400"
-                )}>
-                  {gainPln >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                  {gainPln >= 0 ? "+" : ""}{Math.round(gainPln).toLocaleString("pl-PL")} PLN
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Row 5: Verdict + purchase price | Szczegóły */}
-          <div className="mt-1.5 flex items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {item.verdict_category && (
-                <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", vm.bg, vm.text)}>
-                  {vm.short}
-                </span>
-              )}
-              {item.purchase_price && (
-                <span className="text-[10px] text-slate-500">
-                  {item.purchase_price} {item.purchase_currency || "PLN"}
-                </span>
-              )}
-            </div>
+          <div className="flex shrink-0 items-center gap-0.5 -mr-1 -mt-0.5">
             <button
-              onClick={() => { setExpanded(!expanded); if (expanded) setEditing(false); }}
-              className="flex shrink-0 items-center gap-1 text-[11px] text-emerald-600 transition hover:text-emerald-400"
+              onClick={() => { setEditing(!editing); setExpanded(true); }}
+              className="rounded-full p-1.5 text-slate-600 transition hover:text-emerald-400"
+              aria-label="Edytuj"
             >
-              {expanded ? "Zwiń" : "Szczegóły"}
-              {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="rounded-full p-1.5 text-slate-600 transition hover:text-red-400"
+              aria-label="Usuń z kolekcji"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
+        </div>
+
+        {/* Market value + gain/loss (prominent) */}
+        {marketValue != null && (
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-base font-semibold text-emerald-300">
+              ~{Math.round(marketValue).toLocaleString("pl-PL")} PLN
+            </span>
+            {gainPln != null && (
+              <span className={cn(
+                "flex items-center gap-0.5 text-xs font-medium",
+                gainPln >= 0 ? "text-emerald-400" : "text-red-400"
+              )}>
+                {gainPln >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                {gainPln >= 0 ? "+" : ""}{Math.round(gainPln).toLocaleString("pl-PL")} PLN
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Purchase price | Szczegóły */}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className="text-xs text-slate-500">
+            {item.purchase_price ? `${item.purchase_price} ${item.purchase_currency || "PLN"}` : ""}
+          </span>
+          <button
+            onClick={() => { setExpanded(!expanded); if (expanded) setEditing(false); }}
+            className="flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-500 transition hover:text-emerald-400"
+          >
+            {expanded ? "Zwiń" : "Szczegóły"}
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </div>
 
@@ -907,10 +899,10 @@ function CollectionCard({
                 <EditField label="Zawodnik" value={editForm.player_name} onChange={(v) => updateField("player_name", v)} disabled={isLocked("player_name")} maxLength={FIELD_MAX_LENGTHS.player_name} />
                 <EditField label="Numer" value={editForm.player_number} onChange={(v) => updateField("player_number", v)} disabled={isLocked("player_number")} />
                 <div className="flex flex-col gap-1">
-                  <label className={cn("text-[10px]", isLocked("verdict_category") ? "text-slate-600" : "text-slate-500")}>Typ koszulki</label>
+                  <label className={cn("text-[11px]", isLocked("verdict_category") ? "text-slate-600" : "text-slate-500")}>Typ koszulki</label>
                   <select
                     className={cn(
-                      "rounded-md border bg-slate-900/60 px-2 py-1 text-[11px] outline-none",
+                      "rounded-md border bg-slate-900/60 px-2 py-1.5 text-sm outline-none",
                       isLocked("verdict_category")
                         ? "border-slate-700/40 text-slate-600 cursor-not-allowed opacity-60"
                         : "border-slate-600/50 text-slate-100"
@@ -929,7 +921,7 @@ function CollectionCard({
                 <EditField label="Źródło zakupu" value={editForm.purchase_source} onChange={(v) => updateField("purchase_source", v)} maxLength={FIELD_MAX_LENGTHS.purchase_source} />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-slate-500">
+                <label className="text-[11px] text-slate-500">
                   Notatki
                   {editForm.notes.length > 0 && (
                     <span className={cn("ml-1", editForm.notes.length > FIELD_MAX_LENGTHS.notes ? "text-red-400" : "text-slate-600")}>
@@ -939,7 +931,7 @@ function CollectionCard({
                 </label>
                 <textarea
                   className={cn(
-                    "w-full resize-none rounded-md border bg-slate-900/60 px-2 py-1 text-[11px] text-slate-100 outline-none h-14",
+                    "w-full resize-none rounded-md border bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 outline-none h-14",
                     editForm.notes.length > FIELD_MAX_LENGTHS.notes
                       ? "border-red-500/60"
                       : "border-slate-600/50"
@@ -948,7 +940,7 @@ function CollectionCard({
                   onChange={(e) => updateField("notes", e.target.value)}
                 />
                 {editForm.notes.length > FIELD_MAX_LENGTHS.notes && (
-                  <p className="text-[10px] text-red-400">Przekroczono maksymalną długość pola</p>
+                  <p className="text-[11px] text-red-400">Przekroczono maksymalną długość pola</p>
                 )}
               </div>
               {/* Feature 7: inline error */}
@@ -957,14 +949,14 @@ function CollectionCard({
                 <button
                   onClick={handleSaveEdit}
                   disabled={!isDirty || saving}
-                  className="flex-1 rounded-full bg-emerald-500 py-2 text-[11px] font-medium text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50 flex items-center justify-center gap-1"
+                  className="flex-1 rounded-full bg-emerald-500 py-2 text-xs font-medium text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50 flex items-center justify-center gap-1"
                 >
                   {saving && <Loader2 className="h-3 w-3 animate-spin" />}
                   Zapisz
                 </button>
                 <button
                   onClick={() => { setEditing(false); setEditError(null); }}
-                  className="rounded-full border border-slate-600/60 px-4 py-2 text-[11px] text-slate-400 transition hover:text-slate-200"
+                  className="rounded-full border border-slate-600/60 px-4 py-2 text-xs text-slate-400 transition hover:text-slate-200"
                 >
                   Anuluj
                 </button>
@@ -973,7 +965,7 @@ function CollectionCard({
           ) : (
             /* ── View mode ── */
             <>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 {item.model_type && (
                   <>
                     <dt className="text-slate-500">Model</dt>
@@ -1011,13 +1003,13 @@ function CollectionCard({
                 {isAnalyzed && (
                   <Link
                     href={`/case/${item.case_id}`}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/50 bg-emerald-500/10 px-4 py-2 text-[11px] font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/50 bg-emerald-500/10 px-4 py-2 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
                   >
                     Zobacz pełny raport →
                   </Link>
                 )}
                 {noDataAfterRefresh ? (
-                  <span className="inline-flex items-center gap-2 text-[11px] text-slate-500">
+                  <span className="inline-flex items-center gap-2 text-xs text-slate-500">
                     Brak aktywnych aukcji dla tej koszulki
                     <button
                       onClick={handleValuate}
@@ -1028,7 +1020,7 @@ function CollectionCard({
                     </button>
                   </span>
                 ) : marketValue == null && item.market_value_updated_at ? (
-                  <span className="inline-flex items-center gap-2 text-[11px] text-slate-500">
+                  <span className="inline-flex items-center gap-2 text-xs text-slate-500">
                     Brak danych rynkowych
                     <button
                       onClick={handleValuate}
@@ -1042,14 +1034,14 @@ function CollectionCard({
                   <button
                     onClick={handleValuate}
                     disabled={valuating}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/40 px-4 py-2 text-[11px] font-medium text-slate-300 transition hover:border-emerald-400/40 hover:text-emerald-300 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/40 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-emerald-400/40 hover:text-emerald-300 disabled:opacity-50"
                   >
                     <RefreshCw className={cn("h-3 w-3", valuating && "animate-spin")} />
                     {valuating ? "Szacuję..." : marketValue != null ? "Odśwież wycenę" : "Sprawdź wartość rynkową"}
                   </button>
                 )}
                 {item.market_value_updated_at && !noDataAfterRefresh && (
-                  <span className="self-center text-[10px] text-slate-600">
+                  <span className="self-center text-[11px] text-slate-600">
                     Wycena: {new Date(item.market_value_updated_at).toLocaleDateString("pl-PL")}
                     {item.market_value_sample_size ? ` · ${item.market_value_sample_size} aukcji` : ""}
                   </span>
@@ -1078,7 +1070,7 @@ function EditField({
   const exceeded = maxLength != null && value.length > maxLength;
   return (
     <div className="flex flex-col gap-1">
-      <label className={cn("text-[10px]", disabled ? "text-slate-600" : "text-slate-500")}>
+      <label className={cn("text-[11px]", disabled ? "text-slate-600" : "text-slate-500")}>
         {label}
         {maxLength != null && value.length > 0 && (
           <span className={cn("ml-1", exceeded ? "text-red-400" : "text-slate-600")}>
@@ -1089,7 +1081,7 @@ function EditField({
       <input
         type={type || "text"}
         className={cn(
-          "rounded-md border bg-slate-900/60 px-2 py-1 text-[11px] outline-none",
+          "rounded-md border bg-slate-900/60 px-2 py-1.5 text-sm outline-none",
           disabled
             ? "border-slate-700/40 text-slate-600 cursor-not-allowed opacity-60"
             : exceeded
@@ -1102,7 +1094,7 @@ function EditField({
         disabled={disabled}
       />
       {exceeded && (
-        <p className="text-[10px] text-red-400">Przekroczono maksymalną długość pola</p>
+        <p className="text-[11px] text-red-400">Przekroczono maksymalną długość pola</p>
       )}
     </div>
   );
