@@ -768,6 +768,23 @@ function CollectionCard({
         </div>
         <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
 
+        <div className="absolute left-2 top-2 flex items-center gap-1">
+          <button
+            onClick={(e) => { e.stopPropagation(); setEditing(!editing); setExpanded(true); }}
+            className="rounded-full bg-slate-950/80 p-1.5 text-slate-300 backdrop-blur transition hover:text-emerald-400"
+            aria-label="Edytuj"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+            className="rounded-full bg-slate-950/80 p-1.5 text-slate-300 backdrop-blur transition hover:text-red-400"
+            aria-label="Usuń z kolekcji"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
         <div className="absolute right-2 top-2 flex items-center gap-1">
           {isAnalyzed && (
             <span className="inline-flex items-center gap-1 rounded-full bg-slate-950/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 backdrop-blur">
@@ -791,50 +808,29 @@ function CollectionCard({
 
       {/* Collapsed content */}
       <div className="p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold leading-tight text-slate-100">
-              {item.club || "Nieznany klub"}
-            </p>
+        <p className="line-clamp-2 text-base font-semibold leading-snug text-slate-100">
+          {item.club || "Nieznany klub"}
+        </p>
 
-            {(item.player_name || item.player_number) && (
-              <p className="mt-0.5 truncate text-sm font-medium leading-tight text-slate-300">
-                {item.player_name}{item.player_number ? ` #${item.player_number}` : ""}
-              </p>
-            )}
+        {(item.player_name || item.player_number) && (
+          <p className="mt-0.5 truncate text-sm font-medium leading-tight text-slate-300">
+            {item.player_name}{item.player_number ? ` #${item.player_number}` : ""}
+          </p>
+        )}
 
-            {(item.brand || item.season) && (
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {[item.brand, fmtSeason(item.season)].filter(Boolean).join(" · ")}
-              </p>
-            )}
-          </div>
+        {(item.brand || item.season) && (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {[item.brand, fmtSeason(item.season)].filter(Boolean).join(" · ")}
+          </p>
+        )}
 
-          <div className="flex shrink-0 items-center gap-0.5 -mr-1 -mt-0.5">
-            <button
-              onClick={() => { setEditing(!editing); setExpanded(true); }}
-              className="rounded-full p-1.5 text-slate-600 transition hover:text-emerald-400"
-              aria-label="Edytuj"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="rounded-full p-1.5 text-slate-600 transition hover:text-red-400"
-              aria-label="Usuń z kolekcji"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Market value + gain/loss (prominent) */}
+        {/* Wartość rynkowa — zysk/strata i cena zakupu dopiero po rozwinięciu, żeby nie zaśmiecać widoku podglądu */}
         {marketValue != null && (
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-base font-semibold text-emerald-300">
               ~{Math.round(marketValue).toLocaleString("pl-PL")} PLN
             </span>
-            {gainPln != null && (
+            {expanded && gainPln != null && (
               <span className={cn(
                 "flex items-center gap-0.5 text-xs font-medium",
                 gainPln >= 0 ? "text-emerald-400" : "text-red-400"
@@ -846,10 +842,9 @@ function CollectionCard({
           </div>
         )}
 
-        {/* Purchase price | Szczegóły */}
-        <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="mt-1.5 flex items-center justify-between gap-2">
           <span className="text-xs text-slate-500">
-            {item.purchase_price ? `${item.purchase_price} ${item.purchase_currency || "PLN"}` : ""}
+            {expanded && item.purchase_price ? `${item.purchase_price} ${item.purchase_currency || "PLN"}` : ""}
           </span>
           <button
             onClick={() => { setExpanded(!expanded); if (expanded) setEditing(false); }}
