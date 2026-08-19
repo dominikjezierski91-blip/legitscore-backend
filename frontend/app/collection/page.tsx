@@ -7,15 +7,15 @@ import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
 import {
   getCollection, deleteFromCollection, refreshMarketValue,
-  updateCollectionItem, uploadCollectionPhoto, getCollectionThumbnailUrl,
+  getCollectionThumbnailUrl,
 } from "@/lib/api";
 import {
   Loader2, Trash2, ShieldCheck, Search, ChevronDown, ChevronUp,
   SlidersHorizontal, Pencil, Check, TrendingUp, TrendingDown, RefreshCw,
-  X, Plus, Upload, Bookmark, BookmarkCheck,
+  X, Plus, Bookmark, BookmarkCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AddManualJerseyModal } from "@/components/collection/add-manual-jersey-modal";
+import { JerseyFormModal } from "@/components/collection/jersey-form-modal";
 
 const VERDICT_META: Record<string, { label: string; short: string; bg: string; text: string }> = {
   oryginalna_sklepowa: { label: "Oryginalna (sklepowa)", short: "Sklepowa", bg: "bg-emerald-500/20", text: "text-emerald-300" },
@@ -34,15 +34,6 @@ function fmtSeason(s: string | null | undefined): string {
   if (m2) return `${m2[1].slice(2)}/${m2[2]}`;
   return s;
 }
-
-const VERDICT_OPTIONS = [
-  { value: "oryginalna_sklepowa", label: "Oryginalna (sklepowa)" },
-  { value: "meczowa", label: "Meczowa" },
-  { value: "oficjalna_replika", label: "Oficjalna replika" },
-  { value: "edycja_limitowana", label: "Edycja limitowana" },
-  { value: "treningowa_custom", label: "Treningowa / custom" },
-  { value: "podrobka", label: "Podróbka" },
-];
 
 // Feature 3: extend SortKey
 type SortKey = "newest" | "oldest" | "club" | "expensive" | "cheap";
@@ -526,9 +517,10 @@ export default function CollectionPage() {
       </div>
 
       {showManualModal && (
-        <AddManualJerseyModal
+        <JerseyFormModal
+          mode="add"
           onClose={() => setShowManualModal(false)}
-          onAdded={(item) => {
+          onSaved={(item) => {
             setItems((prev) => [item, ...prev]);
             setShowManualModal(false);
           }}
@@ -752,26 +744,8 @@ function HeroPhotoCarousel({ item }: { item: any }) {
 }
 
 // ── Collection Card ───────────────────────────────────────────
-
-// Wartości uznawane za "niezweryfikowane" — pole można edytować
-const UNKNOWN_VALUES = new Set(["nieustalone", "unknown", "brak", "—", "n/a", "", "nie dotyczy", "niezweryfikowane"]);
-function isUnknown(v: any) {
-  return v == null || UNKNOWN_VALUES.has(String(v).toLowerCase().trim());
-}
-
-// Pola uzupełniane przez model — zablokowane jeśli mają realną wartość
-const MODEL_FIELDS = ["club", "season", "brand", "model_type", "player_name", "player_number", "verdict_category"] as const;
-
-// Feature 6: max lengths for fields
-const FIELD_MAX_LENGTHS: Record<string, number> = {
-  club: 80,
-  player_name: 60,
-  brand: 40,
-  model_type: 40,
-  season: 20,
-  purchase_source: 60,
-  notes: 500,
-};
+// Formularz edycji (z blokadą pól uzupełnionych przez AI) mieszka teraz w
+// JerseyFormModal — reużywanym też do dodawania nowej koszulki ręcznie.
 
 function CollectionCard({
   item,
@@ -785,49 +759,10 @@ function CollectionCard({
   onUpdate: (item: any) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [valuating, setValuating] = useState(false);
   const [noDataAfterRefresh, setNoDataAfterRefresh] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // Feature 7: inline edit error
-  const [editError, setEditError] = useState<string | null>(null);
-  const photoRef = useRef<HTMLInputElement>(null);
-
-  const initialForm = {
-    club: item.club || "",
-    season: item.season || "",
-    brand: item.brand || "",
-    model_type: item.model_type || "",
-    player_name: item.player_name || "",
-    player_number: item.player_number || "",
-    verdict_category: item.verdict_category || "",
-    purchase_price: item.purchase_price || "",
-    purchase_currency: item.purchase_currency || "PLN",
-    purchase_date: item.purchase_date || "",
-    purchase_source: item.purchase_source || "",
-    notes: item.notes || "",
-  };
-
-  const [editForm, setEditForm] = useState(initialForm);
-
-  // Feature 7: clear editError when user changes any field
-  function updateField<K extends keyof typeof editForm>(key: K, value: string) {
-    setEditError(null);
-    setEditForm((f) => ({ ...f, [key]: value }));
-  }
-
-  // Pole zablokowane: wypełnione przez model i nie-unknown (tylko dla koszulek przeanalizowanych)
-  function isLocked(field: string): boolean {
-    if (item.is_manual) return false;
-    if (!(MODEL_FIELDS as readonly string[]).includes(field)) return false;
-    return !isUnknown(item[field]);
-  }
-
-  // Przycisk Zapisz aktywny tylko gdy coś się zmieniło
-  const isDirty = Object.keys(editForm).some(
-    (k) => editForm[k as keyof typeof editForm] !== initialForm[k as keyof typeof initialForm]
-  );
 
   const vm = VERDICT_META[item.verdict_category] ?? {
     label: item.verdict_category ?? "—",
@@ -843,66 +778,6 @@ function CollectionCard({
   })();
   const marketValue: number | null = item.market_value_pln ?? null;
   const gainPln = purchasePln != null && marketValue != null ? marketValue - purchasePln : null;
-
-  // Zdjęcie (slot 1) do podglądu w widoku edycji — kliknięcie w nie zmienia zdjęcie.
-  const editPhotoSrc = item.has_photo
-    ? getCollectionThumbnailUrl(item.id, 1)
-    : item.case_id && !item.is_manual
-    ? `${(process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "")}/api/cases/${item.case_id}/thumbnail?index=0`
-    : null;
-
-  async function handleSaveEdit() {
-    // Feature 7: inline validation for required fields (manual)
-    if (item.is_manual) {
-      if (!editForm.club.trim()) { setEditError("Pole 'Drużyna' jest wymagane."); return; }
-      if (!editForm.season.trim()) { setEditError("Pole 'Sezon' jest wymagane."); return; }
-      if (!editForm.brand.trim()) { setEditError("Pole 'Marka' jest wymagana."); return; }
-      if (!editForm.model_type.trim()) { setEditError("Pole 'Model/Typ koszulki' jest wymagane."); return; }
-    }
-    // Feature 6: validate max lengths
-    for (const [field, maxLen] of Object.entries(FIELD_MAX_LENGTHS)) {
-      const val = editForm[field as keyof typeof editForm];
-      if (val && val.length > maxLen) {
-        setEditError(`Pole przekracza maksymalną długość ${maxLen} znaków.`);
-        return;
-      }
-    }
-    setSaving(true);
-    try {
-      const updated = await updateCollectionItem(item.id, {
-        club: editForm.club.trim() || undefined,
-        season: editForm.season.trim() || undefined,
-        brand: editForm.brand.trim() || undefined,
-        model_type: editForm.model_type.trim() || undefined,
-        player_name: editForm.player_name.trim() || undefined,
-        player_number: editForm.player_number.trim() || undefined,
-        verdict_category: editForm.verdict_category || undefined,
-        purchase_price: editForm.purchase_price.trim() || undefined,
-        purchase_currency: editForm.purchase_currency || undefined,
-        purchase_date: editForm.purchase_date || undefined,
-        purchase_source: editForm.purchase_source.trim() || undefined,
-        notes: editForm.notes.trim() || undefined,
-      });
-      onUpdate(updated);
-      setEditing(false);
-      setExpanded(false);
-    } catch (e: any) {
-      setEditError(e.message || "Nie udało się zapisać.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      await uploadCollectionPhoto(item.id, file);
-      onUpdate({ ...item, has_photo: true, _photoTs: Date.now() });
-    } catch (e: any) {
-      alert(e.message || "Nie udało się wgrać zdjęcia.");
-    }
-  }
 
   async function handleValuate() {
     setValuating(true);
@@ -928,20 +803,18 @@ function CollectionCard({
 
   function closeExpanded() {
     setExpanded(false);
-    setEditing(false);
   }
 
   return (
     <div className={cn("glass-card overflow-hidden", isGenuineVerified && "ring-1 ring-amber-400/40")}>
-      {/* Widok ogólny (karta w siatce) — tylko podgląd; zmiana zdjęcia dostępna
-          wyłącznie w widoku edycji (ikonka Edytuj), nie klikiem w samo zdjęcie */}
+      {/* Widok ogólny (karta w siatce) — tylko podgląd; zmiana danych/zdjęcia
+          wyłącznie przez osobny popup edycji (ikonka Edytuj) */}
       <div className="relative">
         <JerseyThumbnail item={item} />
-        <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
 
         <div className="absolute left-2 top-2 flex items-center gap-1">
           <button
-            onClick={(e) => { e.stopPropagation(); setEditing(true); setExpanded(true); }}
+            onClick={(e) => { e.stopPropagation(); setShowEditModal(true); }}
             className="rounded-full bg-slate-950/80 p-1.5 text-slate-300 backdrop-blur transition hover:text-emerald-400"
             aria-label="Edytuj"
           >
@@ -1104,7 +977,7 @@ function CollectionCard({
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5 -mr-1 -mt-0.5">
                   <button
-                    onClick={() => setEditing(!editing)}
+                    onClick={() => setShowEditModal(true)}
                     className="rounded-full p-1.5 text-slate-600 transition hover:text-emerald-400"
                     aria-label="Edytuj"
                   >
@@ -1170,103 +1043,6 @@ function CollectionCard({
                 </p>
               )}
 
-          {editing ? (
-            /* ── Edit mode ── */
-            <div className="space-y-3">
-              {/* Zdjęcie — kliknięcie zmienia je (standardowe działanie), tylko tutaj */}
-              <div className="flex justify-center">
-                <div
-                  onClick={() => photoRef.current?.click()}
-                  title="Zmień zdjęcie"
-                  className="group relative h-24 w-24 cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-slate-600/60 bg-slate-800/40 transition hover:border-emerald-500/40"
-                >
-                  {editPhotoSrc ? (
-                    <img src={editPhotoSrc} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-slate-500">
-                      <Upload className="h-5 w-5" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/40 group-hover:opacity-100">
-                    <Upload className="h-4 w-4 text-white" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <EditField label="Drużyna" value={editForm.club} onChange={(v) => updateField("club", v)} disabled={isLocked("club")} maxLength={FIELD_MAX_LENGTHS.club} />
-                <EditField label="Sezon" value={editForm.season} onChange={(v) => updateField("season", v)} disabled={isLocked("season")} maxLength={FIELD_MAX_LENGTHS.season} />
-                <EditField label="Marka" value={editForm.brand} onChange={(v) => updateField("brand", v)} disabled={isLocked("brand")} maxLength={FIELD_MAX_LENGTHS.brand} />
-                <EditField label="Model" value={editForm.model_type} onChange={(v) => updateField("model_type", v)} disabled={isLocked("model_type")} maxLength={FIELD_MAX_LENGTHS.model_type} />
-                <EditField label="Zawodnik" value={editForm.player_name} onChange={(v) => updateField("player_name", v)} disabled={isLocked("player_name")} maxLength={FIELD_MAX_LENGTHS.player_name} />
-                <EditField label="Numer" value={editForm.player_number} onChange={(v) => updateField("player_number", v)} disabled={isLocked("player_number")} />
-                <div className="flex flex-col gap-1">
-                  <label className={cn("text-[11px]", isLocked("verdict_category") ? "text-slate-600" : "text-slate-500")}>Typ koszulki</label>
-                  <select
-                    className={cn(
-                      "rounded-md border bg-slate-900/60 px-2 py-1.5 text-sm outline-none",
-                      isLocked("verdict_category")
-                        ? "border-slate-700/40 text-slate-600 cursor-not-allowed opacity-60"
-                        : "border-slate-600/50 text-slate-100"
-                    )}
-                    value={editForm.verdict_category}
-                    onChange={(e) => updateField("verdict_category", e.target.value)}
-                    disabled={isLocked("verdict_category")}
-                  >
-                    <option value="">—</option>
-                    {VERDICT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                </div>
-                <EditField label="Cena zakupu" value={editForm.purchase_price} onChange={(v) => updateField("purchase_price", v)} placeholder="350" />
-                <EditField label="Waluta" value={editForm.purchase_currency} onChange={(v) => updateField("purchase_currency", v)} placeholder="PLN" />
-                <EditField label="Data zakupu" type="date" value={editForm.purchase_date} onChange={(v) => updateField("purchase_date", v)} />
-                <EditField label="Źródło zakupu" value={editForm.purchase_source} onChange={(v) => updateField("purchase_source", v)} maxLength={FIELD_MAX_LENGTHS.purchase_source} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] text-slate-500">
-                  Notatki
-                  {editForm.notes.length > 0 && (
-                    <span className={cn("ml-1", editForm.notes.length > FIELD_MAX_LENGTHS.notes ? "text-red-400" : "text-slate-600")}>
-                      {editForm.notes.length} / {FIELD_MAX_LENGTHS.notes}
-                    </span>
-                  )}
-                </label>
-                <textarea
-                  className={cn(
-                    "w-full resize-none rounded-md border bg-slate-900/60 px-2 py-1.5 text-sm text-slate-100 outline-none h-14",
-                    editForm.notes.length > FIELD_MAX_LENGTHS.notes
-                      ? "border-red-500/60"
-                      : "border-slate-600/50"
-                  )}
-                  value={editForm.notes}
-                  onChange={(e) => updateField("notes", e.target.value)}
-                />
-                {editForm.notes.length > FIELD_MAX_LENGTHS.notes && (
-                  <p className="text-[11px] text-red-400">Przekroczono maksymalną długość pola</p>
-                )}
-              </div>
-              {/* Feature 7: inline error */}
-              {editError && <p className="text-xs text-red-400">{editError}</p>}
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSaveEdit}
-                  disabled={!isDirty || saving}
-                  className="flex-1 rounded-full bg-emerald-500 py-2 text-xs font-medium text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50 flex items-center justify-center gap-1"
-                >
-                  {saving && <Loader2 className="h-3 w-3 animate-spin" />}
-                  Zapisz
-                </button>
-                <button
-                  onClick={() => { setEditing(false); setEditError(null); }}
-                  className="rounded-full border border-slate-600/60 px-4 py-2 text-xs text-slate-400 transition hover:text-slate-200"
-                >
-                  Anuluj
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* ── View mode ── */
-            <>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 {item.model_type && (
                   <>
@@ -1353,57 +1129,23 @@ function CollectionCard({
                   </span>
                 )}
               </div>
-            </>
-          )}
             </div>
           </div>
         </div>,
         document.body
       )}
-    </div>
-  );
-}
 
-// Feature 6: EditField with optional maxLength
-function EditField({
-  label, value, onChange, placeholder, type, disabled, maxLength,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-  disabled?: boolean;
-  maxLength?: number;
-}) {
-  const exceeded = maxLength != null && value.length > maxLength;
-  return (
-    <div className="flex flex-col gap-1">
-      <label className={cn("text-[11px]", disabled ? "text-slate-600" : "text-slate-500")}>
-        {label}
-        {maxLength != null && value.length > 0 && (
-          <span className={cn("ml-1", exceeded ? "text-red-400" : "text-slate-600")}>
-            {value.length}/{maxLength}
-          </span>
-        )}
-      </label>
-      <input
-        type={type || "text"}
-        className={cn(
-          "rounded-md border bg-slate-900/60 px-2 py-1.5 text-sm outline-none",
-          disabled
-            ? "border-slate-700/40 text-slate-600 cursor-not-allowed opacity-60"
-            : exceeded
-            ? "border-red-500/60 text-slate-100 focus:border-red-500/80"
-            : "border-slate-600/50 text-slate-100 focus:border-emerald-500/50"
-        )}
-        value={value}
-        onChange={(e) => !disabled && onChange(e.target.value)}
-        placeholder={placeholder}
-        disabled={disabled}
-      />
-      {exceeded && (
-        <p className="text-[11px] text-red-400">Przekroczono maksymalną długość pola</p>
+      {/* Edycja — ten sam popup co dodawanie nowej koszulki (JerseyFormModal),
+          żeby mieć jeden komponent, jedną zasadę zamykania i jedno miejsce do
+          utrzymania zamiast osobnego, zagnieżdżonego formularza w tym widoku. */}
+      {showEditModal && createPortal(
+        <JerseyFormModal
+          mode="edit"
+          item={item}
+          onClose={() => setShowEditModal(false)}
+          onSaved={(updated) => { onUpdate(updated); setShowEditModal(false); }}
+        />,
+        document.body
       )}
     </div>
   );
