@@ -844,6 +844,13 @@ function CollectionCard({
   const marketValue: number | null = item.market_value_pln ?? null;
   const gainPln = purchasePln != null && marketValue != null ? marketValue - purchasePln : null;
 
+  // Zdjęcie (slot 1) do podglądu w widoku edycji — kliknięcie w nie zmienia zdjęcie.
+  const editPhotoSrc = item.has_photo
+    ? getCollectionThumbnailUrl(item.id, 1)
+    : item.case_id && !item.is_manual
+    ? `${(process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "")}/api/cases/${item.case_id}/thumbnail?index=0`
+    : null;
+
   async function handleSaveEdit() {
     // Feature 7: inline validation for required fields (manual)
     if (item.is_manual) {
@@ -926,12 +933,10 @@ function CollectionCard({
 
   return (
     <div className={cn("glass-card overflow-hidden", isGenuineVerified && "ring-1 ring-amber-400/40")}>
-      {/* Widok ogólny (karta w siatce) — edycja/usuń tylko tutaj, na zdjęciu */}
-      <div className="relative" onClick={() => photoRef.current?.click()} title="Zmień zdjęcie">
+      {/* Widok ogólny (karta w siatce) — tylko podgląd; zmiana zdjęcia dostępna
+          wyłącznie w widoku edycji (ikonka Edytuj), nie klikiem w samo zdjęcie */}
+      <div className="relative">
         <JerseyThumbnail item={item} />
-        <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition hover:bg-black/40 hover:opacity-100 cursor-pointer">
-          <Upload className="h-5 w-5 text-white" />
-        </div>
         <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
 
         <div className="absolute left-2 top-2 flex items-center gap-1">
@@ -1162,6 +1167,26 @@ function CollectionCard({
           {editing ? (
             /* ── Edit mode ── */
             <div className="space-y-3">
+              {/* Zdjęcie — kliknięcie zmienia je (standardowe działanie), tylko tutaj */}
+              <div className="flex justify-center">
+                <div
+                  onClick={() => photoRef.current?.click()}
+                  title="Zmień zdjęcie"
+                  className="group relative h-24 w-24 cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-slate-600/60 bg-slate-800/40 transition hover:border-emerald-500/40"
+                >
+                  {editPhotoSrc ? (
+                    <img src={editPhotoSrc} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-slate-500">
+                      <Upload className="h-5 w-5" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/40 group-hover:opacity-100">
+                    <Upload className="h-4 w-4 text-white" />
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <EditField label="Drużyna" value={editForm.club} onChange={(v) => updateField("club", v)} disabled={isLocked("club")} maxLength={FIELD_MAX_LENGTHS.club} />
                 <EditField label="Sezon" value={editForm.season} onChange={(v) => updateField("season", v)} disabled={isLocked("season")} maxLength={FIELD_MAX_LENGTHS.season} />

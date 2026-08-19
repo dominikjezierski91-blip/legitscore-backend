@@ -157,9 +157,12 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 px-4 py-8"
+      onClick={onClose}
+    >
       <div
-        className="glass-card w-full max-w-md max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl p-5 space-y-4"
+        className="glass-card w-full max-w-md space-y-4 rounded-2xl p-5"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -173,11 +176,14 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
         {/* Zdjęcia */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label htmlFor="manual-photo-1" className="block text-xs text-slate-400 mb-1.5">
               Zdjęcie profilowe <span className="text-red-400">*</span>
             </label>
-            <div
-              onClick={() => fileRef.current?.click()}
+            {/* <label> zamiast div+ref.click() — bardziej niezawodne wyzwalanie
+                natywnego pickera plików na iOS Safari, zwłaszcza przy dwóch
+                niezależnych inputach obok siebie. */}
+            <label
+              htmlFor="manual-photo-1"
               className={cn(
                 "flex h-28 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed transition",
                 errors.photo ? "border-red-500/60 bg-red-950/20" : "border-slate-600/60 bg-slate-800/40 hover:border-emerald-500/40"
@@ -191,17 +197,17 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
                   <span className="text-xs">Kliknij aby wybrać zdjęcie</span>
                 </div>
               )}
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+            </label>
+            <input id="manual-photo-1" ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
             {errors.photo && <p className="mt-1 text-[11px] text-red-400">{errors.photo}</p>}
           </div>
 
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label htmlFor="manual-photo-2" className="block text-xs text-slate-400 mb-1.5">
               Drugie zdjęcie <span className="text-slate-600">(opcjonalnie)</span>
             </label>
-            <div
-              onClick={() => fileRef2.current?.click()}
+            <label
+              htmlFor="manual-photo-2"
               className="flex h-28 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-slate-600/60 bg-slate-800/40 transition hover:border-emerald-500/40"
             >
               {photoPreview2 ? (
@@ -212,8 +218,8 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
                   <span className="text-xs">np. tył koszulki</span>
                 </div>
               )}
-            </div>
-            <input ref={fileRef2} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange2} />
+            </label>
+            <input id="manual-photo-2" ref={fileRef2} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange2} />
           </div>
         </div>
 
