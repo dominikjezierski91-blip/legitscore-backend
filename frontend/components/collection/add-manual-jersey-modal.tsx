@@ -150,7 +150,7 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
       >
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-slate-100">Dodaj koszulkę ręcznie</h2>
+          <h2 className="text-lg font-semibold text-slate-100">Dodaj koszulkę ręcznie</h2>
           <button onClick={onClose} className="rounded-full p-1 text-slate-500 hover:text-slate-300">
             <X className="h-4 w-4" />
           </button>
@@ -158,7 +158,7 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
 
         {/* Zdjęcie */}
         <div>
-          <label className="block text-[11px] text-slate-400 mb-1.5">
+          <label className="block text-xs text-slate-400 mb-1.5">
             Zdjęcie profilowe <span className="text-red-400">*</span>
           </label>
           <div
@@ -173,16 +173,16 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
             ) : (
               <div className="flex flex-col items-center gap-1 text-slate-500">
                 <Upload className="h-5 w-5" />
-                <span className="text-[11px]">Kliknij aby wybrać zdjęcie</span>
+                <span className="text-xs">Kliknij aby wybrać zdjęcie</span>
               </div>
             )}
           </div>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
-          {errors.photo && <p className="mt-1 text-[10px] text-red-400">{errors.photo}</p>}
+          {errors.photo && <p className="mt-1 text-[11px] text-red-400">{errors.photo}</p>}
         </div>
 
         {/* Wymagane */}
-        <p className="text-[10px] text-slate-500 -mb-2">Pola wymagane oznaczone *</p>
+        <p className="text-[11px] text-slate-500 -mb-2">Pola wymagane oznaczone *</p>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Drużyna / Reprezentacja *" error={errors.club}>
@@ -231,7 +231,7 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
           <textarea className={cn(inputCls(), "resize-none h-16")} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Opcjonalne uwagi..." />
         </Field>
 
-        {errors.submit && <p className="text-[11px] text-red-400">{errors.submit}</p>}
+        {errors.submit && <p className="text-xs text-red-400">{errors.submit}</p>}
 
         <button
           onClick={handleSubmit}
@@ -249,16 +249,16 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label className="text-[11px] text-slate-400 truncate">{label}</label>
+      <label className="text-xs text-slate-400 truncate">{label}</label>
       {children}
-      {error && <p className="text-[10px] text-red-400">{error}</p>}
+      {error && <p className="text-[11px] text-red-400">{error}</p>}
     </div>
   );
 }
 
 function inputCls(error?: string) {
   return cn(
-    "w-full rounded-lg border bg-slate-900/60 px-2.5 py-1.5 text-[12px] text-slate-100 outline-none transition",
+    "w-full rounded-lg border bg-slate-900/60 px-2.5 py-1.5 text-sm text-slate-100 outline-none transition",
     error ? "border-red-500/60 focus:border-red-400" : "border-slate-600/50 focus:border-emerald-500/60"
   );
 }

@@ -12,7 +12,7 @@ import {
 import {
   Loader2, Trash2, ShieldCheck, Search, ChevronDown, ChevronUp,
   SlidersHorizontal, Pencil, Check, TrendingUp, TrendingDown, RefreshCw,
-  X, Plus, Upload,
+  X, Plus, Upload, Bookmark, BookmarkCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AddManualJerseyModal } from "@/components/collection/add-manual-jersey-modal";
@@ -64,19 +64,37 @@ const FILTER_LABELS: Record<string, string> = {
   all: "Wszystkie", valuated: "Wycenione", suspicious: "Podejrzane", no_analysis: "Do analizy",
 };
 
+// Zapamiętane sortowanie/filtr — bez nazywania, jeden slot na przeglądarkę (jak
+// collection_name). Zapisany widok stosuje się automatycznie przy kolejnym wejściu.
+const SAVED_VIEW_KEY = "collection_saved_view";
+type SavedView = { sort: SortKey; filter: FilterKey };
+function loadSavedView(): SavedView | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(SAVED_VIEW_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.sort === "string") return parsed as SavedView;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export default function CollectionPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortKey>("newest");
+  const [sort, setSort] = useState<SortKey>(() => loadSavedView()?.sort ?? "newest");
   const [collectionName, setCollectionName] = useState("Moja kolekcja");
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("Moja kolekcja");
   const [showManualModal, setShowManualModal] = useState(false);
 
-  const [activeFilter, setActiveFilter] = useState<FilterKey>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterKey>(() => loadSavedView()?.filter ?? null);
+  const [savedView, setSavedView] = useState<SavedView | null>(() => loadSavedView());
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -219,6 +237,19 @@ export default function CollectionPage() {
     setTimeout(() => {
       listRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 50);
+  }
+
+  const isCurrentViewSaved = !!savedView && savedView.sort === sort && savedView.filter === activeFilter;
+
+  function toggleSavedView() {
+    if (isCurrentViewSaved) {
+      localStorage.removeItem(SAVED_VIEW_KEY);
+      setSavedView(null);
+    } else {
+      const next: SavedView = { sort, filter: activeFilter };
+      localStorage.setItem(SAVED_VIEW_KEY, JSON.stringify(next));
+      setSavedView(next);
+    }
   }
 
   if (authLoading || loading) {
@@ -384,6 +415,21 @@ export default function CollectionPage() {
                 )}
               </div>
             )}
+
+            {/* Zapisz obecny filtr+sortowanie jako swój domyślny widok */}
+            <button
+              onClick={toggleSavedView}
+              title={isCurrentViewSaved ? "Usuń zapisany widok" : "Zapisz ten widok jako domyślny"}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition",
+                isCurrentViewSaved
+                  ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-300"
+                  : "border-border/60 bg-slate-900/40 text-slate-300 hover:border-slate-500 hover:text-slate-100"
+              )}
+            >
+              {isCurrentViewSaved ? <BookmarkCheck className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
+              {isCurrentViewSaved ? "Twój widok" : "Zapisz widok"}
+            </button>
           </div>
         </div>
       )}
@@ -996,7 +1042,9 @@ function CollectionCard({
 
               {/* Wartość rynkowa + zysk/strata + cena zakupu — pełny widok */}
               {marketValue != null && (
-                <div className="flex items-baseline gap-2">
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Szacunkowa wartość</p>
+                  <div className="mt-0.5 flex items-baseline gap-2">
                   <span className="text-base font-semibold text-emerald-300">
                     ~{Math.round(marketValue).toLocaleString("pl-PL")} PLN
                   </span>
@@ -1009,6 +1057,7 @@ function CollectionCard({
                       {gainPln >= 0 ? "+" : ""}{Math.round(gainPln).toLocaleString("pl-PL")} PLN
                     </span>
                   )}
+                  </div>
                 </div>
               )}
               {item.purchase_price && (
