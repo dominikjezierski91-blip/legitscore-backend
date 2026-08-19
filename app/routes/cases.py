@@ -641,26 +641,36 @@ async def run_decision(
     # dopiero PO wygraniu locka, żeby tylko jeden z równoległych requestów w ogóle
     # dotarł do tego punktu. Zwracany (refund_credit) na każdej ścieżce błędu
     # poniżej, więc user nie płaci za nieudaną analizę.
-    if not consume_credit(current_user.id):
-        lock_path.unlink(missing_ok=True)
-        lock_created = False
-        raise HTTPException(
-            status_code=402,
-            detail="Brak dostępnych kredytów. Kup analizę lub pakiet, aby kontynuować.",
-        )
+    #
+    # Adminom kredytów nie liczymy w ogóle (np. Dominik weryfikujący koszulki,
+    # które dostaje od userów, nie może za każdym razem sam sobie dokupować
+    # kredytów). `credit_consumed` pilnuje, żeby refund_credit() niżej nigdy nie
+    # doliczył kredytu adminowi, który nic nie "wydał".
+    credit_consumed = False
+    if not current_user.is_admin:
+        if not consume_credit(current_user.id):
+            lock_path.unlink(missing_ok=True)
+            lock_created = False
+            raise HTTPException(
+                status_code=402,
+                detail="Brak dostępnych kredytów. Kup analizę lub pakiet, aby kontynuować.",
+            )
+        credit_consumed = True
 
     assets = case_data.get("assets") or []
     if not assets:
         lock_path.unlink(missing_ok=True)
         lock_created = False
-        refund_credit(current_user.id)
+        if credit_consumed:
+            refund_credit(current_user.id)
         raise HTTPException(status_code=400, detail="No assets available for decision")
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         lock_path.unlink(missing_ok=True)
         lock_created = False
-        refund_credit(current_user.id)
+        if credit_consumed:
+            refund_credit(current_user.id)
         raise HTTPException(status_code=500, detail="Missing GEMINI_API_KEY")
 
     case_data["status"] = "IN_PROGRESS"
@@ -1192,7 +1202,8 @@ async def run_decision(
         # przy przejściowej awarii API) oznacza, że kredyt pobrany wyżej nie przełożył
         # się na żaden użyteczny wynik — zwracamy go zawsze, w jednym miejscu, zamiast
         # rozrzucać refund_credit() po każdym możliwym raise (łatwo wtedy pominąć nowy).
-        refund_credit(current_user.id)
+        if credit_consumed:
+            refund_credit(current_user.id)
         # Prechecki same ustawiają swój status (PRECHECK_FAILED) przed raise — nie
         # nadpisuj go. Ale jeśli status wciąż jest IN_PROGRESS (np. błąd Gemini, który
         # nigdy nie ustawił własnego statusu), case zostałby tak oznaczony na zawsze.
@@ -1203,7 +1214,8 @@ async def run_decision(
     except Exception:
         case_data["status"] = "ERROR"
         save_case(case_id, case_data)
-        refund_credit(current_user.id)
+        if credit_consumed:
+            refund_credit(current_user.id)
         logger.exception("run-decision failed for case %s; status set to ERROR", case_id)
         raise
     finally:

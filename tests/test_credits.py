@@ -36,14 +36,14 @@ from app.services.database import (
 client = TestClient(app)
 
 
-def _make_user(credits: int = 1) -> User:
+def _make_user(credits: int = 1, is_admin: bool = False) -> User:
     db = SessionLocal()
     try:
         user = User(
             id=str(uuid.uuid4()),
             email=f"qa-credits-{uuid.uuid4().hex[:8]}@example.com",
             password_hash=hash_password("not-a-real-password"),
-            is_admin=False,
+            is_admin=is_admin,
             credits=credits,
         )
         db.add(user)
@@ -295,3 +295,25 @@ class TestRunDecisionCreditGate:
             assert case_data_after.get("status") == "ERROR"
         finally:
             _cleanup(user.id)
+
+    def test_admin_bypasses_credit_gate_entirely(self):
+        """Adminom (np. Dominik weryfikujący koszulki od userów) nie liczymy
+        kredytów w ogóle — zero kredytów na koncie nie może skutkować 402, i
+        request nie powinien ani konsumować, ani zwracać żadnego kredytu."""
+        admin = _make_user(credits=0, is_admin=True)
+        token = create_access_token(admin.id, is_admin=True)
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            case_response = client.post(
+                "/api/cases", json={"regulamin_accepted": True}, headers=headers
+            )
+            case_id = case_response.json()["case_id"]
+
+            # Bez assetów i tak polegnie (400) — ale kluczowe jest, że NIE 402,
+            # mimo credits=0, i że saldo w ogóle się nie rusza (nic nie było
+            # "wydane", więc refund_credit nie powinien nic doliczyć).
+            response = client.post(f"/api/cases/{case_id}/run-decision", headers=headers)
+            assert response.status_code != 402
+            assert get_user_credits(admin.id) == 0
+        finally:
+            _cleanup(admin.id)
