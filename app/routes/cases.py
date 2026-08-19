@@ -32,7 +32,7 @@ from app.services.storage import (
 from app.services.auction_scraper import fetch_auction_images, AuctionScraperError
 from app.services.report_text_renderer import render_report_text
 from app.services.pdf_report import generate_report_pdf
-from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_cases_for_user, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, consume_credit, refund_credit, SessionLocal, CaseRecord, User
+from app.services.database import save_case_to_db, save_feedback_to_db, save_rating_to_db, get_case_from_db, get_cases_for_user, get_all_cases_from_db, get_db_stats, anonymize_case_email, delete_case_from_db, get_user_stats, get_user_list, get_dashboard_metrics, get_activation_detail, get_retention_metrics, get_registration_trend, get_user_detail, consume_credit, refund_credit, update_user_regulamin_acceptance, SessionLocal, CaseRecord, User
 from app.routes.auth import get_current_admin, get_current_user, get_optional_user
 from app.services.security import (
     limiter,
@@ -306,6 +306,15 @@ async def create_case_endpoint(request: Request, req: Optional[CreateCaseRequest
         ip_address=get_client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
+
+    if current_user is not None:
+        try:
+            update_user_regulamin_acceptance(current_user.id, regulamin_version, privacy_version)
+        except Exception:
+            # Non-fatal — case już bezpiecznie zapisany przez save_case_to_db powyżej;
+            # nieudana synchronizacja regulamin_version na User nie może wywalić 500
+            # na głównej ścieżce tworzenia case'a.
+            logger.exception("Nie udało się zsynchronizować regulamin_version na User, case_id=%s", case_id)
 
     return {"case_id": case_id}
 

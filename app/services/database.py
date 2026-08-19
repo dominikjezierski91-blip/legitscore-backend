@@ -494,6 +494,27 @@ def _migrate_promo_redemptions_unique():
         conn.commit()
 
 
+def update_user_regulamin_acceptance(user_id: str, regulamin_version: Optional[str], privacy_version: Optional[str]) -> None:
+    """Zapisuje na koncie usera najnowszą zaakceptowaną wersję Regulaminu/Polityki —
+    wywoływane przy zgłoszeniu analizy z zaznaczoną zgodą. Bez tego /auth/me zawsze
+    zwracało regulamin_version sprzed rejestracji, więc checkbox zgody pokazywał się
+    w nieskończoność userom, którzy założyli konto przed podniesieniem wersji
+    regulaminu, mimo że właśnie ją zaakceptowali."""
+    if not regulamin_version and not privacy_version:
+        return
+    values: dict = {}
+    if regulamin_version:
+        values[User.regulamin_version] = regulamin_version
+    if privacy_version:
+        values[User.privacy_version] = privacy_version
+    db = SessionLocal()
+    try:
+        db.query(User).filter(User.id == user_id).update(values, synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
 def get_user_credits(user_id: str) -> int:
     """Aktualne saldo kredytów usera."""
     db = SessionLocal()

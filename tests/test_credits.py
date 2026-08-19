@@ -317,3 +317,48 @@ class TestRunDecisionCreditGate:
             assert get_user_credits(admin.id) == 0
         finally:
             _cleanup(admin.id)
+
+
+class TestRegulaminVersionSync:
+    def test_create_case_updates_user_regulamin_version(self):
+        """Regresja (2026-08-19): POST /api/cases zapisywał zaakceptowaną wersję
+        Regulaminu tylko na CaseRecord, nigdy na User — więc /auth/me zawsze
+        zwracał regulamin_version sprzed rejestracji, i checkbox zgody pokazywał
+        się w nieskończoność userom, którzy założyli konto przed podniesieniem
+        wersji regulaminu, mimo że właśnie ją zaakceptowali przy zgłoszeniu."""
+        user = _make_user(credits=1)
+        db = SessionLocal()
+        try:
+            db.query(User).filter(User.id == user.id).update({User.regulamin_version: "1.0"})
+            db.commit()
+        finally:
+            db.close()
+
+        token = create_access_token(user.id, is_admin=False)
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            response = client.post(
+                "/api/cases",
+                json={"regulamin_accepted": True, "regulamin_version": "2.0", "privacy_version": "2.0"},
+                headers=headers,
+            )
+            assert response.status_code == 200
+
+            db2 = SessionLocal()
+            try:
+                refreshed = db2.query(User).filter(User.id == user.id).first()
+                assert refreshed.regulamin_version == "2.0"
+                assert refreshed.privacy_version == "2.0"
+            finally:
+                db2.close()
+        finally:
+            _cleanup(user.id)
+
+    def test_anonymous_case_creation_does_not_touch_any_user(self):
+        """Gość (bez tokena) tworzy case anonimowo — nie ma current_user, więc
+        update_user_regulamin_acceptance w ogóle nie powinno się wywołać."""
+        response = client.post(
+            "/api/cases",
+            json={"regulamin_accepted": True, "regulamin_version": "2.0"},
+        )
+        assert response.status_code == 200
