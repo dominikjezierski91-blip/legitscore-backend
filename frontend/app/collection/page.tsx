@@ -786,6 +786,10 @@ function CollectionCard({
   }
 
   const isAnalyzed = !item.is_manual && item.report_id;
+  // Złoty akcent tylko dla realnie zweryfikowanych, autentycznych sztuk —
+  // dla podróbki odznaka LS zostaje neutralna (złoto sugerowałoby "premium",
+  // co byłoby mylące przy oznaczeniu fałszywki).
+  const isGenuineVerified = Boolean(isAnalyzed) && Boolean(item.verdict_category) && item.verdict_category !== "podrobka";
 
   function closeExpanded() {
     setExpanded(false);
@@ -793,7 +797,7 @@ function CollectionCard({
   }
 
   return (
-    <div className="glass-card overflow-hidden">
+    <div className={cn("glass-card overflow-hidden", isGenuineVerified && "ring-1 ring-amber-400/40")}>
       {/* Widok ogólny (karta w siatce) — edycja/usuń tylko tutaj, na zdjęciu */}
       <div className="relative" onClick={() => photoRef.current?.click()} title="Zmień zdjęcie">
         <JerseyThumbnail item={item} />
@@ -821,7 +825,12 @@ function CollectionCard({
 
         <div className="absolute right-2 top-2 flex items-center gap-1">
           {isAnalyzed && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-950/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 backdrop-blur">
+            <span className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide shadow",
+              isGenuineVerified
+                ? "bg-gradient-to-br from-amber-300 to-amber-500 text-amber-950"
+                : "bg-slate-950/80 text-emerald-400 backdrop-blur"
+            )}>
               <ShieldCheck className="h-2.5 w-2.5" />
               LS
             </span>
@@ -910,12 +919,17 @@ function CollectionCard({
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 px-4 py-8"
           onClick={closeExpanded}
         >
-          <div className="glass-card w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className={cn("glass-card w-full max-w-md overflow-hidden", isGenuineVerified && "ring-1 ring-amber-400/40")} onClick={(e) => e.stopPropagation()}>
             <div className="relative">
               <JerseyThumbnail item={item} hero />
               <div className="absolute right-3 top-3 flex items-center gap-1.5">
                 {isAnalyzed && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-slate-950/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 shadow-lg shadow-black/30 backdrop-blur">
+                  <span className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide shadow-lg shadow-black/30",
+                    isGenuineVerified
+                      ? "bg-gradient-to-br from-amber-300 to-amber-500 text-amber-950"
+                      : "border border-emerald-400/30 bg-slate-950/80 text-emerald-400 backdrop-blur"
+                  )}>
                     <ShieldCheck className="h-3 w-3" />
                     LS
                   </span>
