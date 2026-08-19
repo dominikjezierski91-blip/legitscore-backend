@@ -45,7 +45,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
   return (
     <div className="min-h-screen gradient-bg">
       <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6 md:px-6 lg:px-8">
-        <header className="mb-8 flex items-center justify-between">
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-y-3">
           <div className="flex items-center gap-2">
             <a href="https://legitscore.app" className="flex items-center">
               <LegitScoreLogo size={80} className="h-6 w-auto md:h-7" />
@@ -54,7 +54,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               BETA
             </Badge>
           </div>
-          <nav className="flex items-center gap-3 text-xs">
+          <nav className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 text-xs">
             {subtitle ? (
               <span className="text-muted-foreground">{subtitle}</span>
             ) : null}

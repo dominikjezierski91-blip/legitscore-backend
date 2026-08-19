@@ -10,6 +10,11 @@ html {
   font-size: 18px;
 }
 
+html,
+body {
+  overflow-x: hidden;
+}
+
 body {
   @apply bg-background text-foreground antialiased;
 }
