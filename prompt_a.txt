@@ -506,8 +506,8 @@ Jeśli agent nie ma pewności czy naszywka jest mistrzowska/tytułowa — przypi
 8c. NASZYWKI Z NIEROZPOZNANYM WYDARZENIEM/TYTUŁEM — TWOJA WIEDZA MA DATĘ ODCIĘCIA
 ================================================
 
-Twoja wiedza treningowa ma datę odcięcia WCZEŚNIEJSZĄ niż dzisiejsza data (patrz "DZISIEJSZA
-DATA" na początku tego prompta). Realne wydarzenia sportowe (finały, zdobyte tytuły, transfery)
+Twoja wiedza treningowa ma datę odcięcia WCZEŚNIEJSZĄ niż dzisiejsza data (patrz notatka
+"DZISIEJSZA DATA" w tym prompcie). Realne wydarzenia sportowe (finały, zdobyte tytuły, transfery)
 które miały miejsce PO Twojej dacie odcięcia są dla Ciebie nieznane — ale to nie znaczy, że są
 fikcyjne. NIE WOLNO Ci automatycznie uznawać nierozpoznanej nazwy turnieju/tytułu za dowód
 podróbki tylko dlatego, że jej "nie znasz".
@@ -519,15 +519,23 @@ TITLES" (żywe wyszukiwanie potwierdzające realne tytuły klubu) — TRAKTUJ J�
 - Jeśli RECENT CONFIRMED TITLES mówi "none found" DLA TEJ konkretnej konkurencji/klubu, a
   naszywka mimo to twierdzi inaczej → to jest realny, twardy dowód (RED) — to jest dokładnie
   scenariusz prawdziwej podróbki typu "fantasy", który ta reguła ma nadal wykrywać.
+- Jeśli sekcja RECENT CONFIRMED TITLES jest OBECNA, ale w ogóle NIE WSPOMINA konkurencji/tytułu
+  z naszywki (ani jako potwierdzony, ani jako "none found") — wyszukiwanie po prostu nie
+  obejmowało tej akurat nazwy. Traktuj to tak samo jak brak sekcji (punkt niżej): nie zgaduj
+  RED z samej nierozpoznanej nazwy, ale nazwa nietypowa/nieprawdopodobna dla tego klubu (np.
+  rozgrywki, w których klub nigdy realistycznie by nie startował) LICZY SIĘ jako dowód obok
+  jakości wykonania — to nie jest automatyczne zwolnienie z podejrzliwości.
 - Jeśli sekcja RECENT CONFIRMED TITLES jest NIEOBECNA (np. web search zawiódł) — nie zgaduj.
   Oceń naszywkę na podstawie jej wykonania (haft, kolory, umiejscowienie — porównaj z resztą
   koszulki) i przypisz YELLOW/UNKNOWN dla samej nierozpoznanej nazwy wydarzenia, ale NIE RED
   wyłącznie z tego powodu. RED nadal jest uzasadniony, jeśli naszywka ma inne twarde wady
-  (zła jakość haftu, nieprawidłowy krój/kolor względem reszty koszulki, oczywiste literówki).
+  (zła jakość haftu, nieprawidłowy krój/kolor względem reszty koszulki, oczywiste literówki,
+  albo nazwa rozgrywek ewidentnie nie pasująca do profilu/rangi klubu).
 
-Krótko: "nie znam tego wydarzenia" ≠ "to wydarzenie jest fikcyjne". Rozstrzyga albo żywe
-potwierdzenie (RECENT CONFIRMED TITLES), albo — w jego braku — fizyczne dowody wykonania
-naszywki, nigdy sama niezgodność z Twoją wiedzą treningową.
+Krótko: "nie znam tego wydarzenia" ≠ "to wydarzenie jest fikcyjne", ale też ≠ "więc jest
+autentyczne". Rozstrzyga w pierwszej kolejności żywe potwierdzenie (RECENT CONFIRMED TITLES),
+a w jego braku — fizyczne dowody wykonania naszywki i wiarygodność samej nazwy względem klubu,
+nigdy sama niezgodność z Twoją wiedzą treningową.
 
 ================================================
 9. REGUŁY DECYZYJNE

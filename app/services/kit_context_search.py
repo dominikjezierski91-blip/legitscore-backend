@@ -9,6 +9,7 @@ Fallback: jeśli url_context zawiedzie, Google Search jak poprzednio.
 Non-fatal — błąd zwraca pusty string.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -160,9 +161,10 @@ async def run_kit_context_search(asset_paths: List[str]) -> str:
     # powiedzie — to ta część, która pozwala Agentowi A wiedzieć, że np. "FINAL
     # BUDAPEST 2026" to prawdziwe, rozegrane wydarzenie, a nie fikcja (patrz
     # incydent PSG Kvaratskhelia). Non-fatal: pusty string przy błędzie.
-    trophy_context = await _fetch_recent_trophies(client, fast_model, types, club)
-    if trophy_context:
-        logger.info("[KIT_CONTEXT] Trophy search ok (%d znaków)", len(trophy_context))
+    # Odpalana RÓWNOLEGLE z krokiem 2b (nie sekwencyjnie) — to osobne, niezależne
+    # wywołanie Gemini, więc czekanie na nie po kolei tylko dokładałoby pełny
+    # dodatkowy round-trip do czasu każdej analizy bez potrzeby.
+    trophy_task = asyncio.create_task(_fetch_recent_trophies(client, fast_model, types, club))
 
     # --- Krok 2b: live scraping footy-headlines.com via url_context ---
     slug = _club_to_footy_headlines_slug(club)
@@ -179,6 +181,10 @@ async def run_kit_context_search(asset_paths: List[str]) -> str:
         kit_context = await _fetch_via_google_search(client, fast_model, types, identification)
         if kit_context:
             logger.info("[KIT_CONTEXT] Google Search ok (%d znaków)", len(kit_context))
+
+    trophy_context = await trophy_task
+    if trophy_context:
+        logger.info("[KIT_CONTEXT] Trophy search ok (%d znaków)", len(trophy_context))
 
     # Trophy context na początku (krótszy, decyzyjnie ważniejszy) — przeżyje
     # ewentualne ucięcie extra_context[:4000] w agent_a_gemini.py, nawet jeśli
