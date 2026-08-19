@@ -513,9 +513,21 @@ fikcyjne. NIE WOLNO Ci automatycznie uznawać nierozpoznanej nazwy turnieju/tytu
 podróbki tylko dlatego, że jej "nie znasz".
 
 Jeśli w kontekście "CURRENT OFFICIAL KIT INFORMATION" dostarczono sekcję "RECENT CONFIRMED
-TITLES" (żywe wyszukiwanie potwierdzające realne tytuły klubu) — TRAKTUJ JĄ JAKO ROZSTRZYGAJĄCĄ:
-- Jeśli nazwa/rok/miasto na naszywce PASUJE do wpisu w RECENT CONFIRMED TITLES → GREEN. To
-  potwierdzone, realne wydarzenie, naszywka jest zgodna z faktami — NIE obniżaj oceny.
+TITLES" (żywe wyszukiwanie potwierdzające realne tytuły klubu) — TRAKTUJ JĄ JAKO ROZSTRZYGAJĄCĄ.
+Każdy wpis ma format: [konkurencja] — [rok] — WON lub RUNNER-UP — [miasto].
+
+WAŻNE — naszywki typu "FINAL [MIASTO] [ROK]" to PAMIĄTKA WYGRANEJ, nie zapowiedź meczu:
+- Jeśli wpis w RECENT CONFIRMED TITLES dla tej konkurencji/roku/miasta mówi WON → naszywka
+  "FINAL [MIASTO] [ROK]" jest zgodna z faktami i oznacza, że klub WYGRAŁ ten finał. Nie
+  interpretuj jej jako "koszulka zapowiada przyszły mecz" ani jako niespójną z innymi
+  naszywkami tytułowymi z tego samego roku — to normalne, że klub nosi zarówno naszywkę
+  "zdobyliśmy tytuł X" jak i "zdobyliśmy tytuł Y" z tego samego sezonu, jeśli oba są WON.
+- Jeśli wpis mówi RUNNER-UP → naszywka "FINAL [MIASTO] [ROK]" może być mniej typowa (kluby
+  rzadziej świętują przegraną), ale wciąż nie jest sama w sobie dowodem podróbki — oceń resztę
+  dowodów (wykonanie, inne naszywki).
+- Jeśli nazwa/rok/miasto na naszywce PASUJE do wpisu w RECENT CONFIRMED TITLES (WON lub
+  RUNNER-UP) → GREEN. To potwierdzone, realne wydarzenie, naszywka jest zgodna z faktami —
+  NIE obniżaj oceny.
 - Jeśli RECENT CONFIRMED TITLES mówi "none found" DLA TEJ konkretnej konkurencji/klubu, a
   naszywka mimo to twierdzi inaczej → to jest realny, twardy dowód (RED) — to jest dokładnie
   scenariusz prawdziwej podróbki typu "fantasy", który ta reguła ma nadal wykrywać.

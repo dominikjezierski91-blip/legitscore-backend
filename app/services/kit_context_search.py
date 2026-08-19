@@ -69,17 +69,24 @@ Club World Cup).
 
 MANDATORY searches — run ALL:
 1. "[club] trophies won 2024 2025 2026"
-2. "[club] champions league final winner"
+2. "[club] champions league final result winner runner-up"
 3. "[club] league title winner 2025 2026"
 4. "[club] intercontinental cup OR club world cup winner"
 
-For each CONFIRMED title, report: competition name, year won, and host city of the final if
-known (needed for "FINAL [CITY] [YEAR]" style commemorative patches). Only report what your
-search actually confirms — do not guess or extrapolate. If a search finds nothing for a
-competition, say so explicitly instead of omitting it silently.
+CRITICAL — WON vs REACHED: for cup/knockout competitions (Champions League, Europa League,
+domestic cups, World/Intercontinental Cup) you MUST determine and explicitly state whether the
+club WON the final or only REACHED it (runner-up/finalist). Commemorative jersey patches reading
+"FINAL [CITY] [YEAR]" are issued to the WINNING team as a champion's patch — do not report a
+final as merely "the club played in it" if your search shows they won it; state the outcome
+plainly (won / runner-up) so this is unambiguous downstream.
 
-Start with "RECENT CONFIRMED TITLES:" then list each confirmed title on its own line as:
-[competition] — [year] — [host city or "unknown"]
+For each CONFIRMED result, report: competition name, year, WON or RUNNER-UP, and host city of
+the final if known (needed for "FINAL [CITY] [YEAR]" style commemorative patches). Only report
+what your search actually confirms — do not guess or extrapolate. If a search finds nothing for
+a competition, say so explicitly instead of omitting it silently.
+
+Start with "RECENT CONFIRMED TITLES:" then list each confirmed result on its own line as:
+[competition] — [year] — WON or RUNNER-UP — [host city or "unknown"]
 If no confirmed titles were found at all, write exactly: "RECENT CONFIRMED TITLES: none found"."""
 
 
