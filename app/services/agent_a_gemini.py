@@ -1157,10 +1157,18 @@ def _build_sku_observation_text(
     if not raw_sku or sku_lower in ("nieustalone", "nieczytelne", "unknown", "—", "n/a", "brak"):
         return "Kod SKU nie jest widoczny na dostarczonych zdjęciach."
     sku_status = (sku_verification.get("status") or "uncertain")
-    if sku_status == "confirmed":
+    # Wartości faktycznie zwracane przez sku_agent.py (patrz run_sku_verification):
+    # found_official / found_authorized / found_unofficial / not_found / format_invalid
+    # (+ fallbacki uncertain/not_applicable). "confirmed"/"mismatch" to nazwy z
+    # nieaktualnej wersji — nigdy nie są dziś zwracane, więc ta gałąź zawsze
+    # trafiała w else i pokazywała "nie został potwierdzony" nawet dla
+    # found_official, w sprzeczności z resztą raportu (external_checks_effect).
+    if sku_status in ("confirmed", "found_official", "found_authorized"):
         return "Kod SKU jest zgodny z tym modelem koszulki."
-    elif sku_status == "mismatch":
+    elif sku_status in ("mismatch", "found_unofficial"):
         return f"Kod SKU ({raw_sku}) nie odpowiada opisowi tej koszulki."
+    elif sku_status == "format_invalid":
+        return f"Kod SKU ({raw_sku}) ma nieprawidłowy format."
     else:  # not_found, uncertain, not_applicable
         return f"Kod SKU ({raw_sku}) nie został potwierdzony jako odpowiadający tej koszulce."
 
@@ -2619,8 +2627,23 @@ class GeminiAgentA:
         model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
         prompt_version = os.getenv("A_PROMPT_VERSION", DEFAULT_PROMPT_VERSION)
         system_prompt = _load_system_prompt()
+        # Model nie ma wbudowanej wiedzy o dzisiejszej dacie — bez tego zakłada swój
+        # własny training cutoff jako "teraz" i traktuje realne, nowsze wydarzenia
+        # (np. tytuły zdobyte po tej dacie) jako niemożliwe/fikcyjne. Patrz incydent
+        # PSG Kvaratskhelia (2026-08-19): naszywki "FINAL BUDAPEST 2026" i
+        # "INTERCONTINENTAL CHAMPIONS 2025" odrzucone jako fikcja, mimo że to realne,
+        # rozegrane wydarzenia — model po prostu o nich nie wiedział.
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        system_prompt = (
+            system_prompt
+            + f"\n\n---\nDZISIEJSZA DATA: {today}. Wydarzenia sportowe (finały, tytuły, "
+            "transfery) sprzed tej daty mogły się realnie wydarzyć, NAWET jeśli nie znasz "
+            "ich z własnej wiedzy treningowej — Twoja wiedza ma datę odcięcia wcześniejszą "
+            "niż dzisiejsza data. Nierozpoznana nazwa turnieju/tytułu na naszywce NIE jest "
+            "sama w sobie dowodem podróbki."
+        )
         if extra_context:
-            system_prompt = system_prompt + "\n\n---\nCURRENT OFFICIAL KIT INFORMATION (from web search — treat as ground truth):\n" + extra_context[:3000]
+            system_prompt = system_prompt + "\n\n---\nCURRENT OFFICIAL KIT INFORMATION (from web search — treat as ground truth):\n" + extra_context[:4000]
 
         api_key = _get_api_key()
         if not api_key:

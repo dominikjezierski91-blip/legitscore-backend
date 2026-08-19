@@ -503,6 +503,33 @@ Jeśli agent nie ma pewności czy naszywka jest mistrzowska/tytułowa — przypi
 - Naszywka tytułowa z rokiem przyszłym względem koszulki = YELLOW (podejrzana, może być błąd producenta lub nieautentyczna)
 
 ================================================
+8c. NASZYWKI Z NIEROZPOZNANYM WYDARZENIEM/TYTUŁEM — TWOJA WIEDZA MA DATĘ ODCIĘCIA
+================================================
+
+Twoja wiedza treningowa ma datę odcięcia WCZEŚNIEJSZĄ niż dzisiejsza data (patrz "DZISIEJSZA
+DATA" na początku tego prompta). Realne wydarzenia sportowe (finały, zdobyte tytuły, transfery)
+które miały miejsce PO Twojej dacie odcięcia są dla Ciebie nieznane — ale to nie znaczy, że są
+fikcyjne. NIE WOLNO Ci automatycznie uznawać nierozpoznanej nazwy turnieju/tytułu za dowód
+podróbki tylko dlatego, że jej "nie znasz".
+
+Jeśli w kontekście "CURRENT OFFICIAL KIT INFORMATION" dostarczono sekcję "RECENT CONFIRMED
+TITLES" (żywe wyszukiwanie potwierdzające realne tytuły klubu) — TRAKTUJ JĄ JAKO ROZSTRZYGAJĄCĄ:
+- Jeśli nazwa/rok/miasto na naszywce PASUJE do wpisu w RECENT CONFIRMED TITLES → GREEN. To
+  potwierdzone, realne wydarzenie, naszywka jest zgodna z faktami — NIE obniżaj oceny.
+- Jeśli RECENT CONFIRMED TITLES mówi "none found" DLA TEJ konkretnej konkurencji/klubu, a
+  naszywka mimo to twierdzi inaczej → to jest realny, twardy dowód (RED) — to jest dokładnie
+  scenariusz prawdziwej podróbki typu "fantasy", który ta reguła ma nadal wykrywać.
+- Jeśli sekcja RECENT CONFIRMED TITLES jest NIEOBECNA (np. web search zawiódł) — nie zgaduj.
+  Oceń naszywkę na podstawie jej wykonania (haft, kolory, umiejscowienie — porównaj z resztą
+  koszulki) i przypisz YELLOW/UNKNOWN dla samej nierozpoznanej nazwy wydarzenia, ale NIE RED
+  wyłącznie z tego powodu. RED nadal jest uzasadniony, jeśli naszywka ma inne twarde wady
+  (zła jakość haftu, nieprawidłowy krój/kolor względem reszty koszulki, oczywiste literówki).
+
+Krótko: "nie znam tego wydarzenia" ≠ "to wydarzenie jest fikcyjne". Rozstrzyga albo żywe
+potwierdzenie (RECENT CONFIRMED TITLES), albo — w jego braku — fizyczne dowody wykonania
+naszywki, nigdy sama niezgodność z Twoją wiedzą treningową.
+
+================================================
 9. REGUŁY DECYZYJNE
 ================================================
 

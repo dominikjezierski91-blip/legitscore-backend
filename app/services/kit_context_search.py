@@ -58,6 +58,29 @@ If two seasons look similar, state exactly what differentiates them.
 
 Start with "OFFICIAL KIT CONTEXT:" — plain text only."""
 
+_TROPHY_SEARCH_PROMPT = """You are a football trophy researcher with access to Google Search.
+
+Search for OFFICIAL, VERIFIABLE trophies/titles won by the given club, focusing on the current
+year and the two years before it (recent seasons only — do not report older history).
+Cover: domestic league, domestic cup, continental competitions (e.g. Champions League / Europa
+League / Copa Libertadores), and world/intercontinental titles (e.g. FIFA Intercontinental Cup,
+Club World Cup).
+
+MANDATORY searches — run ALL:
+1. "[club] trophies won 2024 2025 2026"
+2. "[club] champions league final winner"
+3. "[club] league title winner 2025 2026"
+4. "[club] intercontinental cup OR club world cup winner"
+
+For each CONFIRMED title, report: competition name, year won, and host city of the final if
+known (needed for "FINAL [CITY] [YEAR]" style commemorative patches). Only report what your
+search actually confirms — do not guess or extrapolate. If a search finds nothing for a
+competition, say so explicitly instead of omitting it silently.
+
+Start with "RECENT CONFIRMED TITLES:" then list each confirmed title on its own line as:
+[competition] — [year] — [host city or "unknown"]
+If no confirmed titles were found at all, write exactly: "RECENT CONFIRMED TITLES: none found"."""
+
 
 def _club_to_footy_headlines_slug(club: str) -> str:
     """FC Barcelona → fc-barcelona, Atlético Madrid → atletico-madrid"""
@@ -132,24 +155,56 @@ async def run_kit_context_search(asset_paths: List[str]) -> str:
         logger.info("[KIT_CONTEXT] Nieznany klub — pomijam search")
         return ""
 
-    # --- Krok 2: live scraping footy-headlines.com via url_context ---
+    # --- Krok 2a: żywa weryfikacja ostatnich tytułów/pucharów (Google Search) ---
+    # Uruchamiana ZAWSZE, niezależnie od tego, czy web-scraping designu kroju się
+    # powiedzie — to ta część, która pozwala Agentowi A wiedzieć, że np. "FINAL
+    # BUDAPEST 2026" to prawdziwe, rozegrane wydarzenie, a nie fikcja (patrz
+    # incydent PSG Kvaratskhelia). Non-fatal: pusty string przy błędzie.
+    trophy_context = await _fetch_recent_trophies(client, fast_model, types, club)
+    if trophy_context:
+        logger.info("[KIT_CONTEXT] Trophy search ok (%d znaków)", len(trophy_context))
+
+    # --- Krok 2b: live scraping footy-headlines.com via url_context ---
     slug = _club_to_footy_headlines_slug(club)
     kits_url = f"https://www.footy-headlines.com/{slug}-kits/"
     logger.info("[KIT_CONTEXT] Próba url_context: %s", kits_url)
 
-    context = await _fetch_via_url_context(client, fast_model, types, kits_url, identification)
+    kit_context = await _fetch_via_url_context(client, fast_model, types, kits_url, identification)
 
-    if context:
-        logger.info("[KIT_CONTEXT] url_context ok (%d znaków)", len(context))
-        return context
+    if kit_context:
+        logger.info("[KIT_CONTEXT] url_context ok (%d znaków)", len(kit_context))
+    else:
+        # --- Fallback: Google Search ---
+        logger.info("[KIT_CONTEXT] url_context nieudany — fallback na Google Search")
+        kit_context = await _fetch_via_google_search(client, fast_model, types, identification)
+        if kit_context:
+            logger.info("[KIT_CONTEXT] Google Search ok (%d znaków)", len(kit_context))
 
-    # --- Fallback: Google Search ---
-    logger.info("[KIT_CONTEXT] url_context nieudany — fallback na Google Search")
-    context = await _fetch_via_google_search(client, fast_model, types, identification)
+    # Trophy context na początku (krótszy, decyzyjnie ważniejszy) — przeżyje
+    # ewentualne ucięcie extra_context[:4000] w agent_a_gemini.py, nawet jeśli
+    # opis kroju jest długi.
+    parts_out = [p for p in (trophy_context, kit_context) if p]
+    return "\n\n".join(parts_out)
 
-    if context:
-        logger.info("[KIT_CONTEXT] Google Search ok (%d znaków)", len(context))
-    return context
+
+async def _fetch_recent_trophies(client, model: str, types, club: str) -> str:
+    try:
+        resp = await client.aio.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=[types.Part(text=f"Club: {club}")])],
+            config=types.GenerateContentConfig(
+                system_instruction=_TROPHY_SEARCH_PROMPT,
+                temperature=0.1,
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+            ),
+        )
+        text = (resp.text or "").strip()
+        if "RECENT CONFIRMED TITLES:" in text:
+            return text
+        return ""
+    except Exception as e:
+        logger.warning("[KIT_CONTEXT] Trophy search error: %s", e)
+        return ""
 
 
 async def _fetch_via_url_context(client, model: str, types, url: str, identification: str) -> str:
