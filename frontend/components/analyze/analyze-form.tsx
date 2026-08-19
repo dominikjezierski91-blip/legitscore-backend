@@ -5,7 +5,6 @@ import Link from "next/link";
 import { PhotoRequirementsCard } from "./photo-requirements-card";
 import { MultiImageUploader } from "./multi-image-uploader";
 import { ReportType, ReportTypeSelector } from "./report-type-selector";
-import { SubmissionDisclaimer } from "./submission-disclaimer";
 import { SubmitSummaryCard } from "./submit-summary-card";
 import { createCase, getCredits, authMe } from "@/lib/api";
 import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
@@ -334,21 +333,6 @@ export function AnalyzeForm() {
           </div>
         </section>
 
-        {/* STEP 4 — DISCLAIMER / CTA */}
-        <section className="mt-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full border border-emerald-400/60 bg-emerald-500/10 text-[11px] text-emerald-200">
-              4
-            </span>
-            <span>Uruchom analizę</span>
-          </div>
-          <SubmissionDisclaimer
-            accepted={acceptedDisclaimer}
-            onChange={setAcceptedDisclaimer}
-            showCheckbox={regulaminCheckboxNeeded}
-          />
-        </section>
-
         {error && (
           <p className="text-xs text-amber-300" role="alert">
             {error}
@@ -371,6 +355,9 @@ export function AnalyzeForm() {
         submitPhase={submitPhase}
         isLoggedIn={Boolean(user)}
         credits={credits}
+        disclaimerAccepted={acceptedDisclaimer}
+        onDisclaimerChange={setAcceptedDisclaimer}
+        showDisclaimerCheckbox={regulaminCheckboxNeeded}
       />
     </div>
   );

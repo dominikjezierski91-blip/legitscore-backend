@@ -12,6 +12,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { ReportType } from "./report-type-selector";
+import { SubmissionDisclaimer } from "./submission-disclaimer";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -28,6 +29,9 @@ type Props = {
   submitPhase?: "idle" | "creating" | "uploading" | "navigating";
   isLoggedIn?: boolean;
   credits?: number | null;
+  disclaimerAccepted: boolean;
+  onDisclaimerChange: (accepted: boolean) => void;
+  showDisclaimerCheckbox: boolean;
 };
 
 export function SubmitSummaryCard({
@@ -44,6 +48,9 @@ export function SubmitSummaryCard({
   submitPhase = "idle",
   isLoggedIn = false,
   credits = null,
+  disclaimerAccepted,
+  onDisclaimerChange,
+  showDisclaimerCheckbox,
 }: Props) {
   const submitLabel =
     submitPhase === "creating" ? "Tworzę sprawę..." :
@@ -113,6 +120,9 @@ export function SubmitSummaryCard({
           na podstawie przesłanych zdjęć. To narzędzie pomocnicze, nie
           gwarancja.
         </p>
+        {showDisclaimerCheckbox && (
+          <SubmissionDisclaimer accepted={disclaimerAccepted} onChange={onDisclaimerChange} />
+        )}
       </div>
 
       <div className="mt-4 space-y-2">

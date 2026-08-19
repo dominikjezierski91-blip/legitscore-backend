@@ -149,10 +149,14 @@ export function SocialLoginButtons({
       {GOOGLE_CLIENT_ID && (
         <div
           className={
-            "flex justify-center transition [&>div]:!w-full " +
+            "flex justify-center overflow-hidden rounded-full transition [&>div]:!w-full " +
             (consentAccepted ? "" : "pointer-events-none opacity-50")
           }
         >
+          {/* Google renderButton() nie zawsze respektuje shape:"pill" — w stanie
+              "zalogowany jako [imię]" (rozpoznana sesja Google) przycisk bywa mniej
+              zaokrąglony niż zwykły. overflow-hidden na wrapperze wymusza zaokrąglenie
+              wizualnie, niezależnie od tego, co Google wyrenderuje w środku. */}
           <div ref={googleButtonRef} />
         </div>
       )}
