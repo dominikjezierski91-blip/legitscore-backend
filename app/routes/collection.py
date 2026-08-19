@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -216,12 +216,13 @@ async def delete_from_collection(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Nie znaleziono pozycji w kolekcji.")
-    # Usuń zdjęcie jeśli istnieje
-    if item.photo_path:
-        try:
-            Path(item.photo_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+    # Usuń zdjęcia jeśli istnieją
+    for path in (item.photo_path, item.photo_path_2):
+        if path:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except Exception:
+                pass
     db.delete(item)
     db.commit()
     return {"ok": True}
@@ -233,10 +234,13 @@ async def delete_from_collection(
 async def upload_collection_photo(
     item_id: str,
     file: UploadFile = File(...),
+    slot: int = Query(1, ge=1, le=2),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Wgrywa zdjęcie profilowe dla pozycji kolekcji."""
+    """Wgrywa zdjęcie profilowe dla pozycji kolekcji. slot=1 — zdjęcie główne
+    (jak dotychczas), slot=2 — opcjonalne drugie zdjęcie (np. tył koszulki),
+    umożliwiające przesuwanie między zdjęciami w widoku szczegółowym."""
     item = db.query(CollectionItem).filter(
         CollectionItem.id == item_id,
         CollectionItem.user_id == current_user.id,
@@ -249,15 +253,17 @@ async def upload_collection_photo(
 
     COLLECTION_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename or "photo.jpg").suffix or ".jpg"
-    photo_path = COLLECTION_PHOTOS_DIR / f"{item_id}{ext}"
+    suffix = "" if slot == 1 else "_2"
+    photo_path = COLLECTION_PHOTOS_DIR / f"{item_id}{suffix}{ext}"
 
     with photo_path.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Usuń stare zdjęcie jeśli inne rozszerzenie
-    if item.photo_path and item.photo_path != str(photo_path):
+    existing_path = item.photo_path if slot == 1 else item.photo_path_2
+    # Usuń stare zdjęcie tego samego slotu jeśli inne rozszerzenie
+    if existing_path and existing_path != str(photo_path):
         try:
-            Path(item.photo_path).unlink(missing_ok=True)
+            Path(existing_path).unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -265,27 +271,34 @@ async def upload_collection_photo(
     try:
         repo_root = Path(__file__).resolve().parents[2]
         relative_path = photo_path.relative_to(repo_root)
-        item.photo_path = str(relative_path)
+        resolved_path = str(relative_path)
     except ValueError:
         # Jeśli nie można zrelatywizować — zapisz absolutną
-        item.photo_path = str(photo_path)
+        resolved_path = str(photo_path)
+
+    if slot == 1:
+        item.photo_path = resolved_path
+    else:
+        item.photo_path_2 = resolved_path
     db.commit()
-    return {"ok": True, "photo_path": item.photo_path}
+    return {"ok": True, "photo_path": resolved_path, "slot": slot}
 
 
 @router.get("/collection/{item_id}/thumbnail")
 async def get_collection_thumbnail(
     item_id: str,
+    slot: int = Query(1, ge=1, le=2),
     db: Session = Depends(get_db),
 ):
-    """Serwuje zdjęcie profilowe pozycji kolekcji."""
+    """Serwuje zdjęcie profilowe pozycji kolekcji (slot=1 główne, slot=2 opcjonalne drugie)."""
     item = db.query(CollectionItem).filter(
         CollectionItem.id == item_id,
     ).first()
-    if not item or not item.photo_path:
+    target_path = (item.photo_path if slot == 1 else item.photo_path_2) if item else None
+    if not target_path:
         raise HTTPException(status_code=404, detail="Brak zdjęcia.")
 
-    raw_path = item.photo_path
+    raw_path = target_path
     path = Path(raw_path)
     # Jeśli ścieżka relatywna — rozwiąż względem repo root
     if not path.is_absolute():
@@ -394,6 +407,7 @@ def _serialize(item: CollectionItem) -> dict:
         "notes": item.notes,
         "is_manual": bool(item.is_manual),
         "has_photo": bool(item.photo_path),
+        "has_photo_2": bool(item.photo_path_2),
         "market_value_pln": item.market_value_pln,
         "market_value_range_min": item.market_value_range_min,
         "market_value_range_max": item.market_value_range_max,

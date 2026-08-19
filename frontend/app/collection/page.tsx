@@ -416,19 +416,20 @@ export default function CollectionPage() {
               </div>
             )}
 
-            {/* Zapisz obecny filtr+sortowanie jako swój domyślny widok */}
+            {/* Zapisz obecny filtr+sortowanie jako swój domyślny widok — tylko ikona,
+                żeby zmieściło się w rzędzie z Filtr/Sortuj bez zawijania */}
             <button
               onClick={toggleSavedView}
+              aria-label={isCurrentViewSaved ? "Usuń zapisany widok" : "Zapisz ten widok jako domyślny"}
               title={isCurrentViewSaved ? "Usuń zapisany widok" : "Zapisz ten widok jako domyślny"}
               className={cn(
-                "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition",
+                "flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border transition",
                 isCurrentViewSaved
                   ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-300"
                   : "border-border/60 bg-slate-900/40 text-slate-300 hover:border-slate-500 hover:text-slate-100"
               )}
             >
-              {isCurrentViewSaved ? <BookmarkCheck className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
-              {isCurrentViewSaved ? "Twój widok" : "Zapisz widok"}
+              {isCurrentViewSaved ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
             </button>
           </div>
         </div>
@@ -566,10 +567,10 @@ function PortfolioStats({ items }: { items: any[] }) {
     <div className="space-y-2">
       {itemsWithMarket > 0 ? (
         <div className="glass-card space-y-3 p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Portfel Koszulek · wartość rynkowa</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Portfel Koszulek · wartość rynkowa</p>
           <div>
             <p className="text-3xl font-bold tracking-tight text-emerald-300">{fmt(totalMarket)} PLN</p>
-            <p className="mt-0.5 text-[10px] text-slate-600">wycena {itemsWithMarket} z {items.length} koszulek</p>
+            <p className="mt-0.5 text-xs text-slate-500">wycena {itemsWithMarket} z {items.length} koszulek</p>
           </div>
           {gain != null && (
             <p className={cn("flex items-center gap-1 text-sm font-semibold", gain >= 0 ? "text-emerald-400" : "text-red-400")}>
@@ -578,12 +579,20 @@ function PortfolioStats({ items }: { items: any[] }) {
             </p>
           )}
           {(totalInvested > 0 || mostExpensive) && (
-            <div className="space-y-0.5 border-t border-border/30 pt-2 text-[11px] text-slate-500">
+            <div className="grid grid-cols-2 gap-3 border-t border-border/30 pt-3">
               {totalInvested > 0 && (
-                <p>Zainwestowano: <span className="text-slate-400">{fmt(totalInvested)} PLN</span></p>
+                <div>
+                  <p className="text-[11px] text-slate-500">Zainwestowano</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-200">{fmt(totalInvested)} PLN</p>
+                </div>
               )}
               {mostExpensive && (
-                <p>Najdroższa koszulka:{mostExpensive.club ? ` ${mostExpensive.club} ·` : ""} <span className="text-slate-400">~{fmt(mostExpensive.market_value_pln)} PLN</span></p>
+                <div>
+                  <p className="truncate text-[11px] text-slate-500">
+                    Najdroższa{mostExpensive.club ? ` · ${mostExpensive.club}` : ""}
+                  </p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-200">~{fmt(mostExpensive.market_value_pln)} PLN</p>
+                </div>
               )}
             </div>
           )}
@@ -591,9 +600,9 @@ function PortfolioStats({ items }: { items: any[] }) {
       ) : (
         totalInvested > 0 && (
           <div className="glass-card flex flex-col items-center gap-1 p-5 text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Portfel Koszulek</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Portfel Koszulek</p>
             <p className="text-3xl font-bold tracking-tight text-slate-100">{fmt(totalInvested)} PLN</p>
-            <p className="text-[10px] text-slate-600">zainwestowano · {itemsWithPrice} z {items.length} koszulek z ceną</p>
+            <p className="text-xs text-slate-500">zainwestowano · {itemsWithPrice} z {items.length} koszulek z ceną</p>
           </div>
         )
       )}
@@ -603,7 +612,7 @@ function PortfolioStats({ items }: { items: any[] }) {
 
 // ── Jersey Thumbnail ──────────────────────────────────────────
 
-function JerseyThumbnail({ item, hero }: { item: any; hero?: boolean }) {
+function JerseyThumbnail({ item }: { item: any }) {
   const [imgError, setImgError] = useState(false);
   const isRisky = item.verdict_category === "podrobka";
   const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
@@ -614,36 +623,6 @@ function JerseyThumbnail({ item, hero }: { item: any; hero?: boolean }) {
     : item.case_id && !item.is_manual
     ? `${apiBase}/api/cases/${item.case_id}/thumbnail`
     : null;
-
-  // Widok szczegółowy: całe zdjęcie widoczne (object-contain, bez przycinania),
-  // wyśrodkowane na ciemnym tle z delikatną poświatą zamiast twardego aspect-ratio.
-  if (hero) {
-    const heroWrapperClass = cn(
-      "relative flex w-full items-center justify-center overflow-hidden py-7",
-      "bg-[radial-gradient(circle_at_50%_15%,rgba(16,185,129,0.18),transparent_60%),linear-gradient(to_bottom,#020617,#0b1120)]"
-    );
-    return (
-      <div className={cn(heroWrapperClass, !src || imgError ? "min-h-[220px]" : undefined)}>
-        {src && !imgError ? (
-          <img
-            src={src}
-            alt=""
-            onError={() => setImgError(true)}
-            className="max-h-[55vh] w-auto max-w-full object-contain drop-shadow-[0_18px_35px_rgba(0,0,0,0.55)]"
-          />
-        ) : (
-          <svg viewBox="0 0 44 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-28 w-auto opacity-70">
-            <path d="M8 8 L4 18 L12 20 L12 56 L32 56 L32 20 L40 18 L36 8 L28 12 Q22 15 16 12 Z"
-              fill={isRisky ? "rgba(239,68,68,0.15)" : "rgba(16,185,129,0.12)"}
-              stroke={isRisky ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.35)"}
-              strokeWidth="1.2" strokeLinejoin="round" />
-            <path d="M16 12 Q22 17 28 12" stroke={isRisky ? "rgba(239,68,68,0.5)" : "rgba(16,185,129,0.5)"} strokeWidth="1.2" fill="none" strokeLinecap="round" />
-          </svg>
-        )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950 to-transparent" />
-      </div>
-    );
-  }
 
   // Widok ogólny (karta w siatce) — miniatura, przycięta do jednego kształtu
   const wrapperClass = "relative w-full overflow-hidden border-b border-white/5 aspect-[4/3]";
@@ -665,6 +644,109 @@ function JerseyThumbnail({ item, hero }: { item: any; hero?: boolean }) {
           strokeWidth="1.2" strokeLinejoin="round" />
         <path d="M16 12 Q22 17 28 12" stroke={isRisky ? "rgba(239,68,68,0.5)" : "rgba(16,185,129,0.5)"} strokeWidth="1.2" fill="none" strokeLinecap="round" />
       </svg>
+    </div>
+  );
+}
+
+// Widok szczegółowy: całe zdjęcie widoczne (object-contain, bez przycinania) na
+// ciemnym tle z poświatą; jeśli jest drugie zdjęcie (manual: photo_path_2, analyzed:
+// drugie wgrane zdjęcie z case'a), można przełączać swipe'em lub kropkami.
+// Uwaga: imgError resetuje się tylko po zmianie index/src2, nie po item.id — bezpieczne
+// dopóki komponent mountuje się na nowo przy każdym otwarciu modala (obecny call site),
+// ale przy ewentualnym reużyciu jako trwały pager między pozycjami dodaj item.id do zależności.
+function HeroPhotoCarousel({ item }: { item: any }) {
+  const isRisky = item.verdict_category === "podrobka";
+  const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+
+  const src1 = item.has_photo
+    ? getCollectionThumbnailUrl(item.id, 1)
+    : item.case_id && !item.is_manual
+    ? `${apiBase}/api/cases/${item.case_id}/thumbnail?index=0`
+    : null;
+  const src2 = item.has_photo
+    ? (item.has_photo_2 ? getCollectionThumbnailUrl(item.id, 2) : null)
+    : item.case_id && !item.is_manual
+    ? `${apiBase}/api/cases/${item.case_id}/thumbnail?index=1`
+    : null;
+
+  const [index, setIndex] = useState(0);
+  const [hasSecond, setHasSecond] = useState(false);
+  const [imgError, setImgError] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [index]);
+
+  useEffect(() => {
+    setIndex(0);
+    setImgError(false);
+    if (!src2) { setHasSecond(false); return; }
+    let cancelled = false;
+    const probe = new window.Image();
+    probe.onload = () => { if (!cancelled) setHasSecond(true); };
+    probe.onerror = () => { if (!cancelled) setHasSecond(false); };
+    probe.src = src2;
+    return () => { cancelled = true; };
+  }, [src2]);
+
+  function onTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX;
+  }
+  function onTouchEnd(e: React.TouchEvent) {
+    if (touchStartX.current == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < 40) return;
+    if (dx < 0 && hasSecond) setIndex(1);
+    if (dx > 0) setIndex(0);
+  }
+
+  const activeSrc = index === 0 ? src1 : src2;
+  const wrapperClass = cn(
+    "relative flex w-full items-center justify-center overflow-hidden py-7 select-none",
+    "bg-[radial-gradient(circle_at_50%_15%,rgba(16,185,129,0.18),transparent_60%),linear-gradient(to_bottom,#020617,#0b1120)]"
+  );
+
+  return (
+    <div
+      className={cn(wrapperClass, !activeSrc || imgError ? "min-h-[220px]" : undefined)}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
+      {activeSrc && !imgError ? (
+        <img
+          key={activeSrc}
+          src={activeSrc}
+          alt=""
+          onError={() => setImgError(true)}
+          className="max-h-[55vh] w-auto max-w-full object-contain drop-shadow-[0_18px_35px_rgba(0,0,0,0.55)]"
+        />
+      ) : (
+        <svg viewBox="0 0 44 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-28 w-auto opacity-70">
+          <path d="M8 8 L4 18 L12 20 L12 56 L32 56 L32 20 L40 18 L36 8 L28 12 Q22 15 16 12 Z"
+            fill={isRisky ? "rgba(239,68,68,0.15)" : "rgba(16,185,129,0.12)"}
+            stroke={isRisky ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.35)"}
+            strokeWidth="1.2" strokeLinejoin="round" />
+          <path d="M16 12 Q22 17 28 12" stroke={isRisky ? "rgba(239,68,68,0.5)" : "rgba(16,185,129,0.5)"} strokeWidth="1.2" fill="none" strokeLinecap="round" />
+        </svg>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950 to-transparent" />
+      {hasSecond && (
+        <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5">
+          {[0, 1].map((i) => (
+            <button
+              key={i}
+              onClick={() => setIndex(i)}
+              aria-label={`Zdjęcie ${i + 1}`}
+              className={cn(
+                "h-1.5 rounded-full transition-all",
+                index === i ? "w-5 bg-emerald-400" : "w-1.5 bg-white/40"
+              )}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -967,7 +1049,7 @@ function CollectionCard({
         >
           <div className={cn("glass-card w-full max-w-md overflow-hidden", isGenuineVerified && "ring-1 ring-amber-400/40")} onClick={(e) => e.stopPropagation()}>
             <div className="relative">
-              <JerseyThumbnail item={item} hero />
+              <HeroPhotoCarousel item={item} />
               <div className="absolute right-3 top-3 flex items-center gap-1.5">
                 {isAnalyzed && (
                   <span className={cn(
@@ -1043,7 +1125,18 @@ function CollectionCard({
               {/* Wartość rynkowa + zysk/strata + cena zakupu — pełny widok */}
               {marketValue != null && (
                 <div>
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Szacunkowa wartość</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">Szacunkowa wartość</p>
+                    <button
+                      onClick={handleValuate}
+                      disabled={valuating}
+                      title="Odśwież wycenę"
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 transition hover:text-emerald-300 disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn("h-3 w-3", valuating && "animate-spin")} />
+                      {valuating ? "Szacuję..." : "Odśwież"}
+                    </button>
+                  </div>
                   <div className="mt-0.5 flex items-baseline gap-2">
                   <span className="text-base font-semibold text-emerald-300">
                     ~{Math.round(marketValue).toLocaleString("pl-PL")} PLN
@@ -1208,16 +1301,18 @@ function CollectionCard({
                       {valuating ? "Szacuję..." : "Sprawdź ponownie"}
                     </button>
                   </span>
-                ) : (
+                ) : marketValue == null ? (
+                  // marketValue != null: przycisk odświeżenia jest już przy "Szacunkowa
+                  // wartość" wyżej — nie duplikujemy go tutaj.
                   <button
                     onClick={handleValuate}
                     disabled={valuating}
                     className="inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-800/40 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-emerald-400/40 hover:text-emerald-300 disabled:opacity-50"
                   >
                     <RefreshCw className={cn("h-3 w-3", valuating && "animate-spin")} />
-                    {valuating ? "Szacuję..." : marketValue != null ? "Odśwież wycenę" : "Sprawdź wartość rynkową"}
+                    {valuating ? "Szacuję..." : "Sprawdź wartość rynkową"}
                   </button>
-                )}
+                ) : null}
                 {item.market_value_updated_at && !noDataAfterRefresh && (
                   <span className="self-center text-[11px] text-slate-600">
                     Wycena: {new Date(item.market_value_updated_at).toLocaleDateString("pl-PL")}

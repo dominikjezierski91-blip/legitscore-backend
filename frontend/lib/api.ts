@@ -347,15 +347,15 @@ export async function updateCollectionItem(
   });
 }
 
-export async function uploadCollectionPhoto(itemId: string, file: File): Promise<{ ok: boolean }> {
+export async function uploadCollectionPhoto(itemId: string, file: File, slot: 1 | 2 = 1): Promise<{ ok: boolean }> {
   const form = new FormData();
   form.append("file", file);
-  return request(`/api/collection/${itemId}/photo`, { method: "POST", body: form });
+  return request(`/api/collection/${itemId}/photo?slot=${slot}`, { method: "POST", body: form });
 }
 
-export function getCollectionThumbnailUrl(itemId: string): string {
+export function getCollectionThumbnailUrl(itemId: string, slot: 1 | 2 = 1): string {
   const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-  return `${base}/api/collection/${itemId}/thumbnail`;
+  return `${base}/api/collection/${itemId}/thumbnail?slot=${slot}`;
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {

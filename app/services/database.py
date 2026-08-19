@@ -205,6 +205,7 @@ class CollectionItem(Base):
     # Ręczne dodawanie do kolekcji (bez analizy)
     is_manual = Column(Boolean, default=False, nullable=True)
     photo_path = Column(String, nullable=True)  # ścieżka do zdjęcia profilowego (manual lub override)
+    photo_path_2 = Column(String, nullable=True)  # opcjonalne drugie zdjęcie (np. tył koszulki)
 
 
 class SupportSubmission(Base):
@@ -266,6 +267,7 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     _migrate_collection_market_value()
     _migrate_collection_manual_fields()
+    _migrate_collection_photo_2()
     _migrate_user_profile_fields()
     _migrate_password_reset_tokens()
     _migrate_consent_fields()
@@ -376,6 +378,19 @@ def _migrate_collection_manual_fields():
                 conn.execute(__import__("sqlalchemy").text(
                     f"ALTER TABLE collection_items ADD COLUMN {col_name} {col_type}"
                 ))
+        conn.commit()
+
+
+def _migrate_collection_photo_2():
+    """Dodaje kolumnę photo_path_2 (opcjonalne drugie zdjęcie) do collection_items."""
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(collection_items)")
+        )}
+        if "photo_path_2" not in existing:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE collection_items ADD COLUMN photo_path_2 TEXT"
+            ))
         conn.commit()
 
 

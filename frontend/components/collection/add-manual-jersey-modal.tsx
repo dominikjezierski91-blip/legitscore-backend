@@ -25,8 +25,11 @@ interface Props {
 export function AddManualJerseyModal({ onClose, onAdded }: Props) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const fileRef2 = useRef<HTMLInputElement>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoFile2, setPhotoFile2] = useState<File | null>(null);
+  const [photoPreview2, setPhotoPreview2] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
@@ -57,6 +60,13 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
     setPhotoFile(file);
     setPhotoPreview(URL.createObjectURL(file));
     setErrors((e) => { const n = { ...e }; delete n.photo; return n; });
+  }
+
+  function handlePhotoChange2(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoFile2(file);
+    setPhotoPreview2(URL.createObjectURL(file));
   }
 
   function validate() {
@@ -93,8 +103,12 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
       });
 
       if (photoFile) {
-        await uploadCollectionPhoto(item.id, photoFile);
+        await uploadCollectionPhoto(item.id, photoFile, 1);
         item.has_photo = true;
+      }
+      if (photoFile2) {
+        await uploadCollectionPhoto(item.id, photoFile2, 2);
+        item.has_photo_2 = true;
       }
 
       onAdded(item);
@@ -156,29 +170,51 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
           </button>
         </div>
 
-        {/* Zdjęcie */}
-        <div>
-          <label className="block text-xs text-slate-400 mb-1.5">
-            Zdjęcie profilowe <span className="text-red-400">*</span>
-          </label>
-          <div
-            onClick={() => fileRef.current?.click()}
-            className={cn(
-              "flex h-28 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed transition",
-              errors.photo ? "border-red-500/60 bg-red-950/20" : "border-slate-600/60 bg-slate-800/40 hover:border-emerald-500/40"
-            )}
-          >
-            {photoPreview ? (
-              <img src={photoPreview} alt="" className="h-full w-full rounded-xl object-cover" />
-            ) : (
-              <div className="flex flex-col items-center gap-1 text-slate-500">
-                <Upload className="h-5 w-5" />
-                <span className="text-xs">Kliknij aby wybrać zdjęcie</span>
-              </div>
-            )}
+        {/* Zdjęcia */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-slate-400 mb-1.5">
+              Zdjęcie profilowe <span className="text-red-400">*</span>
+            </label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              className={cn(
+                "flex h-28 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed transition",
+                errors.photo ? "border-red-500/60 bg-red-950/20" : "border-slate-600/60 bg-slate-800/40 hover:border-emerald-500/40"
+              )}
+            >
+              {photoPreview ? (
+                <img src={photoPreview} alt="" className="h-full w-full rounded-xl object-cover" />
+              ) : (
+                <div className="flex flex-col items-center gap-1 text-slate-500 px-2 text-center">
+                  <Upload className="h-5 w-5" />
+                  <span className="text-xs">Kliknij aby wybrać zdjęcie</span>
+                </div>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+            {errors.photo && <p className="mt-1 text-[11px] text-red-400">{errors.photo}</p>}
           </div>
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
-          {errors.photo && <p className="mt-1 text-[11px] text-red-400">{errors.photo}</p>}
+
+          <div>
+            <label className="block text-xs text-slate-400 mb-1.5">
+              Drugie zdjęcie <span className="text-slate-600">(opcjonalnie)</span>
+            </label>
+            <div
+              onClick={() => fileRef2.current?.click()}
+              className="flex h-28 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-slate-600/60 bg-slate-800/40 transition hover:border-emerald-500/40"
+            >
+              {photoPreview2 ? (
+                <img src={photoPreview2} alt="" className="h-full w-full rounded-xl object-cover" />
+              ) : (
+                <div className="flex flex-col items-center gap-1 text-slate-500 px-2 text-center">
+                  <Upload className="h-5 w-5" />
+                  <span className="text-xs">np. tył koszulki</span>
+                </div>
+              )}
+            </div>
+            <input ref={fileRef2} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange2} />
+          </div>
         </div>
 
         {/* Wymagane */}

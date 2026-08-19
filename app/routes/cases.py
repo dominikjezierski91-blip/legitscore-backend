@@ -1336,21 +1336,28 @@ async def get_report_data(case_id: str):
 
 
 @router.get("/cases/{case_id}/thumbnail")
-async def get_case_thumbnail(case_id: str):
-    """Zwraca pierwsze zdjęcie z assets jako miniaturę do panelu kolekcji."""
+async def get_case_thumbnail(case_id: str, index: int = Query(0, ge=0)):
+    """Zwraca N-te (index) zdjęcie z assets jako miniaturę do panelu kolekcji —
+    domyślnie pierwsze (index=0). index=1 pozwala pobrać "drugie" wgrane zdjęcie
+    (bez wyboru AI który to przód/tył — po prostu kolejność wgrywania przez usera;
+    w praktyce user zwykle wgrywa przód, potem tył jako pierwsze dwa zdjęcia)."""
     from fastapi.responses import FileResponse as _FileResponse
     import mimetypes as _mimetypes
     case_data = load_case(case_id)
     assets = case_data.get("assets") or []
+    valid_paths: list[Path] = []
     for asset in assets:
         rel_path = (asset.get("path") or "").lstrip("/")
         if not rel_path:
             continue
         full_path = Path("data") / rel_path
         if full_path.exists() and full_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
-            mime = _mimetypes.guess_type(str(full_path))[0] or "image/jpeg"
-            return _FileResponse(str(full_path), media_type=mime, headers={"Cache-Control": "no-store, no-cache"})
-    raise HTTPException(status_code=404, detail="No image assets found")
+            valid_paths.append(full_path)
+    if index >= len(valid_paths):
+        raise HTTPException(status_code=404, detail="No image assets found")
+    full_path = valid_paths[index]
+    mime = _mimetypes.guess_type(str(full_path))[0] or "image/jpeg"
+    return _FileResponse(str(full_path), media_type=mime, headers={"Cache-Control": "no-store, no-cache"})
 
 
 @router.get("/cases/{case_id}/report-pdf")
