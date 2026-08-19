@@ -2634,14 +2634,20 @@ class GeminiAgentA:
         # "INTERCONTINENTAL CHAMPIONS 2025" odrzucone jako fikcja, mimo że to realne,
         # rozegrane wydarzenia — model po prostu o nich nie wiedział.
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        system_prompt = (
-            system_prompt
-            + f"\n\n---\nDZISIEJSZA DATA: {today}. Wydarzenia sportowe (finały, tytuły, "
-            "transfery) sprzed tej daty mogły się realnie wydarzyć, NAWET jeśli nie znasz "
-            "ich z własnej wiedzy treningowej — Twoja wiedza ma datę odcięcia wcześniejszą "
-            "niż dzisiejsza data. Nierozpoznana nazwa turnieju/tytułu na naszywce NIE jest "
-            "sama w sobie dowodem podróbki."
+        date_notice = (
+            f"DZISIEJSZA DATA: {today}. To jest PRAWDZIWA, aktualna data — nie Twoja data "
+            "odcięcia wiedzy treningowej. Twoja wiedza treningowa jest STARSZA niż dzisiejsza "
+            "data, więc NIE WIESZ o wydarzeniach sportowych, które wydarzyły się niedawno "
+            "(finały, zdobyte tytuły, transfery, nowe produkty). To dotyczy też kodów dat "
+            "produkcyjnych na metkach (np. 'HO25' = Holiday 2025, 'SP26' = Spring 2026) — "
+            f"skoro dzisiaj jest {today}, kod oznaczający dowolny okres PRZED tą datą jest "
+            "z przeszłości, NIE z przyszłości, i sam w sobie nie jest dowodem podróbki. "
+            "Zanim uznasz cokolwiek za 'niemożliwe' albo 'z przyszłości' (naszywkę, datę "
+            "produkcji, sezon), policz to względem prawdziwej dzisiejszej daty powyżej — nie "
+            "względem tego, co 'pamiętasz' z treningu. Nierozpoznana nazwa turnieju/tytułu "
+            "NIE jest sama w sobie dowodem podróbki."
         )
+        system_prompt = system_prompt + "\n\n---\n" + date_notice
         if extra_context:
             system_prompt = system_prompt + "\n\n---\nCURRENT OFFICIAL KIT INFORMATION (from web search — treat as ground truth):\n" + extra_context[:4000]
 
@@ -2659,7 +2665,12 @@ class GeminiAgentA:
         )
 
         parts: List[types.Part] = [
-            types.Part(text="Analyze the attached images. Return ONLY the JSON as specified.")
+            types.Part(
+                text=(
+                    f"Dzisiejsza data to {today} — to naprawdę dzisiejsza data, nie Twoja data "
+                    "odcięcia wiedzy. Analyze the attached images. Return ONLY the JSON as specified."
+                )
+            )
         ]
 
         valid_images = 0
