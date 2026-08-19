@@ -472,6 +472,116 @@ async def submit_decision(case_id: str, decision: Decision):
 _LOCK_FILE = "analysis.lock"
 
 
+def _apply_pcc_consistent_corrections(report_data: dict, pcc_reason: str, case_id: str = "") -> dict:
+    """Gdy PCC (player-club-consistency check, żywa weryfikacja czy zawodnik naprawdę gra
+    w klubie) potwierdza zgodność — czyści wszystkie miejsca w report_data, gdzie Agent A
+    mógł wcześniej (przed tą weryfikacją) zapisać niepewność/sprzeczność dotyczącą tej samej
+    rzeczy. Bez tego raport potrafi jednocześnie mówić "OK" w decision_matrix i "brak
+    możliwości weryfikacji" w key_evidence/reasoning_limits/missing_data — dokładnie tak jak
+    w realnym incydencie (PSG Kvaratskhelia, 2026-08-19: personalizacja "Kvaratskhelia 7"
+    uznana za niepewną, mimo że squad check w tabelce już potwierdzał, że zawodnik gra
+    w klubie).
+
+    Czysta transformacja report_data → report_data (bez I/O, bez side-effectów poza logami)
+    — testowalna niezależnie od pełnego pipeline'u run-decision, patrz tests/test_pcc_correction.py.
+
+    UWAGA: usunięcie wpisów z reasoning_limits/missing_data ma też realny wpływ na
+    confidence_ceiling/data_completeness w run_rule_engine (obie funkcje liczą długość tych
+    list względem progów) — to zamierzone, nie efekt uboczny: raz rozstrzygnięta niepewność
+    nie powinna nadal sztucznie obniżać pewności finalnego werdyktu.
+    """
+    dm = report_data.get("decision_matrix") or []
+    for row in dm:
+        if isinstance(row, dict) and row.get("code") == "E":
+            if row.get("status") in ("RED", "YELLOW"):
+                row["status"] = "GREEN"
+                row["impact"] = "neutralne"
+                row["observation"] = pcc_reason
+                logger.info("[PCC_CORRECTION] case_id=%s row E corrected", case_id)
+            break
+
+    # key_evidence — usuń wszelkie negatywne wpisy o personalizacji.
+    # Dopasowanie po temacie (personalizacja lub konkretny zawodnik z subject)
+    # ORAZ sentiment przez słowa kluczowe — nigdy po nazwisku zahardkodowanym.
+    _neg_personal_kw = {
+        "nieprawidłow", "niezgodn", "nieoficjaln", "fantasy",
+        "nigdy", "fałszyw", "podrób", "nieautentyczn",
+        "nieautoryzow", "wyklucza", "dowód przeciwko",
+        "fikcyjn", "unieważni", "podważa", "błędn",
+    }
+    _player_name_lower = (
+        (report_data.get("subject") or {}).get("player_name") or ""
+    ).strip().lower()
+    key_evidence = report_data.get("key_evidence") or []
+
+    def _is_negative_personalization(ev: dict) -> bool:
+        text = (ev.get("text") or "").lower()
+        about_personalization = "personalizacj" in text or (
+            _player_name_lower and _player_name_lower in text
+        )
+        if not about_personalization:
+            return False
+        return any(kw in text for kw in _neg_personal_kw)
+
+    # Wpisy z kodem F ("czy zawodnik faktycznie grał w klubie") omijają
+    # powyższy filtr keywordowy, bo wyrażają NIEPEWNOŚĆ ("brak możliwości
+    # weryfikacji"), nie jawną sprzeczność ("nieprawidłowy", "fałszywy" itd.)
+    # — a PCC właśnie tę niepewność rozstrzygnęło. Usuwamy je osobno po kodzie,
+    # inaczej raport sprzecznie mówi "OK" w tabelce i "niepewne" w kluczowych
+    # dowodach.
+    filtered_ev = [ev for ev in key_evidence
+                   if not (isinstance(ev, dict) and _is_negative_personalization(ev))
+                   and not (isinstance(ev, dict) and ev.get("code") == "F" and ev.get("type") == "negative")]
+    if len(filtered_ev) < len(key_evidence):
+        logger.info("[PCC_CORRECTION] case_id=%s removed %d negative key_evidence entries",
+                    case_id, len(key_evidence) - len(filtered_ev))
+    report_data["key_evidence"] = filtered_ev
+
+    # reasoning_limits / missing_data — te same "nie mogliśmy zweryfikować
+    # składu" zastrzeżenia potrafią przetrwać osobno jako zwykłe stringi w
+    # tych dwóch listach, niezależnie od key_evidence/decision_matrix. PCC
+    # właśnie tę weryfikację wykonało i potwierdziło — usuwamy nieaktualne
+    # zastrzeżenie stąd też, żeby podsumowanie raportu nie przeczyło tabelce.
+    #
+    # Samo "skład"/"squad" wystarcza jako sygnał — w prompt_a.txt to słowo
+    # występuje wyłącznie w kontekście "skład drużyny" (kryterium F), nigdy
+    # np. jako "skład materiałowy". Wcześniejsza wersja wymagała DODATKOWO
+    # słowa "zawodnik"/nazwiska gracza w tym samym zdaniu, ale realny tekst
+    # zapisywany przez Agent A bywa krótszy i odnosi się tylko do kodu
+    # kryterium, np. "...na sezon 2025/26 — F (Squad check) = UNKNOWN." —
+    # bez słowa "zawodnik" — więc ten warunek AND przepuszczał dokładnie ten
+    # przypadek (złapane testem tests/test_pcc_correction.py).
+    def _mentions_resolved_squad_uncertainty(text: str) -> bool:
+        t = (text or "").lower()
+        return "skład" in t or "squad" in t
+
+    reasoning_limits = report_data.get("reasoning_limits") or []
+    filtered_rl = [
+        rl for rl in reasoning_limits
+        if not (isinstance(rl, str) and _mentions_resolved_squad_uncertainty(rl))
+    ]
+    if len(filtered_rl) < len(reasoning_limits):
+        logger.info(
+            "[PCC_CORRECTION] case_id=%s removed %d stale squad-uncertainty reasoning_limits",
+            case_id, len(reasoning_limits) - len(filtered_rl),
+        )
+    report_data["reasoning_limits"] = filtered_rl
+
+    missing_data = report_data.get("missing_data") or []
+    filtered_md = [
+        md for md in missing_data
+        if not (isinstance(md, str) and _mentions_resolved_squad_uncertainty(md))
+    ]
+    if len(filtered_md) < len(missing_data):
+        logger.info(
+            "[PCC_CORRECTION] case_id=%s removed %d stale squad-uncertainty missing_data",
+            case_id, len(missing_data) - len(filtered_md),
+        )
+    report_data["missing_data"] = filtered_md
+
+    return report_data
+
+
 @router.post("/cases/{case_id}/run-decision")
 @limiter.limit(RATE_LIMIT_ANALYSIS)
 async def run_decision(
@@ -838,45 +948,10 @@ async def run_decision(
                             break
 
                     # Gdy PCC potwierdza zgodność zawodnik↔klub, napraw wszystkie pola
-                    # w których Agent A błędnie ocenił personalizację jako niezgodną.
+                    # w których Agent A błędnie ocenił personalizację jako niezgodną
+                    # (patrz _apply_pcc_consistent_corrections — wydzielone, testowalne).
                     if pcc_status == "consistent" and pcc_reason:
-                        # Row E — zawsze zielony gdy PCC consistent
-                        for row in dm:
-                            if isinstance(row, dict) and row.get("code") == "E":
-                                if row.get("status") in ("RED", "YELLOW"):
-                                    row["status"] = "GREEN"
-                                    row["impact"] = "neutralne"
-                                    row["observation"] = pcc_reason
-                                    logger.info("[PCC_CORRECTION] case_id=%s row E corrected", case_id)
-                                break
-
-                        # key_evidence — usuń wszelkie negatywne wpisy o personalizacji.
-                        # Dopasowanie po temacie (personalizacja lub konkretny zawodnik z subject)
-                        # ORAZ sentiment przez słowa kluczowe — nigdy po nazwisku zahardkodowanym.
-                        _neg_personal_kw = {
-                            "nieprawidłow", "niezgodn", "nieoficjaln", "fantasy",
-                            "nigdy", "fałszyw", "podrób", "nieautentyczn",
-                            "nieautoryzow", "wyklucza", "dowód przeciwko",
-                            "fikcyjn", "unieważni", "podważa", "błędn",
-                        }
-                        _player_name_lower = (
-                            (report_data.get("subject") or {}).get("player_name") or ""
-                        ).strip().lower()
-                        key_evidence = report_data.get("key_evidence") or []
-                        def _is_negative_personalization(ev: dict) -> bool:
-                            text = (ev.get("text") or "").lower()
-                            about_personalization = "personalizacj" in text or (
-                                _player_name_lower and _player_name_lower in text
-                            )
-                            if not about_personalization:
-                                return False
-                            return any(kw in text for kw in _neg_personal_kw)
-                        filtered_ev = [ev for ev in key_evidence
-                                       if not (isinstance(ev, dict) and _is_negative_personalization(ev))]
-                        if len(filtered_ev) < len(key_evidence):
-                            logger.info("[PCC_CORRECTION] case_id=%s removed %d negative key_evidence entries",
-                                        case_id, len(key_evidence) - len(filtered_ev))
-                        report_data["key_evidence"] = filtered_ev
+                        report_data = _apply_pcc_consistent_corrections(report_data, pcc_reason, case_id)
 
                         # personalization_assessment + meczowa_detail + pcc_summary_note
                         # muszą być ustawione PO rule engine (który nadpisuje pa z pa_v2).
