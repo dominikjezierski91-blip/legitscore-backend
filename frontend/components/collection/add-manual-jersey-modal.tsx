@@ -203,8 +203,8 @@ export function AddManualJerseyModal({ onClose, onAdded }: Props) {
           </div>
 
           <div>
-            <label htmlFor="manual-photo-2" className="block text-xs text-slate-400 mb-1.5">
-              Drugie zdjęcie <span className="text-slate-600">(opcjonalnie)</span>
+            <label htmlFor="manual-photo-2" className="block truncate text-xs text-slate-400 mb-1.5">
+              Drugie zdjęcie
             </label>
             <label
               htmlFor="manual-photo-2"

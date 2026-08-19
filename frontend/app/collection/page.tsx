@@ -1135,11 +1135,11 @@ function CollectionCard({
                     <button
                       onClick={handleValuate}
                       disabled={valuating}
+                      aria-label="Odśwież wycenę"
                       title="Odśwież wycenę"
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 transition hover:text-emerald-300 disabled:opacity-50"
+                      className="rounded-full p-1 text-slate-400 transition hover:text-emerald-300 disabled:opacity-50"
                     >
-                      <RefreshCw className={cn("h-3 w-3", valuating && "animate-spin")} />
-                      {valuating ? "Szacuję..." : "Odśwież"}
+                      <RefreshCw className={cn("h-3.5 w-3.5", valuating && "animate-spin")} />
                     </button>
                   </div>
                   <div className="mt-0.5 flex items-baseline gap-2">
@@ -1156,6 +1156,12 @@ function CollectionCard({
                     </span>
                   )}
                   </div>
+                  {item.market_value_updated_at && (
+                    <p className="mt-0.5 text-[11px] text-slate-600">
+                      Wycena: {new Date(item.market_value_updated_at).toLocaleDateString("pl-PL")}
+                      {item.market_value_sample_size ? ` · ${item.market_value_sample_size} aukcji` : ""}
+                    </p>
+                  )}
                 </div>
               )}
               {item.purchase_price && (
@@ -1338,7 +1344,9 @@ function CollectionCard({
                     {valuating ? "Szacuję..." : "Sprawdź wartość rynkową"}
                   </button>
                 ) : null}
-                {item.market_value_updated_at && !noDataAfterRefresh && (
+                {/* marketValue != null: ta sama informacja jest już pokazana wyżej,
+                    obok "Szacunkowa wartość" — nie dublujemy jej tutaj. */}
+                {marketValue == null && item.market_value_updated_at && !noDataAfterRefresh && (
                   <span className="self-center text-[11px] text-slate-600">
                     Wycena: {new Date(item.market_value_updated_at).toLocaleDateString("pl-PL")}
                     {item.market_value_sample_size ? ` · ${item.market_value_sample_size} aukcji` : ""}
