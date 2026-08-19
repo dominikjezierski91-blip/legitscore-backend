@@ -758,11 +758,16 @@ function CollectionCard({
 
   const isAnalyzed = !item.is_manual && item.report_id;
 
+  function closeExpanded() {
+    setExpanded(false);
+    setEditing(false);
+  }
+
   return (
-    <div className={cn("glass-card overflow-hidden", expanded && "col-span-full")}>
-      {/* Photo header — pełna szerokość karty */}
+    <div className="glass-card overflow-hidden">
+      {/* Widok ogólny (karta w siatce) — edycja/usuń tylko tutaj, na zdjęciu */}
       <div className="relative" onClick={() => photoRef.current?.click()} title="Zmień zdjęcie">
-        <JerseyThumbnail item={item} expanded={expanded} />
+        <JerseyThumbnail item={item} />
         <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition hover:bg-black/40 hover:opacity-100 cursor-pointer">
           <Upload className="h-5 w-5 text-white" />
         </div>
@@ -770,7 +775,7 @@ function CollectionCard({
 
         <div className="absolute left-2 top-2 flex items-center gap-1">
           <button
-            onClick={(e) => { e.stopPropagation(); setEditing(!editing); setExpanded(true); }}
+            onClick={(e) => { e.stopPropagation(); setEditing(true); setExpanded(true); }}
             className="rounded-full bg-slate-950/80 p-1.5 text-slate-300 backdrop-blur transition hover:text-emerald-400"
             aria-label="Edytuj"
           >
@@ -806,7 +811,7 @@ function CollectionCard({
         )}
       </div>
 
-      {/* Collapsed content */}
+      {/* Karta zawsze zostaje na swoim miejscu w siatce — szczegóły otwierają się w oknie na wierzchu, żeby siatka się nie przestawiała */}
       <div className="p-3">
         <p className="line-clamp-2 text-base font-semibold leading-snug text-slate-100">
           {item.club || "Nieznany klub"}
@@ -824,34 +829,21 @@ function CollectionCard({
           </p>
         )}
 
-        {/* Wartość rynkowa — zysk/strata i cena zakupu dopiero po rozwinięciu, żeby nie zaśmiecać widoku podglądu */}
         {marketValue != null && (
-          <div className="mt-2 flex items-baseline gap-2">
+          <div className="mt-2">
             <span className="text-base font-semibold text-emerald-300">
               ~{Math.round(marketValue).toLocaleString("pl-PL")} PLN
             </span>
-            {expanded && gainPln != null && (
-              <span className={cn(
-                "flex items-center gap-0.5 text-xs font-medium",
-                gainPln >= 0 ? "text-emerald-400" : "text-red-400"
-              )}>
-                {gainPln >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                {gainPln >= 0 ? "+" : ""}{Math.round(gainPln).toLocaleString("pl-PL")} PLN
-              </span>
-            )}
           </div>
         )}
 
-        <div className="mt-1.5 flex items-center justify-between gap-2">
-          <span className="text-xs text-slate-500">
-            {expanded && item.purchase_price ? `${item.purchase_price} ${item.purchase_currency || "PLN"}` : ""}
-          </span>
+        <div className="mt-1.5 flex justify-end">
           <button
-            onClick={() => { setExpanded(!expanded); if (expanded) setEditing(false); }}
+            onClick={() => setExpanded(true)}
             className="flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-500 transition hover:text-emerald-400"
           >
-            {expanded ? "Zwiń" : "Szczegóły"}
-            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            Szczegóły
+            <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -880,9 +872,101 @@ function CollectionCard({
         </div>
       )}
 
-      {/* Expanded view */}
+      {/* Widok szczegółowy — okno "na froncie" nad całą siatką; karta w siatce nigdy się nie przesuwa */}
       {expanded && (
-        <div className="border-t border-border/40 px-4 pb-4 pt-3 space-y-3">
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 px-4 py-8"
+          onClick={closeExpanded}
+        >
+          <div className="glass-card w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="relative">
+              <JerseyThumbnail item={item} expanded />
+              <div className="absolute right-2 top-2 flex items-center gap-1">
+                {isAnalyzed && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-950/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 backdrop-blur">
+                    <ShieldCheck className="h-2.5 w-2.5" />
+                    LS
+                  </span>
+                )}
+                {item.is_manual && (
+                  <span className="inline-flex items-center rounded-full bg-slate-950/80 px-2 py-0.5 text-[10px] font-medium text-slate-300 backdrop-blur">
+                    ręcznie
+                  </span>
+                )}
+              </div>
+              {item.verdict_category && (
+                <span className="absolute bottom-2 left-2 rounded-full bg-slate-950/85 px-2.5 py-1 text-xs font-semibold backdrop-blur">
+                  <span className={vm.text}>{vm.short}</span>
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-3 p-4 pb-5">
+              {/* Nazwa + edytuj/usuń/zwiń — tak jak dawniej, nie na zdjęciu */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-lg font-semibold leading-snug text-slate-100">
+                    {item.club || "Nieznany klub"}
+                  </p>
+                  {(item.player_name || item.player_number) && (
+                    <p className="mt-0.5 text-sm font-medium leading-tight text-slate-300">
+                      {item.player_name}{item.player_number ? ` #${item.player_number}` : ""}
+                    </p>
+                  )}
+                  {(item.brand || item.season) && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {[item.brand, fmtSeason(item.season)].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5 -mr-1 -mt-0.5">
+                  <button
+                    onClick={() => setEditing(!editing)}
+                    className="rounded-full p-1.5 text-slate-600 transition hover:text-emerald-400"
+                    aria-label="Edytuj"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="rounded-full p-1.5 text-slate-600 transition hover:text-red-400"
+                    aria-label="Usuń z kolekcji"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={closeExpanded}
+                    className="rounded-full p-1.5 text-slate-600 transition hover:text-slate-200"
+                    aria-label="Zwiń"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Wartość rynkowa + zysk/strata + cena zakupu — pełny widok */}
+              {marketValue != null && (
+                <div className="flex items-baseline gap-2">
+                  <span className="text-base font-semibold text-emerald-300">
+                    ~{Math.round(marketValue).toLocaleString("pl-PL")} PLN
+                  </span>
+                  {gainPln != null && (
+                    <span className={cn(
+                      "flex items-center gap-0.5 text-xs font-medium",
+                      gainPln >= 0 ? "text-emerald-400" : "text-red-400"
+                    )}>
+                      {gainPln >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                      {gainPln >= 0 ? "+" : ""}{Math.round(gainPln).toLocaleString("pl-PL")} PLN
+                    </span>
+                  )}
+                </div>
+              )}
+              {item.purchase_price && (
+                <p className="text-xs text-slate-500">
+                  Cena zakupu: {item.purchase_price} {item.purchase_currency || "PLN"}
+                </p>
+              )}
+
           {editing ? (
             /* ── Edit mode ── */
             <div className="space-y-3">
@@ -1044,6 +1128,8 @@ function CollectionCard({
               </div>
             </>
           )}
+            </div>
+          </div>
         </div>
       )}
     </div>
