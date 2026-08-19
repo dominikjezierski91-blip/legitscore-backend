@@ -557,7 +557,7 @@ function PortfolioStats({ items }: { items: any[] }) {
 
 // ── Jersey Thumbnail ──────────────────────────────────────────
 
-function JerseyThumbnail({ item, expanded }: { item: any; expanded?: boolean }) {
+function JerseyThumbnail({ item, hero }: { item: any; hero?: boolean }) {
   const [imgError, setImgError] = useState(false);
   const isRisky = item.verdict_category === "podrobka";
   const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
@@ -569,10 +569,38 @@ function JerseyThumbnail({ item, expanded }: { item: any; expanded?: boolean }) 
     ? `${apiBase}/api/cases/${item.case_id}/thumbnail`
     : null;
 
-  const wrapperClass = cn(
-    "relative w-full overflow-hidden border-b border-white/5 transition-all duration-300",
-    expanded ? "aspect-[16/10]" : "aspect-[4/3]"
-  );
+  // Widok szczegółowy: całe zdjęcie widoczne (object-contain, bez przycinania),
+  // wyśrodkowane na ciemnym tle z delikatną poświatą zamiast twardego aspect-ratio.
+  if (hero) {
+    const heroWrapperClass = cn(
+      "relative flex w-full items-center justify-center overflow-hidden py-7",
+      "bg-[radial-gradient(circle_at_50%_15%,rgba(16,185,129,0.18),transparent_60%),linear-gradient(to_bottom,#020617,#0b1120)]"
+    );
+    return (
+      <div className={cn(heroWrapperClass, !src || imgError ? "min-h-[220px]" : undefined)}>
+        {src && !imgError ? (
+          <img
+            src={src}
+            alt=""
+            onError={() => setImgError(true)}
+            className="max-h-[55vh] w-auto max-w-full object-contain drop-shadow-[0_18px_35px_rgba(0,0,0,0.55)]"
+          />
+        ) : (
+          <svg viewBox="0 0 44 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-28 w-auto opacity-70">
+            <path d="M8 8 L4 18 L12 20 L12 56 L32 56 L32 20 L40 18 L36 8 L28 12 Q22 15 16 12 Z"
+              fill={isRisky ? "rgba(239,68,68,0.15)" : "rgba(16,185,129,0.12)"}
+              stroke={isRisky ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.35)"}
+              strokeWidth="1.2" strokeLinejoin="round" />
+            <path d="M16 12 Q22 17 28 12" stroke={isRisky ? "rgba(239,68,68,0.5)" : "rgba(16,185,129,0.5)"} strokeWidth="1.2" fill="none" strokeLinecap="round" />
+          </svg>
+        )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-950 to-transparent" />
+      </div>
+    );
+  }
+
+  // Widok ogólny (karta w siatce) — miniatura, przycięta do jednego kształtu
+  const wrapperClass = "relative w-full overflow-hidden border-b border-white/5 aspect-[4/3]";
 
   if (src && !imgError) {
     return (
@@ -884,23 +912,27 @@ function CollectionCard({
         >
           <div className="glass-card w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
-              <JerseyThumbnail item={item} expanded />
-              <div className="absolute right-2 top-2 flex items-center gap-1">
+              <JerseyThumbnail item={item} hero />
+              <div className="absolute right-3 top-3 flex items-center gap-1.5">
                 {isAnalyzed && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-950/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 backdrop-blur">
-                    <ShieldCheck className="h-2.5 w-2.5" />
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-slate-950/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 shadow-lg shadow-black/30 backdrop-blur">
+                    <ShieldCheck className="h-3 w-3" />
                     LS
                   </span>
                 )}
                 {item.is_manual && (
-                  <span className="inline-flex items-center rounded-full bg-slate-950/80 px-2 py-0.5 text-[10px] font-medium text-slate-300 backdrop-blur">
+                  <span className="inline-flex items-center rounded-full border border-white/10 bg-slate-950/80 px-2.5 py-1 text-[10px] font-medium text-slate-300 shadow-lg shadow-black/30 backdrop-blur">
                     ręcznie
                   </span>
                 )}
               </div>
               {item.verdict_category && (
-                <span className="absolute bottom-2 left-2 rounded-full bg-slate-950/85 px-2.5 py-1 text-xs font-semibold backdrop-blur">
-                  <span className={vm.text}>{vm.short}</span>
+                <span className={cn(
+                  "absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-bold shadow-lg shadow-black/40 backdrop-blur",
+                  vm.bg, vm.text
+                )}>
+                  <ShieldCheck className="h-4 w-4" />
+                  {vm.short}
                 </span>
               )}
             </div>
@@ -909,7 +941,7 @@ function CollectionCard({
               {/* Nazwa + edytuj/usuń/zwiń — tak jak dawniej, nie na zdjęciu */}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="text-lg font-semibold leading-snug text-slate-100">
+                  <p className="text-xl font-semibold leading-snug text-slate-100">
                     {item.club || "Nieznany klub"}
                   </p>
                   {(item.player_name || item.player_number) && (
