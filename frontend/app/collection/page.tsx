@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -872,8 +873,11 @@ function CollectionCard({
         </div>
       )}
 
-      {/* Widok szczegółowy — okno "na froncie" nad całą siatką; karta w siatce nigdy się nie przesuwa */}
-      {expanded && (
+      {/* Widok szczegółowy — okno "na froncie" nad całą siatką; karta w siatce nigdy się nie przesuwa.
+          Portal do document.body: karta ma backdrop-blur (glass-card), które w WebKit tworzy własny
+          containing block dla position:fixed — bez portalu okno renderowało się wciśnięte w miejsce
+          karty zamiast pokrywać cały ekran. */}
+      {expanded && createPortal(
         <div
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 px-4 py-8"
           onClick={closeExpanded}
@@ -1130,7 +1134,8 @@ function CollectionCard({
           )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
