@@ -40,7 +40,11 @@ export function AnalyzeForm() {
   useEffect(() => {
     if (!user) {
       setCredits(null);
-      setRegulaminCheckboxNeeded(true);
+      // Gość i tak zostanie poproszony o zalogowanie/założenie konta zanim
+      // run-decision faktycznie ruszy (wymaga auth) — a formularz rejestracji
+      // ma ten sam checkbox Regulaminu. Nie dublujemy go tutaj.
+      setRegulaminCheckboxNeeded(false);
+      setAcceptedDisclaimer(true);
       return;
     }
     getCredits()

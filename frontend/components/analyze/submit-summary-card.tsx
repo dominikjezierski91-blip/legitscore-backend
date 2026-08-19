@@ -113,11 +113,11 @@ export function SubmitSummaryCard({
           />
         </div>
         <p className="leading-relaxed">
-          LegitScore generuje{" "}
+          Uruchamiając analizę, jesteś świadomy/a, że LegitScore generuje{" "}
           <span className="font-medium text-slate-100">
             raport ryzyka autentyczności
           </span>{" "}
-          na podstawie przesłanych zdjęć. To narzędzie pomocnicze, nie
+          na podstawie przesłanych zdjęć — to narzędzie pomocnicze, nie
           gwarancja.
         </p>
         {showDisclaimerCheckbox && (
