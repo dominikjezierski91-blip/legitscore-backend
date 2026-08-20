@@ -14,10 +14,27 @@ import logging
 import os
 import re
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
 logger = logging.getLogger(__name__)
+
+
+def _current_season_start_years(count: int = 4) -> List[int]:
+    """Rok startowy N ostatnich sezonów piłkarskich, licząc od dzisiejszej daty
+    (konwencja: sezon zaczyna się w lipcu, np. sezon "2026/27" zaczyna się w
+    lipcu 2026). Liczone dynamicznie — patrz incydent (2026-08-20): zapytania
+    wyszukiwania miały sezony zakodowane na sztywno do "2025/26", więc agent
+    nigdy nie sprawdzał, czy koszulka może być z NOWEGO sezonu (2026/27), mimo
+    że sezon ten realnie już trwał w dniu analizy."""
+    now = datetime.now(timezone.utc)
+    current_start_year = now.year if now.month >= 7 else now.year - 1
+    return [current_start_year - i for i in range(count)]
+
+
+def _season_label(start_year: int) -> str:
+    return f"{start_year}/{str(start_year + 1)[-2:]}"
 
 _IDENTIFICATION_PROMPT = """You are a football jersey identification assistant.
 Look at the images and extract basic identification data. Be brief and factual.
@@ -43,16 +60,23 @@ IMPORTANT: Focus on the 4 most recent seasons. If two seasons share a visually s
 
 Start with "OFFICIAL KIT CONTEXT:" then write plain text, one paragraph per kit. Be specific — Agent A uses this to identify which season a jersey belongs to."""
 
-_SEARCH_FALLBACK_PROMPT = """You are a football kit authenticity researcher with access to Google Search.
+def _build_search_fallback_prompt() -> str:
+    """Buduje prompt z aktualnymi sezonami zamiast zakodowanych na sztywno lat —
+    patrz komentarz przy _current_season_start_years()."""
+    years = _current_season_start_years(4)
+    labels = [_season_label(y) for y in years]
+    return f"""You are a football kit authenticity researcher with access to Google Search.
 
 Jersey identification data provided. The season_guess may be UNRELIABLE — manufacturers reuse designs.
+Today's reference date means the CURRENT season is {labels[0]} — a jersey may genuinely be from this
+newest season, not necessarily an older one. Do not assume the newest season "doesn't exist yet".
 
 MANDATORY searches — run ALL:
-1. "site:footy-headlines.com [club] [manufacturer] 2025"
-2. "site:footy-headlines.com [club] [manufacturer] 2024"
-3. "[manufacturer] [club] 2025/26 home away third kit official"
-4. "[manufacturer] [club] 2024/25 home away third kit official"
-5. "[manufacturer] [club] 2023/24 kit official"
+1. "site:footy-headlines.com [club] [manufacturer] {years[0]}"
+2. "site:footy-headlines.com [club] [manufacturer] {years[1]}"
+3. "[manufacturer] [club] {labels[0]} home away third kit official"
+4. "[manufacturer] [club] {labels[1]} home away third kit official"
+5. "[manufacturer] [club] {labels[2]} kit official"
 
 For each season found, describe the VISUAL DESIGN: colors, stripe pattern, sponsor name/color, unique elements.
 If two seasons look similar, state exactly what differentiates them.
@@ -246,17 +270,18 @@ async def _fetch_via_url_context(client, model: str, types, url: str, identifica
 
 
 async def _fetch_via_google_search(client, model: str, types, identification: str) -> str:
+    labels = [_season_label(y) for y in _current_season_start_years(3)]
     search_input = (
         f"Jersey identification:\n{identification}\n\n"
         f"NOTE: season_guess may be wrong — manufacturers reuse similar designs across seasons. "
-        f"Search for ALL recent seasons (2023/24, 2024/25, 2025/26)."
+        f"Search for ALL recent seasons ({', '.join(labels)})."
     )
     try:
         resp = await client.aio.models.generate_content(
             model=model,
             contents=[types.Content(role="user", parts=[types.Part(text=search_input)])],
             config=types.GenerateContentConfig(
-                system_instruction=_SEARCH_FALLBACK_PROMPT,
+                system_instruction=_build_search_fallback_prompt(),
                 temperature=0.1,
                 tools=[types.Tool(google_search=types.GoogleSearch())],
             ),

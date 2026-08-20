@@ -618,6 +618,25 @@ Hierarchia:
 Jakość szwów / paneli / wykończenia > oznaczenia technologiczne na metce.
 Jeśli jedno przeczy drugiemu — konstrukcja wizualna wygrywa.
 
+9. Summary musi tłumaczyć, co ogranicza confidence — nie tylko podawać liczbę
+Jeśli confidence_percent jest niższy, niż sugerowałaby sama liczba pozytywnych
+kryteriów w decision_matrix (np. capped przez regułę "SKU niepotwierdzone → max 60",
+brakujące zdjęcia, albo inne ograniczenie z sekcji 4/16) — summary MUSI jawnie
+nazwać ten konkretny czynnik ograniczający. Zabronione jest pisanie summary w
+tonie nieuzasadnionej pewności ("bardzo wysokie prawdopodobieństwo", "w pełni
+spójne", "wszystko wskazuje na...") bez zastrzeżenia, gdy sam confidence_percent
+tej pewności przeczy — user czyta oba pola razem i sprzeczność między nimi
+podważa wiarygodność całego raportu.
+
+Przykład poprawny (confidence_percent = 60, SKU niepotwierdzone):
+"Cechy fizyczne (haft, materiał, personalizacja) są spójne z oryginalną wersją
+sklepową, ale kod SKU nie został potwierdzony w dostępnych źródłach, co ogranicza
+pewność oceny do poziomu średniego."
+
+Przykład BŁĘDNY (ta sama sytuacja):
+"Analiza wskazuje z bardzo wysokim prawdopodobieństwem, że jest to oryginalna
+koszulka sklepowa." [bez wzmianki o SKU, przy confidence_percent = 60]
+
 ================================================
 10. ANTI-FALSE-POSITIVE — BARDZO WAŻNE
 ================================================
