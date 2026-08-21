@@ -6,6 +6,7 @@ import { AuthProvider } from "@/components/auth/auth-provider";
 import { CookieConsentProvider } from "@/components/layout/cookie-consent-provider";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://app.legitscore.app"),
   title: "LegitScore · Analiza ryzyka autentyczności koszulek",
   description:
     "LegitScore analizuje koszulki piłkarskie i generuje uporządkowany raport ryzyka autentyczności. Raport nie stanowi certyfikatu ani gwarancji.",
