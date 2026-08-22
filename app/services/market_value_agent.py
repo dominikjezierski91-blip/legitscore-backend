@@ -565,8 +565,9 @@ async def refresh_stale_market_values(max_items: int = 50) -> int:
         items = (
             db.query(CollectionItem)
             .filter(
+                CollectionItem.verdict_category != "podrobka",
                 (CollectionItem.market_value_updated_at == None) |  # noqa: E711
-                (CollectionItem.market_value_updated_at < cutoff)
+                (CollectionItem.market_value_updated_at < cutoff),
             )
             .limit(max_items)
             .all()

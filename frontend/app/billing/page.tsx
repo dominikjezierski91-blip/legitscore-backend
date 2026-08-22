@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 import {
   getPricing,
-  getCredits,
+  getBillingSummary,
   createCheckout,
   redeemPromoCode,
   type BillingPackage,
   type BillingPackageKey,
+  type BillingSummary,
 } from "@/lib/api";
-import { Loader2, Sparkles, Ticket } from "lucide-react";
+import { Loader2, Sparkles, Ticket, Zap, ShieldCheck, Receipt } from "lucide-react";
 import { LuckyCodeBanner } from "@/components/billing/lucky-code-banner";
 
 function formatPrice(grosz: number): string {
@@ -25,7 +26,7 @@ export default function BillingPage() {
   const router = useRouter();
 
   const [packages, setPackages] = useState<Record<BillingPackageKey, BillingPackage> | null>(null);
-  const [credits, setCredits] = useState<number | null>(null);
+  const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [buyingPackage, setBuyingPackage] = useState<BillingPackageKey | null>(null);
 
@@ -34,16 +35,24 @@ export default function BillingPage() {
   const [promoError, setPromoError] = useState<string | null>(null);
   const [redeemingPromo, setRedeemingPromo] = useState(false);
 
+  const credits = summary?.credits ?? null;
+
+  function refreshSummary() {
+    getBillingSummary()
+      .then(setSummary)
+      .catch(() => {});
+  }
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
       router.replace("/login?next=/billing");
       return;
     }
-    Promise.all([getPricing(), getCredits()])
-      .then(([pricing, creditsRes]) => {
+    Promise.all([getPricing(), getBillingSummary()])
+      .then(([pricing, summaryRes]) => {
         setPackages(pricing.packages);
-        setCredits(creditsRes.credits);
+        setSummary(summaryRes);
       })
       .catch((err: any) => setError(err.message || "Nie udało się pobrać cennika."));
   }, [user, authLoading, router]);
@@ -68,7 +77,7 @@ export default function BillingPage() {
     try {
       const res = await redeemPromoCode(promoCode.trim());
       setPromoMessage(res.message);
-      setCredits(res.credits);
+      refreshSummary();
       setPromoCode("");
     } catch (err: any) {
       setPromoError(err.message || "Nie udało się wykorzystać kodu.");
@@ -85,18 +94,40 @@ export default function BillingPage() {
     );
   }
 
+  const totalPurchasedCredits = (summary?.purchases ?? []).reduce((sum, p) => sum + p.credits, 0);
+
   return (
     <div className="flex flex-1 flex-col gap-5 py-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-50">Kup analizy</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-50">Twoje kredyty</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {credits !== null
-            ? `Dostępne kredyty: ${credits}`
-            : "Pierwsza analiza jest zawsze darmowa — kolejne kupujesz pojedynczo albo w pakiecie."}
+          {credits === null
+            ? "Pierwsza analiza jest zawsze darmowa — kolejne kupujesz pojedynczo albo w pakiecie."
+            : "Przegląd salda, historii analiz i zakupów."}
         </p>
       </div>
 
-      <LuckyCodeBanner onRedeemed={setCredits} />
+      {summary && (
+        <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+          <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
+            <Zap className="h-4 w-4 text-emerald-400" />
+            <p className="text-2xl font-bold tracking-tight text-emerald-300">{summary.credits}</p>
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Dostępne</p>
+          </div>
+          <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
+            <ShieldCheck className="h-4 w-4 text-slate-300" />
+            <p className="text-2xl font-bold tracking-tight text-slate-100">{summary.analyses_completed}</p>
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Wykonane analizy</p>
+          </div>
+          <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
+            <Receipt className="h-4 w-4 text-slate-300" />
+            <p className="text-2xl font-bold tracking-tight text-slate-100">{totalPurchasedCredits}</p>
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Łącznie kupione</p>
+          </div>
+        </div>
+      )}
+
+      <LuckyCodeBanner onRedeemed={refreshSummary} />
 
       {error && (
         <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>
@@ -169,6 +200,30 @@ export default function BillingPage() {
         {promoMessage && <p className="text-xs text-emerald-300">{promoMessage}</p>}
         {promoError && <p className="text-xs text-red-300">{promoError}</p>}
       </div>
+
+      {summary && summary.purchases.length > 0 && (
+        <div className="glass-card flex flex-col gap-3 p-5">
+          <div className="flex items-center gap-2">
+            <Receipt className="h-4 w-4 text-emerald-400" />
+            <p className="text-sm font-medium text-slate-200">Historia zakupów</p>
+          </div>
+          <div className="flex flex-col divide-y divide-border/40">
+            {summary.purchases.map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                <div>
+                  <p className="text-sm text-slate-200">
+                    {packages?.[p.package as BillingPackageKey]?.label ?? p.package}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {p.completed_at ? new Date(p.completed_at).toLocaleDateString("pl-PL") : "—"} · +{p.credits} kredyt(ów)
+                  </p>
+                </div>
+                <p className="text-sm font-medium text-slate-300">{formatPrice(p.amount_pln_grosz)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

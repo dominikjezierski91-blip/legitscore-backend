@@ -11,6 +11,7 @@ from app.services.database import (
     create_credit_purchase,
     complete_credit_purchase,
     get_lucky_code_status,
+    get_billing_summary,
 )
 from app.services.security import limiter, RATE_LIMIT_DEFAULT
 from app.services.stripe_service import PACKAGES, create_checkout_session, construct_webhook_event
@@ -38,6 +39,13 @@ def get_pricing():
 def get_credits(current_user: User = Depends(get_current_user)):
     """Aktualne saldo kredytów zalogowanego usera."""
     return {"credits": get_user_credits(current_user.id)}
+
+
+@router.get("/summary")
+def billing_summary(current_user: User = Depends(get_current_user)):
+    """Dane pod dashboard na /billing: saldo, liczba ukończonych analiz,
+    historia zakupów."""
+    return get_billing_summary(current_user.id)
 
 
 @router.get("/lucky-code")

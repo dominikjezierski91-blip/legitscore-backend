@@ -26,6 +26,30 @@ const VERDICT_META: Record<string, { label: string; short: string; bg: string; t
   treningowa_custom: { label: "Treningowa / custom", short: "Treningowa", bg: "bg-slate-500/20", text: "text-slate-300" },
 };
 
+const FX_TO_PLN: Record<string, number> = { PLN: 1, EUR: 4.25, GBP: 5.0, USD: 3.9 };
+
+// Podróbki nie mają sprawdzanej wartości rynkowej (nie ma sensu jej szukać na
+// aukcjach) — wszędzie, gdzie liczymy/sortujemy "wartość", dla podróbki liczy
+// się cena zakupu (jeśli user ją podał), tak jak dla zwykłych koszulek liczy
+// się market_value_pln.
+function effectiveItemValue(item: any): number | null {
+  if (item.verdict_category === "podrobka") {
+    if (!item.purchase_price) return null;
+    const price = parseFloat(String(item.purchase_price).replace(",", "."));
+    if (isNaN(price)) return null;
+    return price * (FX_TO_PLN[(item.purchase_currency || "PLN").toUpperCase()] ?? 1);
+  }
+  return item.market_value_pln ?? null;
+}
+
+// Podróbki nigdy nie dostaną market_value_pln (backend celowo go nie liczy —
+// patrz effectiveItemValue) — bez tego wykluczenia polling niżej odpytywałby
+// API co 5s przez 30s za każdym razem, gdy w kolekcji jest choć jedna podróbka,
+// mimo że nigdy nie doczeka się wyceny.
+function isPendingValuation(item: any): boolean {
+  return item.verdict_category !== "podrobka" && item.market_value_pln == null;
+}
+
 function fmtSeason(s: string | null | undefined): string {
   if (!s) return "";
   const m = s.match(/^(\d{4})[\/\-](\d{4})$/);
@@ -119,7 +143,7 @@ export default function CollectionPage() {
   // Polling: odśwież kolekcję gdy są pozycje bez wyceny rynkowej
   useEffect(() => {
     if (loading) return;
-    const hasPending = items.some((i) => i.market_value_pln == null);
+    const hasPending = items.some(isPendingValuation);
     if (!hasPending) return;
     let polls = 0;
     const interval = setInterval(async () => {
@@ -127,7 +151,7 @@ export default function CollectionPage() {
       try {
         const fresh = await getCollection();
         setItems(fresh);
-        if (!fresh.some((i: any) => i.market_value_pln == null) || polls >= 6) clearInterval(interval);
+        if (!fresh.some(isPendingValuation) || polls >= 6) clearInterval(interval);
       } catch {
         clearInterval(interval);
       }
@@ -140,16 +164,16 @@ export default function CollectionPage() {
     if (sort === "club") return (a.club || "").localeCompare(b.club || "");
     if (sort === "oldest") return new Date(a.added_at || 0).getTime() - new Date(b.added_at || 0).getTime();
     if (sort === "expensive") {
-      const aVal = a.market_value_pln ?? null;
-      const bVal = b.market_value_pln ?? null;
+      const aVal = effectiveItemValue(a);
+      const bVal = effectiveItemValue(b);
       if (aVal === null && bVal === null) return 0;
       if (aVal === null) return 1;
       if (bVal === null) return -1;
       return bVal - aVal;
     }
     if (sort === "cheap") {
-      const aVal = a.market_value_pln ?? null;
-      const bVal = b.market_value_pln ?? null;
+      const aVal = effectiveItemValue(a);
+      const bVal = effectiveItemValue(b);
       if (aVal === null && bVal === null) return 0;
       if (aVal === null) return 1;
       if (bVal === null) return -1;
@@ -161,7 +185,7 @@ export default function CollectionPage() {
   const afterFilter = (() => {
     if (!activeFilter || activeFilter === "all") return sorted;
     if (activeFilter === "suspicious") return sorted.filter((i) => i.verdict_category === "podrobka");
-    if (activeFilter === "valuated") return sorted.filter((i) => i.market_value_pln != null);
+    if (activeFilter === "valuated") return sorted.filter((i) => effectiveItemValue(i) != null);
     if (activeFilter === "no_analysis") return sorted.filter((i) => !i.report_id || i.is_manual);
     return sorted;
   })();
@@ -533,27 +557,30 @@ export default function CollectionPage() {
 // ── Portfolio Stats ───────────────────────────────────────────
 
 function PortfolioStats({ items }: { items: any[] }) {
-  const fx: Record<string, number> = { PLN: 1, EUR: 4.25, GBP: 5.0, USD: 3.9 };
-
   const totalInvested = items.reduce((sum, i) => {
     if (!i.purchase_price) return sum;
     const price = parseFloat(String(i.purchase_price).replace(",", "."));
     if (isNaN(price)) return sum;
-    return sum + price * (fx[(i.purchase_currency || "PLN").toUpperCase()] ?? 1);
+    return sum + price * (FX_TO_PLN[(i.purchase_currency || "PLN").toUpperCase()] ?? 1);
   }, 0);
 
-  const totalMarket = items.reduce((sum, i) => sum + (i.market_value_pln ?? 0), 0);
-  const itemsWithMarket = items.filter((i) => i.market_value_pln != null).length;
+  const totalMarket = items.reduce((sum, i) => sum + (effectiveItemValue(i) ?? 0), 0);
+  const itemsWithMarket = items.filter((i) => effectiveItemValue(i) != null).length;
   const itemsWithPrice = items.filter((i) => i.purchase_price).length;
   const gain = totalMarket > 0 && totalInvested > 0 ? totalMarket - totalInvested : null;
   const roi = gain != null && totalInvested > 0 ? (gain / totalInvested) * 100 : null;
   const fmt = (n: number) => Math.round(n).toLocaleString("pl-PL");
 
-  const mostExpensive = items.reduce((best: any, i) => {
-    if (i.market_value_pln == null) return best;
-    if (!best || i.market_value_pln > best.market_value_pln) return i;
-    return best;
-  }, null);
+  const mostExpensiveEntry = items.reduce(
+    (best: { item: any; value: number } | null, i) => {
+      const v = effectiveItemValue(i);
+      if (v == null) return best;
+      if (!best || v > best.value) return { item: i, value: v };
+      return best;
+    },
+    null
+  );
+  const mostExpensive = mostExpensiveEntry?.item ?? null;
 
   return (
     <div className="space-y-2">
@@ -583,7 +610,7 @@ function PortfolioStats({ items }: { items: any[] }) {
                   <p className="truncate text-[11px] text-slate-500">
                     Najdroższa{mostExpensive.club ? ` · ${mostExpensive.club}` : ""}
                   </p>
-                  <p className="mt-0.5 text-sm font-semibold text-slate-200">~{fmt(mostExpensive.market_value_pln)} PLN</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-200">~{fmt(mostExpensiveEntry?.value ?? 0)} PLN</p>
                 </div>
               )}
             </div>
@@ -773,11 +800,15 @@ function CollectionCard({
     if (!item.purchase_price) return null;
     const price = parseFloat(String(item.purchase_price).replace(",", "."));
     if (isNaN(price)) return null;
-    const fx: Record<string, number> = { PLN: 1, EUR: 4.25, GBP: 5.0, USD: 3.9 };
-    return price * (fx[(item.purchase_currency || "PLN").toUpperCase()] ?? 1);
+    return price * (FX_TO_PLN[(item.purchase_currency || "PLN").toUpperCase()] ?? 1);
   })();
-  const marketValue: number | null = item.market_value_pln ?? null;
-  const gainPln = purchasePln != null && marketValue != null ? marketValue - purchasePln : null;
+  // Podróbki nie mają sprawdzanej wartości rynkowej (nie ma sensu jej
+  // szukać) — w jej miejsce pokazujemy cenę zakupu, jeśli user ją podał
+  // (effectiveItemValue robi dokładnie to samo podstawienie co w PortfolioStats
+  // i w sortowaniu/filtrowaniu listy — jedno miejsce prawdy).
+  const isFake = item.verdict_category === "podrobka";
+  const marketValue: number | null = effectiveItemValue(item);
+  const gainPln = !isFake && purchasePln != null && marketValue != null ? marketValue - purchasePln : null;
 
   async function handleValuate() {
     setValuating(true);
@@ -1004,16 +1035,20 @@ function CollectionCard({
               {marketValue != null && (
                 <div>
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-500">Szacunkowa wartość</p>
-                    <button
-                      onClick={handleValuate}
-                      disabled={valuating}
-                      aria-label="Odśwież wycenę"
-                      title="Odśwież wycenę"
-                      className="rounded-full p-1 text-slate-400 transition hover:text-emerald-300 disabled:opacity-50"
-                    >
-                      <RefreshCw className={cn("h-3.5 w-3.5", valuating && "animate-spin")} />
-                    </button>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      {isFake ? "Wartość (cena zakupu)" : "Szacunkowa wartość"}
+                    </p>
+                    {!isFake && (
+                      <button
+                        onClick={handleValuate}
+                        disabled={valuating}
+                        aria-label="Odśwież wycenę"
+                        title="Odśwież wycenę"
+                        className="rounded-full p-1 text-slate-400 transition hover:text-emerald-300 disabled:opacity-50"
+                      >
+                        <RefreshCw className={cn("h-3.5 w-3.5", valuating && "animate-spin")} />
+                      </button>
+                    )}
                   </div>
                   <div className="mt-0.5 flex items-baseline gap-2">
                   <span className="text-base font-semibold text-emerald-300">
@@ -1029,15 +1064,15 @@ function CollectionCard({
                     </span>
                   )}
                   </div>
-                  {item.market_value_updated_at && (
+                  {!isFake && item.market_value_updated_at && (
                     <p className="mt-0.5 text-[11px] text-slate-600">
                       Wycena: {new Date(item.market_value_updated_at).toLocaleDateString("pl-PL")}
                       {item.market_value_sample_size ? ` · ${item.market_value_sample_size} aukcji` : ""}
                     </p>
                   )}
                   <p className="mt-1 text-[10px] leading-snug text-slate-600">
-                    {item.verdict_category === "podrobka"
-                      ? "To orientacyjna cena ORYGINAŁU tej koszulki (punkt odniesienia) — nie wartość samej podróbki."
+                    {isFake
+                      ? "Podróbek nie wyceniamy na aukcjach — to cena, którą podałeś przy zakupie."
                       : "Ceny ofertowe z ogłoszeń, nie ceny faktycznej sprzedaży — realna cena transakcji może się różnić."}
                   </p>
                 </div>
@@ -1091,7 +1126,7 @@ function CollectionCard({
                     Zobacz pełny raport →
                   </Link>
                 )}
-                {noDataAfterRefresh ? (
+                {isFake ? null : noDataAfterRefresh ? (
                   <span className="inline-flex items-center gap-2 text-xs text-slate-500">
                     Brak aktywnych aukcji dla tej koszulki
                     <button
@@ -1127,7 +1162,7 @@ function CollectionCard({
                 ) : null}
                 {/* marketValue != null: ta sama informacja jest już pokazana wyżej,
                     obok "Szacunkowa wartość" — nie dublujemy jej tutaj. */}
-                {marketValue == null && item.market_value_updated_at && !noDataAfterRefresh && (
+                {!isFake && marketValue == null && item.market_value_updated_at && !noDataAfterRefresh && (
                   <span className="self-center text-[11px] text-slate-600">
                     Wycena: {new Date(item.market_value_updated_at).toLocaleDateString("pl-PL")}
                     {item.market_value_sample_size ? ` · ${item.market_value_sample_size} aukcji` : ""}

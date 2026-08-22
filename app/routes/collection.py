@@ -79,6 +79,10 @@ async def _auto_estimate_market_value(item_id: str) -> None:
         item = db.query(CollectionItem).filter(CollectionItem.id == item_id).first()
         if not item:
             return
+        # Podróbki nie mają realnej wartości rynkowej do sprawdzenia — frontend
+        # pokazuje w ich miejsce cenę zakupu (jeśli user ją podał).
+        if item.verdict_category == "podrobka":
+            return
         report_data = {
             "subject": {
                 "club": item.club, "season": item.season, "brand": item.brand,
@@ -340,6 +344,11 @@ async def refresh_market_value(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Nie znaleziono pozycji w kolekcji.")
+    if item.verdict_category == "podrobka":
+        raise HTTPException(
+            status_code=400,
+            detail="Podróbki nie mają wartości rynkowej do sprawdzenia — użyj ceny zakupu.",
+        )
 
     report_data = {
         "subject": {

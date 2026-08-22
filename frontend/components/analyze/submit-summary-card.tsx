@@ -10,6 +10,7 @@ import {
   Link2,
   Mail,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { ReportType } from "./report-type-selector";
 import { SubmissionDisclaimer } from "./submission-disclaimer";
@@ -152,19 +153,23 @@ export function SubmitSummaryCard({
         </div>
         <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
           {!isLoggedIn ? (
-            <span className="font-medium text-emerald-300">Pierwsza analiza gratis po założeniu konta.</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+              <Sparkles className="h-3 w-3" />
+              Pierwsza analiza gratis po założeniu konta
+            </span>
           ) : credits === null ? null : credits > 0 ? (
-            <span className="font-medium text-emerald-300">
-              Dostępne analizy: {credits}.
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+              <Sparkles className="h-3 w-3" />
+              Dostępne analizy: {credits}
             </span>
           ) : (
-            <span className="font-medium text-amber-300">
-              Wykorzystałeś dostępne analizy —{" "}
-              <Link href="/billing" className="underline underline-offset-2">
-                kup kolejną
-              </Link>
-              .
-            </span>
+            <Link
+              href="/billing"
+              className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-500/20"
+            >
+              Wykorzystałeś dostępne analizy — kup kolejną
+              <ArrowRight className="h-3 w-3" />
+            </Link>
           )}
           <span>Raport ryzyka, nie gwarancja.</span>
         </div>

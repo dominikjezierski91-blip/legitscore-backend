@@ -35,6 +35,7 @@ from app.services.database import (
     complete_credit_purchase,
     get_lucky_code_status,
     _seed_lucky_code,
+    get_billing_summary,
 )
 
 client = TestClient(app)
@@ -231,6 +232,117 @@ class TestStripePurchaseIdempotency:
             )
             assert result2 is False
             assert get_user_credits(user.id) == 1
+        finally:
+            _cleanup(user.id)
+
+
+class TestBillingSummary:
+    def test_counts_only_decided_cases_as_analyses(self):
+        user = _make_user(credits=1)
+        decided_id = str(uuid.uuid4())
+        pending_id = str(uuid.uuid4())
+        db = SessionLocal()
+        try:
+            db.add(CaseRecord(case_id=decided_id, user_id=user.id, verdict_category="oryginalna_sklepowa"))
+            db.add(CaseRecord(case_id=pending_id, user_id=user.id, verdict_category=None))
+            db.commit()
+        finally:
+            db.close()
+
+        try:
+            summary = get_billing_summary(user.id)
+            assert summary["credits"] == 1
+            assert summary["analyses_completed"] == 1
+        finally:
+            db2 = SessionLocal()
+            try:
+                db2.query(CaseRecord).filter(CaseRecord.case_id.in_([decided_id, pending_id])).delete(
+                    synchronize_session=False
+                )
+                db2.commit()
+            finally:
+                db2.close()
+            _cleanup(user.id)
+
+    def test_purchases_only_include_completed_newest_first(self):
+        user = _make_user(credits=0)
+        old_session = f"cs_test_{uuid.uuid4().hex[:12]}"
+        new_session = f"cs_test_{uuid.uuid4().hex[:12]}"
+        pending_session = f"cs_test_{uuid.uuid4().hex[:12]}"
+        try:
+            create_credit_purchase(
+                user_id=user.id, stripe_session_id=old_session, package="single",
+                credits=1, amount_pln_grosz=1500,
+            )
+            complete_credit_purchase(old_session)
+
+            create_credit_purchase(
+                user_id=user.id, stripe_session_id=new_session, package="pack3",
+                credits=3, amount_pln_grosz=3900,
+            )
+            complete_credit_purchase(new_session)
+
+            # Nieukończona sesja (user porzucił checkout) — nie powinna trafić do historii.
+            create_credit_purchase(
+                user_id=user.id, stripe_session_id=pending_session, package="pack10",
+                credits=10, amount_pln_grosz=11900,
+            )
+
+            summary = get_billing_summary(user.id)
+            packages = [p["package"] for p in summary["purchases"]]
+            assert packages == ["pack3", "single"]
+        finally:
+            _cleanup(user.id)
+
+    def test_other_users_data_never_leaks_into_summary(self):
+        """Pilnuje, żeby filtr user_id nigdy nie został przypadkiem zgubiony —
+        analiza i zakup usera A nie mogą pojawić się w podsumowaniu usera B."""
+        user_a = _make_user(credits=0)
+        user_b = _make_user(credits=5)
+        case_id = str(uuid.uuid4())
+        session_id = f"cs_test_{uuid.uuid4().hex[:12]}"
+        db = SessionLocal()
+        try:
+            db.add(CaseRecord(case_id=case_id, user_id=user_a.id, verdict_category="oryginalna_sklepowa"))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            create_credit_purchase(
+                user_id=user_a.id, stripe_session_id=session_id, package="single",
+                credits=1, amount_pln_grosz=1500,
+            )
+            complete_credit_purchase(session_id)
+
+            summary_b = get_billing_summary(user_b.id)
+            assert summary_b["credits"] == 5
+            assert summary_b["analyses_completed"] == 0
+            assert summary_b["purchases"] == []
+        finally:
+            db2 = SessionLocal()
+            try:
+                db2.query(CaseRecord).filter(CaseRecord.case_id == case_id).delete()
+                db2.commit()
+            finally:
+                db2.close()
+            _cleanup(user_a.id)
+            _cleanup(user_b.id)
+
+    def test_endpoint_requires_auth(self):
+        response = client.get("/api/billing/summary")
+        assert response.status_code in (401, 403)
+
+    def test_endpoint_returns_summary_for_authenticated_user(self):
+        user = _make_user(credits=2)
+        token = create_access_token(user.id, is_admin=False)
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            response = client.get("/api/billing/summary", headers=headers)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["credits"] == 2
+            assert data["analyses_completed"] == 0
+            assert data["purchases"] == []
         finally:
             _cleanup(user.id)
 

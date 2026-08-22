@@ -598,6 +598,44 @@ def get_user_credits(user_id: str) -> int:
         db.close()
 
 
+def get_billing_summary(user_id: str) -> dict:
+    """Dane pod dashboard na /billing: aktualne saldo, liczba ukończonych
+    analiz (ten sam warunek co gdzie indziej w kodzie: verdict_category
+    IS NOT NULL = case realnie dotarł do wyniku) i historia zakupów
+    (tylko status=completed — pending/porzucone sesje Stripe nie liczą się
+    jako "historia", to śmieci po nieudokończonych checkoutach)."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        analyses_completed = (
+            db.query(CaseRecord)
+            .filter(CaseRecord.user_id == user_id, CaseRecord.verdict_category.isnot(None))
+            .count()
+        )
+        purchases = (
+            db.query(CreditPurchase)
+            .filter(CreditPurchase.user_id == user_id, CreditPurchase.status == "completed")
+            .order_by(CreditPurchase.completed_at.desc())
+            .all()
+        )
+        return {
+            "credits": user.credits if user else 0,
+            "analyses_completed": analyses_completed,
+            "purchases": [
+                {
+                    "id": p.id,
+                    "package": p.package,
+                    "credits": p.credits,
+                    "amount_pln_grosz": p.amount_pln_grosz,
+                    "completed_at": p.completed_at.isoformat() if p.completed_at else None,
+                }
+                for p in purchases
+            ],
+        }
+    finally:
+        db.close()
+
+
 def consume_credit(user_id: str) -> bool:
     """Atomowo odejmuje 1 kredyt, jeśli user ma saldo > 0. Zwraca True jeśli się udało
     (jeden UPDATE ... WHERE credits > 0 — bezpieczne przy równoległych requestach)."""

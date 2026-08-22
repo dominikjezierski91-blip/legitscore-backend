@@ -466,3 +466,21 @@ export async function getLuckyCodeStatus(): Promise<LuckyCodeStatus> {
   return request("/api/billing/lucky-code");
 }
 
+export type BillingPurchase = {
+  id: string;
+  package: string;
+  credits: number;
+  amount_pln_grosz: number;
+  completed_at: string | null;
+};
+
+export type BillingSummary = {
+  credits: number;
+  analyses_completed: number;
+  purchases: BillingPurchase[];
+};
+
+export async function getBillingSummary(): Promise<BillingSummary> {
+  return request("/api/billing/summary");
+}
+
