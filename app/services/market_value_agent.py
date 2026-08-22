@@ -497,11 +497,45 @@ async def estimate_via_ebay(query: str) -> List[Dict]:
     return listings
 
 
+_OUTLIER_FACTOR = 3  # cena uznana za odstającą, jeśli jest > 3x lub < 1/3 wstępnej mediany
+
+
+def _reject_outliers(listings: List[Dict]) -> List[Dict]:
+    """Odrzuca oferty z ceną skrajnie odstającą od wstępnej mediany, zanim policzymy
+    finalne statystyki. Przy typowych dla tego systemu małych próbkach (2-6 ofert)
+    jedna źle dopasowana (inny produkt) lub żartobliwie wyceniona oferta potrafi
+    mocno wypaczyć medianę. Wymaga min. 3 ofert z ceną (przy mniejszej próbce nie
+    da się bezpiecznie odróżnić odstającej ceny od normalnej wariancji rynku) i
+    nigdy nie zejdzie poniżej 2 — jeśli odrzucenie zostawiłoby mniej, zwraca
+    listę bez zmian, bo bez sensownego punktu odniesienia lepiej pokazać wszystko
+    niż zgadywać, co odrzucić."""
+    priced = [l for l in listings if l.get("price_pln")]
+    if len(priced) < 3:
+        return listings
+    prices = sorted(l["price_pln"] for l in priced)
+    n = len(prices)
+    pre_median = prices[n // 2] if n % 2 else (prices[n // 2 - 1] + prices[n // 2]) / 2
+    # Listingi bez ceny nie brały udziału w wykryciu odstającej wartości — zostają
+    # bez zmian, tylko priced ocenia się względem wstępnej mediany.
+    kept = [
+        l for l in listings
+        if not l.get("price_pln") or pre_median / _OUTLIER_FACTOR <= l["price_pln"] <= pre_median * _OUTLIER_FACTOR
+    ]
+    if sum(1 for l in kept if l.get("price_pln")) < 2:
+        return listings
+    return kept
+
+
 def _recalculate_stats(listings: List[Dict]) -> Dict[str, Any]:
-    """Przelicza median/min/max/sample_size z listy ogłoszeń."""
+    """Przelicza median/min/max/sample_size z listy ogłoszeń (po odrzuceniu
+    odstających cen — patrz _reject_outliers). Zwraca też przefiltrowaną listę
+    pod kluczem 'listings', żeby oferty pokazywane userowi zawsze odpowiadały
+    tym faktycznie użytym do wyliczenia mediany — bez tego odrzucony outlier
+    nadal wyświetlałby się na liście, mimo że nie wpłynął na cenę."""
+    listings = _reject_outliers(listings)
     prices = sorted(l["price_pln"] for l in listings if l.get("price_pln"))
     if not prices:
-        return {"sample_size": 0}
+        return {"sample_size": 0, "listings": []}
     n = len(prices)
     median = prices[n // 2] if n % 2 else (prices[n // 2 - 1] + prices[n // 2]) / 2
     return {
@@ -509,6 +543,7 @@ def _recalculate_stats(listings: List[Dict]) -> Dict[str, Any]:
         "range_min_pln": round(min(prices)),
         "range_max_pln": round(max(prices)),
         "sample_size": n,
+        "listings": listings,
     }
 
 
@@ -567,7 +602,7 @@ async def refresh_stale_market_values(max_items: int = 50) -> int:
     return refreshed
 
 
-_MIN_RELIABLE_SAMPLE_SIZE = 2  # 1 oferta to nie "wycena rynkowa", tylko przypadkowa cena
+_MIN_RELIABLE_SAMPLE_SIZE = 3  # 1-2 oferty to za mało, żeby mediana miała sens statystyczny
 
 
 async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -601,7 +636,6 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
         # filtrze kategorii (sprawdzona wyżej) może być większa niż liczba
         # ofert faktycznie użytych w statystyce.
         if stats.get("sample_size", 0) >= _MIN_RELIABLE_SAMPLE_SIZE:
-            stats["listings"] = ebay_listings
             stats["source"] = "ebay"
             stats["query_used"] = query
             stats["low_confidence"] = False
@@ -616,7 +650,6 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     if combined:
         stats = _recalculate_stats(combined)
         if stats.get("sample_size", 0) > 0:
-            stats["listings"] = combined
             # Nawet po połączeniu obu źródeł może zostać poniżej progu (np.
             # eBay=1 + Gemini=0) — flagujemy to jawnie zamiast cicho zwracać
             # pojedynczą, przypadkową cenę jako pełnoprawną "wycenę rynkową".

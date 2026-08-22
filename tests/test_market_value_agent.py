@@ -229,6 +229,81 @@ class TestFilterListingsByCategory:
         assert result == []
 
 
+class TestRejectOutliers:
+    def test_below_three_priced_listings_returns_unchanged(self):
+        """Za mało danych, żeby bezpiecznie odróżnić odstającą cenę od
+        normalnej wariancji — nawet ewidentnie dziwna cena zostaje."""
+        listings = [
+            {"price_pln": 200, "title": "a"},
+            {"price_pln": 5000, "title": "b"},
+        ]
+        assert mva._reject_outliers(listings) == listings
+
+    def test_rejects_price_far_from_median(self):
+        listings = [
+            {"price_pln": 200, "title": "a"},
+            {"price_pln": 210, "title": "b"},
+            {"price_pln": 220, "title": "c"},
+            {"price_pln": 5000, "title": "d — inny produkt/żart"},
+        ]
+        result = mva._reject_outliers(listings)
+        assert {l["title"] for l in result} == {"a", "b", "c"}
+
+    def test_never_drops_below_two_listings(self):
+        """Gdyby filtr zostawił mniej niż 2 oferty (bo cały rozrzut jest duży),
+        lepiej pokazać wszystko niż zgadywać, co odrzucić."""
+        listings = [
+            {"price_pln": 100, "title": "a"},
+            {"price_pln": 1000, "title": "b"},
+            {"price_pln": 5000, "title": "c"},
+        ]
+        assert mva._reject_outliers(listings) == listings
+
+    def test_ignores_listings_without_price(self):
+        listings = [
+            {"price_pln": 200, "title": "a"},
+            {"price_pln": 210, "title": "b"},
+            {"price_pln": 220, "title": "c"},
+            {"title": "no price"},
+        ]
+        result = mva._reject_outliers(listings)
+        assert {l["title"] for l in result} == {"a", "b", "c", "no price"}
+
+    def test_normal_case_nothing_rejected(self):
+        """Ceny blisko siebie (bez odstającej wartości) — filtr nie powinien
+        niczego ruszyć, nawet mając wystarczająco dużo danych do aktywacji."""
+        listings = [
+            {"price_pln": 200, "title": "a"},
+            {"price_pln": 210, "title": "b"},
+            {"price_pln": 190, "title": "c"},
+            {"price_pln": 205, "title": "d"},
+        ]
+        assert mva._reject_outliers(listings) == listings
+
+
+class TestRecalculateStats:
+    def test_empty_listings_returns_zero_sample_with_listings_key(self):
+        assert mva._recalculate_stats([]) == {"sample_size": 0, "listings": []}
+
+    def test_listings_without_price_returns_zero_sample(self):
+        stats = mva._recalculate_stats([{"title": "no price"}])
+        assert stats == {"sample_size": 0, "listings": []}
+
+    def test_listings_key_reflects_outlier_rejection(self):
+        """stats['listings'] musi odpowiadać dokładnie cenom użytym do mediany —
+        inaczej odrzucony outlier nadal wyświetlałby się userowi na liście ofert."""
+        listings = [
+            {"price_pln": 200, "title": "a"},
+            {"price_pln": 210, "title": "b"},
+            {"price_pln": 220, "title": "c"},
+            {"price_pln": 9000, "title": "outlier"},
+        ]
+        stats = mva._recalculate_stats(listings)
+        assert stats["sample_size"] == 3
+        assert {l["title"] for l in stats["listings"]} == {"a", "b", "c"}
+        assert stats["median_pln"] == 210
+
+
 class TestEstimateMarketValueBlending:
     def test_prefers_ebay_over_gemini_when_both_have_data(self):
         """eBay to realne, zweryfikowane dane API — ma priorytet nad Gemini,
@@ -245,6 +320,7 @@ class TestEstimateMarketValueBlending:
         async def fake_ebay(query):
             return [
                 {"source": "ebay", "price_pln": 200, "title": "jersey"},
+                {"source": "ebay", "price_pln": 250, "title": "jersey"},
                 {"source": "ebay", "price_pln": 300, "title": "jersey"},
             ]
 
@@ -253,8 +329,8 @@ class TestEstimateMarketValueBlending:
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
 
         assert result["source"] == "ebay"
-        assert result["sample_size"] == 2
-        assert len(result["listings"]) == 2
+        assert result["sample_size"] == 3
+        assert len(result["listings"]) == 3
         assert all(l["source"] == "ebay" for l in result["listings"])
 
     def test_falls_back_to_gemini_only_when_ebay_empty(self):
@@ -331,6 +407,7 @@ class TestEstimateMarketValueBlending:
         async def fake_ebay(query):
             return [
                 {"source": "ebay", "price_pln": 200, "title": "jersey"},
+                {"source": "ebay", "price_pln": 250, "title": "jersey"},
                 {"source": "ebay", "price_pln": 300, "title": "jersey"},
             ]
 

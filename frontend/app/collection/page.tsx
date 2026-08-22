@@ -1035,6 +1035,11 @@ function CollectionCard({
                       {item.market_value_sample_size ? ` · ${item.market_value_sample_size} aukcji` : ""}
                     </p>
                   )}
+                  <p className="mt-1 text-[10px] leading-snug text-slate-600">
+                    {item.verdict_category === "podrobka"
+                      ? "To orientacyjna cena ORYGINAŁU tej koszulki (punkt odniesienia) — nie wartość samej podróbki."
+                      : "Ceny ofertowe z ogłoszeń, nie ceny faktycznej sprzedaży — realna cena transakcji może się różnić."}
+                  </p>
                 </div>
               )}
               {item.purchase_price && (
