@@ -19,10 +19,12 @@ from app.services.auth_service import create_access_token, hash_password
 from app.services.database import (
     SessionLocal,
     User,
+    CaseRecord,
     PromoCode,
     PromoRedemption,
     AllowlistedEmail,
     CreditPurchase,
+    LUCKY_CODE,
     get_user_credits,
     consume_credit,
     refund_credit,
@@ -31,6 +33,8 @@ from app.services.database import (
     apply_allowlist_if_matched,
     create_credit_purchase,
     complete_credit_purchase,
+    get_lucky_code_status,
+    _seed_lucky_code,
 )
 
 client = TestClient(app)
@@ -317,6 +321,126 @@ class TestRunDecisionCreditGate:
             assert get_user_credits(admin.id) == 0
         finally:
             _cleanup(admin.id)
+
+
+class TestLuckyCode:
+    """LS7 — ewergrinowy kod promo widoczny w apce dopiero po pierwszej ukończonej
+    analizie. Kod sam w sobie jest zasiany raz przy starcie appki (_seed_lucky_code),
+    więc tu tylko sprawdzamy widoczność (get_lucky_code_status) i realne odebranie
+    przez redeem_promo_code — nie tworzymy własnego PromoCode."""
+
+    def _add_completed_case(self, user_id: str) -> str:
+        case_id = str(uuid.uuid4())
+        db = SessionLocal()
+        try:
+            db.add(CaseRecord(case_id=case_id, user_id=user_id, verdict_category="oryginalna_sklepowa"))
+            db.commit()
+        finally:
+            db.close()
+        return case_id
+
+    def _delete_case(self, case_id: str):
+        db = SessionLocal()
+        try:
+            db.query(CaseRecord).filter(CaseRecord.case_id == case_id).delete()
+            db.commit()
+        finally:
+            db.close()
+
+    def test_not_available_without_completed_analysis(self):
+        user = _make_user(credits=0)
+        try:
+            status = get_lucky_code_status(user.id)
+            assert status["code"] == LUCKY_CODE
+            assert status["available"] is False
+        finally:
+            _cleanup(user.id)
+
+    def test_available_after_one_completed_analysis(self):
+        user = _make_user(credits=0)
+        case_id = self._add_completed_case(user.id)
+        try:
+            status = get_lucky_code_status(user.id)
+            assert status["available"] is True
+        finally:
+            self._delete_case(case_id)
+            _cleanup(user.id)
+
+    def test_redeeming_grants_credits_and_hides_banner_again(self):
+        user = _make_user(credits=0)
+        case_id = self._add_completed_case(user.id)
+        try:
+            ok, _ = redeem_promo_code(user.id, LUCKY_CODE)
+            assert ok is True
+            assert get_user_credits(user.id) == 2
+
+            status = get_lucky_code_status(user.id)
+            assert status["available"] is False
+        finally:
+            self._delete_case(case_id)
+            _cleanup(user.id)
+
+    def test_case_without_verdict_does_not_unlock_banner(self):
+        """Case w trakcie/nieudany (verdict_category jeszcze NULL) nie liczy się
+        jako 'ukończona analiza' — to najbardziej prawdopodobne miejsce na regres
+        w warunku isnot(None)."""
+        user = _make_user(credits=0)
+        case_id = str(uuid.uuid4())
+        db = SessionLocal()
+        try:
+            db.add(CaseRecord(case_id=case_id, user_id=user.id, verdict_category=None))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            status = get_lucky_code_status(user.id)
+            assert status["available"] is False
+        finally:
+            self._delete_case(case_id)
+            _cleanup(user.id)
+
+    def test_other_users_completed_analysis_does_not_unlock_banner(self):
+        """Ukończona analiza usera A nie może odblokować bannera dla usera B —
+        pilnuje, żeby filtr user_id nigdy nie został przypadkiem zgubiony."""
+        user_a = _make_user(credits=0)
+        user_b = _make_user(credits=0)
+        case_id = self._add_completed_case(user_a.id)
+        try:
+            assert get_lucky_code_status(user_a.id)["available"] is True
+            assert get_lucky_code_status(user_b.id)["available"] is False
+        finally:
+            self._delete_case(case_id)
+            _cleanup(user_a.id)
+            _cleanup(user_b.id)
+
+    def test_seed_is_idempotent_on_repeated_calls(self):
+        """_seed_lucky_code() jest wołane przy każdym starcie appki — drugie
+        wywołanie nie może rzucić (unique PK) ani zduplikować wiersza."""
+        _seed_lucky_code()
+        _seed_lucky_code()
+        db = SessionLocal()
+        try:
+            count = db.query(PromoCode).filter(PromoCode.code == LUCKY_CODE).count()
+            assert count == 1
+        finally:
+            db.close()
+
+    def test_endpoint_requires_auth(self):
+        response = client.get("/api/billing/lucky-code")
+        assert response.status_code in (401, 403)
+
+    def test_endpoint_returns_status_for_authenticated_user(self):
+        user = _make_user(credits=0)
+        token = create_access_token(user.id, is_admin=False)
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            response = client.get("/api/billing/lucky-code", headers=headers)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == LUCKY_CODE
+            assert data["available"] is False
+        finally:
+            _cleanup(user.id)
 
 
 class TestRegulaminVersionSync:

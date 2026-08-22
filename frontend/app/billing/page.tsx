@@ -12,6 +12,7 @@ import {
   type BillingPackageKey,
 } from "@/lib/api";
 import { Loader2, Sparkles, Ticket } from "lucide-react";
+import { LuckyCodeBanner } from "@/components/billing/lucky-code-banner";
 
 function formatPrice(grosz: number): string {
   return `${(grosz / 100).toFixed(2).replace(".00", "")} zł`;
@@ -94,6 +95,8 @@ export default function BillingPage() {
             : "Pierwsza analiza jest zawsze darmowa — kolejne kupujesz pojedynczo albo w pakiecie."}
         </p>
       </div>
+
+      <LuckyCodeBanner onRedeemed={setCredits} />
 
       {error && (
         <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>

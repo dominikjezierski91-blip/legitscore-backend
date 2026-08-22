@@ -10,6 +10,7 @@ from app.services.database import (
     redeem_promo_code,
     create_credit_purchase,
     complete_credit_purchase,
+    get_lucky_code_status,
 )
 from app.services.security import limiter, RATE_LIMIT_DEFAULT
 from app.services.stripe_service import PACKAGES, create_checkout_session, construct_webhook_event
@@ -37,6 +38,13 @@ def get_pricing():
 def get_credits(current_user: User = Depends(get_current_user)):
     """Aktualne saldo kredytów zalogowanego usera."""
     return {"credits": get_user_credits(current_user.id)}
+
+
+@router.get("/lucky-code")
+def lucky_code_status(current_user: User = Depends(get_current_user)):
+    """Czy pokazać userowi baner z ewergrinowym kodem LS7 (co najmniej jedna
+    ukończona analiza i jeszcze nie odebrany)."""
+    return get_lucky_code_status(current_user.id)
 
 
 @router.post("/promo/redeem")

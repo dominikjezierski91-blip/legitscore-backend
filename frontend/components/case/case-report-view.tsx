@@ -6,6 +6,7 @@ import { RatingBalls } from "@/components/feedback/rating-balls";
 import { AddToCollectionCta } from "@/components/collection/add-to-collection-cta";
 import { BackButton } from "@/components/ui/back-button";
 import { SupportWidget } from "@/components/support/support-widget";
+import { LuckyCodeBanner } from "@/components/billing/lucky-code-banner";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
@@ -132,6 +133,7 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
           ) : (
             <BackButton label="Wstecz" />
           )}
+          {!isExample && <LuckyCodeBanner />}
           <section className="glass-card space-y-3 p-5 md:p-6">
             <div className="flex items-center justify-between gap-3">
               <div>

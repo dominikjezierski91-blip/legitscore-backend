@@ -110,6 +110,14 @@ class User(Base):
     credits = Column(Integer, default=1, nullable=False)
 
 
+# Ewergrinowy, publiczny kod promo — pokazywany w apce (baner) userom, którzy
+# ukończyli już co najmniej jedną analizę. Bezpieczny do publicznej promocji mimo
+# braku limitu globalnego (max_uses=None): PromoRedemption ma unique constraint
+# (user_id, code), więc i tak każdy odbierze go co najwyżej raz.
+LUCKY_CODE = "LS7"
+LUCKY_CODE_CREDITS = 2
+
+
 class PromoCode(Base):
     """Kod zaproszenia doładowujący darmowe kredyty przy rejestracji (np. link
     ?promo=KOD wysyłany wybranym userom testowym)."""
@@ -277,6 +285,7 @@ def init_db():
     _migrate_user_email_verified()
     _migrate_user_credits()
     _migrate_promo_redemptions_unique()
+    _seed_lucky_code()
 
 
 def _migrate_password_reset_tokens():
@@ -507,6 +516,55 @@ def _migrate_promo_redemptions_unique():
             "ON promo_redemptions (user_id, code)"
         ))
         conn.commit()
+
+
+def _seed_lucky_code():
+    """Jednorazowo wstawia ewergrinowy kod LS7, jeśli jeszcze nie istnieje —
+    idempotentne, bezpieczne do wywoływania przy każdym starcie (Faza 4, baner
+    'kod po pierwszej analizie'). Insert opakowany w IntegrityError (jak
+    redeem_promo_code() dla analogicznego wyścigu) — dwie nakładające się instancje
+    startujące równolegle wobec tej samej bazy (np. overlap podczas deployu) mogą
+    obie przejść check `exists is None`; PromoCode.code jest primary key, więc
+    druga bez tego zabezpieczenia crashowałaby cały startup."""
+    from sqlalchemy.exc import IntegrityError
+
+    db = SessionLocal()
+    try:
+        exists = db.query(PromoCode).filter(PromoCode.code == LUCKY_CODE).first()
+        if not exists:
+            db.add(PromoCode(code=LUCKY_CODE, credits=LUCKY_CODE_CREDITS, max_uses=None, expires_at=None))
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+    finally:
+        db.close()
+
+
+def get_lucky_code_status(user_id: str) -> dict:
+    """Czy pokazać userowi baner z kodem LS7: musi mieć co najmniej jedną
+    ukończoną analizę i jeszcze nie odebrać tego kodu."""
+    db = SessionLocal()
+    try:
+        has_completed_analysis = (
+            db.query(CaseRecord)
+            .filter(CaseRecord.user_id == user_id, CaseRecord.verdict_category.isnot(None))
+            .first()
+            is not None
+        )
+        already_redeemed = (
+            db.query(PromoRedemption)
+            .filter(PromoRedemption.user_id == user_id, PromoRedemption.code == LUCKY_CODE)
+            .first()
+            is not None
+        )
+        return {
+            "code": LUCKY_CODE,
+            "credits": LUCKY_CODE_CREDITS,
+            "available": has_completed_analysis and not already_redeemed,
+        }
+    finally:
+        db.close()
 
 
 def update_user_regulamin_acceptance(user_id: str, regulamin_version: Optional[str], privacy_version: Optional[str]) -> None:

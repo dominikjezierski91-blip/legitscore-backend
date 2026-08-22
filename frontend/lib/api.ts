@@ -460,3 +460,9 @@ export async function redeemPromoCode(code: string): Promise<{ ok: boolean; mess
   });
 }
 
+export type LuckyCodeStatus = { code: string; credits: number; available: boolean };
+
+export async function getLuckyCodeStatus(): Promise<LuckyCodeStatus> {
+  return request("/api/billing/lucky-code");
+}
+
