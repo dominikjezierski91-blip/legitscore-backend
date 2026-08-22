@@ -112,6 +112,21 @@ export function SubmitSummaryCard({
             value={canSubmit ? "potwierdzona" : "wymagana"}
             status={canSubmit ? "ok" : "warn"}
           />
+          {!isLoggedIn ? (
+            <SummaryRow
+              icon={<Sparkles className="h-3 w-3" />}
+              label="Kredyty"
+              value="1. analiza gratis po założeniu konta"
+              status="ok"
+            />
+          ) : credits !== null ? (
+            <SummaryRow
+              icon={<Sparkles className="h-3 w-3" />}
+              label="Dostępne analizy"
+              value={credits > 0 ? String(credits) : "wykorzystane"}
+              status={credits > 0 ? "ok" : "warn"}
+            />
+          ) : null}
         </div>
         <p className="leading-relaxed">
           Uruchamiając analizę, jesteś świadomy/a, że LegitScore generuje{" "}
@@ -151,28 +166,16 @@ export function SubmitSummaryCard({
             <ArrowRight className="h-3 w-3" />
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-          {!isLoggedIn ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
-              <Sparkles className="h-3 w-3" />
-              Pierwsza analiza gratis po założeniu konta
-            </span>
-          ) : credits === null ? null : credits > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
-              <Sparkles className="h-3 w-3" />
-              Dostępne analizy: {credits}
-            </span>
-          ) : (
-            <Link
-              href="/billing"
-              className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-500/20"
-            >
-              Wykorzystałeś dostępne analizy — kup kolejną
-              <ArrowRight className="h-3 w-3" />
-            </Link>
-          )}
-          <span>Raport ryzyka, nie gwarancja.</span>
-        </div>
+        {isLoggedIn && credits === 0 && (
+          <Link
+            href="/billing"
+            className="inline-flex w-full items-center justify-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-500/20"
+          >
+            Wykorzystałeś dostępne analizy — kup kolejną
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        )}
+        <p className="text-xs text-muted-foreground">Raport ryzyka, nie gwarancja.</p>
       </div>
       </div>
     </aside>
