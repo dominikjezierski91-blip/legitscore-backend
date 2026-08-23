@@ -15,6 +15,12 @@ import { useAuth } from "@/components/auth/auth-provider";
 
 type InputMode = "photos" | "url";
 
+function pluralAnalyses(n: number): string {
+  if (n === 1) return "1 dostępną analizę";
+  if (n >= 2 && n <= 4) return `${n} dostępne analizy`;
+  return `${n} dostępnych analiz`;
+}
+
 export function AnalyzeForm() {
   const { user } = useAuth();
   const [inputMode, setInputMode] = useState<InputMode>("photos");
@@ -155,19 +161,23 @@ export function AnalyzeForm() {
             raport ryzyka autentyczności na podstawie przesłanych zdjęć lub
             linków do ofert marketplace.
           </p>
+          {user && credits !== null && credits > 0 && (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 shadow-sm shadow-emerald-500/10">
+              <Sparkles className="h-4 w-4 shrink-0 text-emerald-300" />
+              <span className="text-sm font-semibold text-emerald-200">
+                Masz {pluralAnalyses(credits)}
+              </span>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 text-[11px]">
             <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
               BETA
             </span>
-            {user && credits !== null && credits > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-semibold text-emerald-200">
-                <Sparkles className="h-3 w-3" />
-                Masz {credits} dostępnych analiz
+            {!user && (
+              <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
+                Pierwsza analiza gratis po założeniu konta
               </span>
             )}
-            <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
-              Pierwsza analiza gratis po założeniu konta
-            </span>
             <span className="rounded-full border border-border/70 bg-slate-950/60 px-3 py-1 text-slate-200">
               Raport ryzyka, nie gwarancja
             </span>
