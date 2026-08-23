@@ -119,6 +119,21 @@ export default function CollectionPage() {
   // Feature 4: expanded groups for club mode
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
+  // Kliknięcie "Najdroższa" w Portfelu Koszulek — otwiera widok szczegółowy
+  // tej konkretnej karty i przewija do niej (jeśli sortujemy po klubie,
+  // trzeba też rozwinąć jej grupę, bo inaczej karta w ogóle nie jest w DOM).
+  const [focusItemId, setFocusItemId] = useState<string | null>(null);
+
+  function handleSelectItem(item: any) {
+    if (sort === "club" && item.club) {
+      setExpandedGroups((prev) => new Set(prev).add(item.club));
+    }
+    setFocusItemId(item.id);
+    setTimeout(() => {
+      document.getElementById(`collection-item-${item.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+  }
+
   useEffect(() => {
     const saved = localStorage.getItem("collection_name");
     if (saved) { setCollectionName(saved); setNameInput(saved); }
@@ -321,7 +336,7 @@ export default function CollectionPage() {
         </div>
       </div>
 
-      {items.length >= 1 && <PortfolioStats items={items} />}
+      {items.length >= 1 && <PortfolioStats items={items} onSelectItem={handleSelectItem} />}
 
       <div className="flex items-center gap-2">
         <Link
@@ -517,6 +532,8 @@ export default function CollectionPage() {
                         onDelete={handleDelete}
                         onMarketValueRefresh={handleMarketValueRefresh}
                         onUpdate={handleItemUpdate}
+                        autoOpen={focusItemId === item.id}
+                        onAutoOpened={() => setFocusItemId(null)}
                       />
                     ))}
                   </div>
@@ -534,6 +551,8 @@ export default function CollectionPage() {
                   onDelete={handleDelete}
                   onMarketValueRefresh={handleMarketValueRefresh}
                   onUpdate={handleItemUpdate}
+                  autoOpen={focusItemId === item.id}
+                  onAutoOpened={() => setFocusItemId(null)}
                 />
               ))}
             </div>
@@ -557,7 +576,7 @@ export default function CollectionPage() {
 
 // ── Portfolio Stats ───────────────────────────────────────────
 
-function PortfolioStats({ items }: { items: any[] }) {
+function PortfolioStats({ items, onSelectItem }: { items: any[]; onSelectItem: (item: any) => void }) {
   const totalInvested = items.reduce((sum, i) => {
     if (!i.purchase_price) return sum;
     const price = parseFloat(String(i.purchase_price).replace(",", "."));
@@ -607,12 +626,17 @@ function PortfolioStats({ items }: { items: any[] }) {
                 </div>
               )}
               {mostExpensive && (
-                <div>
+                <button
+                  onClick={() => onSelectItem(mostExpensive)}
+                  className="min-w-0 rounded-lg text-left transition hover:opacity-80"
+                >
                   <p className="truncate text-[11px] text-slate-500">
                     Najdroższa{mostExpensive.club ? ` · ${mostExpensive.club}` : ""}
                   </p>
-                  <p className="mt-0.5 text-sm font-semibold text-slate-200">~{fmt(mostExpensiveEntry?.value ?? 0)} PLN</p>
-                </div>
+                  <p className="mt-0.5 text-sm font-semibold text-emerald-300 underline underline-offset-2">
+                    ~{fmt(mostExpensiveEntry?.value ?? 0)} PLN
+                  </p>
+                </button>
               )}
             </div>
           )}
@@ -780,17 +804,30 @@ function CollectionCard({
   onDelete,
   onMarketValueRefresh,
   onUpdate,
+  autoOpen,
+  onAutoOpened,
 }: {
   item: any;
   onDelete: (id: string) => void;
   onMarketValueRefresh: (id: string, result: any) => void;
   onUpdate: (item: any) => void;
+  autoOpen?: boolean;
+  onAutoOpened?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [valuating, setValuating] = useState(false);
   const [noDataAfterRefresh, setNoDataAfterRefresh] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Otwiera widok szczegółowy z zewnątrz (np. kliknięcie "Najdroższa" w
+  // Portfelu Koszulek) — patrz handleSelectItem w CollectionPage.
+  useEffect(() => {
+    if (autoOpen) {
+      setExpanded(true);
+      onAutoOpened?.();
+    }
+  }, [autoOpen, onAutoOpened]);
 
   const vm = VERDICT_META[item.verdict_category] ?? {
     label: item.verdict_category ?? "—",
@@ -838,7 +875,7 @@ function CollectionCard({
   }
 
   return (
-    <div className={cn("glass-card overflow-hidden", isGenuineVerified && "ring-1 ring-amber-400/40")}>
+    <div id={`collection-item-${item.id}`} className={cn("glass-card overflow-hidden", isGenuineVerified && "ring-1 ring-amber-400/40")}>
       {/* Widok ogólny (karta w siatce) — tylko podgląd; zmiana danych/zdjęcia
           wyłącznie przez osobny popup edycji (ikonka Edytuj) */}
       <div className="relative">
