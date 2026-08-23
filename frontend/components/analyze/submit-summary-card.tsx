@@ -106,12 +106,14 @@ export function SubmitSummaryCard({
               status="ok"
             />
           )}
-          <SummaryRow
-            icon={<ShieldCheck className="h-3 w-3" />}
-            label="Zgoda"
-            value={canSubmit ? "potwierdzona" : "wymagana"}
-            status={canSubmit ? "ok" : "warn"}
-          />
+          {showDisclaimerCheckbox && (
+            <SummaryRow
+              icon={<ShieldCheck className="h-3 w-3" />}
+              label="Zgoda"
+              value={disclaimerAccepted ? "potwierdzona" : "wymagana"}
+              status={disclaimerAccepted ? "ok" : "warn"}
+            />
+          )}
           {!isLoggedIn ? (
             <SummaryRow
               icon={<Sparkles className="h-3 w-3" />}

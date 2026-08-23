@@ -31,12 +31,13 @@ const FX_TO_PLN: Record<string, number> = { PLN: 1, EUR: 4.25, GBP: 5.0, USD: 3.
 // Podróbki nie mają sprawdzanej wartości rynkowej (nie ma sensu jej szukać na
 // aukcjach) — wszędzie, gdzie liczymy/sortujemy "wartość", dla podróbki liczy
 // się cena zakupu (jeśli user ją podał), tak jak dla zwykłych koszulek liczy
-// się market_value_pln.
+// się market_value_pln. Bez podanej ceny liczy się jako 0 (nie null) — podróbka
+// ma zawsze wliczoną wartość do Portfela, user może dodać cenę zakupu później.
 function effectiveItemValue(item: any): number | null {
   if (item.verdict_category === "podrobka") {
-    if (!item.purchase_price) return null;
+    if (!item.purchase_price) return 0;
     const price = parseFloat(String(item.purchase_price).replace(",", "."));
-    if (isNaN(price)) return null;
+    if (isNaN(price)) return 0;
     return price * (FX_TO_PLN[(item.purchase_currency || "PLN").toUpperCase()] ?? 1);
   }
   return item.market_value_pln ?? null;

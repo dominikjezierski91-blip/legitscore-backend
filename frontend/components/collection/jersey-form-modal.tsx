@@ -347,7 +347,12 @@ export function JerseyFormModal({ mode, item, onClose, onSaved }: Props) {
             </div>
           </Field>
           <Field label="Data zakupu">
-            <input type="date" className={inputCls()} value={form.purchase_date} onChange={(e) => set("purchase_date", e.target.value)} />
+            <input
+              type="date"
+              className={cn(inputCls(), "[color-scheme:dark]")}
+              value={form.purchase_date}
+              onChange={(e) => set("purchase_date", e.target.value)}
+            />
           </Field>
           <Field label="Źródło zakupu">
             <input className={inputCls()} value={form.purchase_source} onChange={(e) => set("purchase_source", e.target.value)} placeholder="np. Vinted" />

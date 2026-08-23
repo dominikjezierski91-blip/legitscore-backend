@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { Sparkles } from "lucide-react";
 import { PhotoRequirementsCard } from "./photo-requirements-card";
 import { MultiImageUploader } from "./multi-image-uploader";
 import { ReportType, ReportTypeSelector } from "./report-type-selector";
@@ -158,6 +159,12 @@ export function AnalyzeForm() {
             <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
               BETA
             </span>
+            {user && credits !== null && credits > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-semibold text-emerald-200">
+                <Sparkles className="h-3 w-3" />
+                Masz {credits} dostępnych analiz
+              </span>
+            )}
             <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-200">
               Pierwsza analiza gratis po założeniu konta
             </span>
