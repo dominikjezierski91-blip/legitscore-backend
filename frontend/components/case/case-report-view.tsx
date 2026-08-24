@@ -238,8 +238,7 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
                 Rozkład kategorii (skrót)
               </div>
               <div className="space-y-2 text-xs text-muted-foreground">
-                {Object.entries(probs).map(([key, value]) => {
-                  const pct = Number(value) || 0;
+                {groupProbabilitiesForDisplay(probs).map(([key, pct]) => {
                   const { barColor, label } = getProbabilityBarStyle(pct, key);
                   return (
                     <div key={key} className="space-y-1">
@@ -471,7 +470,27 @@ function getProbabilityBarStyle(pct: number, key: string) {
     podrobka: "Podróbka",
     edycja_limitowana: "Edycja limitowana",
     treningowa_custom: "Treningowa / custom",
+    pozostale: "Pozostałe",
   };
   const label = CATEGORY_LABELS[key] ?? key.replace(/_/g, " ");
   return { barColor, label };
+}
+
+// Kategorie poniżej progu są zbierane w jedną pozycję "Pozostałe" — bez tego
+// wykres pokazywał mylącą fałszywą precyzję (np. 1%/3%/4% dla kategorii, które
+// i tak nie mają znaczenia obok werdyktu z wysoką pewnością).
+const PROB_DISPLAY_THRESHOLD = 5;
+function groupProbabilitiesForDisplay(probs: Record<string, any>): [string, number][] {
+  const kept: [string, number][] = [];
+  let rest = 0;
+  for (const [key, value] of Object.entries(probs)) {
+    const pct = Number(value) || 0;
+    if (pct >= PROB_DISPLAY_THRESHOLD) {
+      kept.push([key, pct]);
+    } else {
+      rest += pct;
+    }
+  }
+  if (rest > 0) kept.push(["pozostale", Math.round(rest)]);
+  return kept;
 }

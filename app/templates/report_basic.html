@@ -331,16 +331,7 @@
         <th>Kategoria</th>
         <th>Prawdopodobieństwo</th>
       </tr>
-      {% set p = data.probabilities %}
-      {% set rows = [
-        ("Oryginalna (sklepowa)", p.oryginalna_sklepowa or 0),
-        ("Meczowa", p.meczowa or 0),
-        ("Oficjalna replika", p.oficjalna_replika or 0),
-        ("Podróbka", p.podrobka or 0),
-        ("Edycja limitowana", p.edycja_limitowana or 0),
-        ("Treningowa / custom", p.treningowa_custom or 0),
-      ] %}
-      {% for label, pct in rows %}
+      {% for label, pct in data.grouped_probabilities %}
       <tr>
         <td>{{ label }}</td>
         <td>

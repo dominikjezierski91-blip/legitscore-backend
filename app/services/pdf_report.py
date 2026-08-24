@@ -15,6 +15,37 @@ _DEV_NOTE_PATTERNS = [
     "zewnętrznych baz danych", "external databases", "bez użycia zewnętrznych", "without external",
 ]
 
+_PROB_LABELS = [
+    ("oryginalna_sklepowa", "Oryginalna (sklepowa)"),
+    ("meczowa", "Meczowa"),
+    ("oficjalna_replika", "Oficjalna replika"),
+    ("podrobka", "Podróbka"),
+    ("edycja_limitowana", "Edycja limitowana"),
+    ("treningowa_custom", "Treningowa / custom"),
+]
+
+
+def _group_probabilities_for_display(probabilities: Dict[str, Any], threshold: int = 5) -> list:
+    """Prezentacyjne grupowanie rozkładu prawdopodobieństwa — kategorie poniżej
+    progu (domyślnie 5%) są zbierane w jedną pozycję 'Pozostałe'. Bez tego raport
+    pokazywał fałszywą precyzję (np. 1%/3%/4% przy kategoriach, które i tak nie
+    mają znaczenia obok werdyktu z wysoką pewnością) — mylące dla użytkownika."""
+    probabilities = probabilities or {}
+    kept: list = []
+    rest = 0
+    for key, label in _PROB_LABELS:
+        try:
+            pct = int(round(float(probabilities.get(key) or 0)))
+        except (TypeError, ValueError):
+            pct = 0
+        if pct >= threshold:
+            kept.append((label, pct))
+        else:
+            rest += pct
+    if rest > 0:
+        kept.append(("Pozostałe", rest))
+    return kept
+
 
 def _sanitize_report_data(data: Dict[str, Any]) -> Dict[str, Any]:
     """Sanityzacja danych raportu przed renderowaniem PDF.
@@ -82,6 +113,8 @@ def _sanitize_report_data(data: Dict[str, Any]) -> Dict[str, Any]:
             r for r in recs
             if not ("weryfikowan" in _rec_text(r) and "porównan" in _rec_text(r))
         ]
+
+    d["grouped_probabilities"] = _group_probabilities_for_display(d.get("probabilities"))
 
     return d
 
