@@ -11,6 +11,8 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+from app.services.constants import UNVERIFIED_SUBJECT_VALUES
+
 logger = logging.getLogger(__name__)
 
 PLAYER_CLUB_CONSISTENCY_PROMPT = """You are a factual consistency checker for football jersey personalization.
@@ -104,12 +106,21 @@ async def run_player_club_consistency_check(report_data: Dict[str, Any]) -> Dict
         return _fallback()
 
 
+def _real_value(raw: Optional[str]) -> str:
+    """Zwraca "" dla placeholderów Agenta A (np. "nieustalone") — bez tego
+    truthiness-check niżej traktuje placeholder jak realną wartość i woła
+    Gemini z fikcyjnym zawodnikiem/klubem jako wejściem (patrz incydent
+    2026-08-24, ten sam wzorzec co w sku_agent.py/pdf_report.py)."""
+    value = (raw or "").strip()
+    return "" if value.lower() in UNVERIFIED_SUBJECT_VALUES else value
+
+
 async def _run(report_data: Dict[str, Any]) -> Dict[str, Any]:
     subject = report_data.get("subject") or {}
-    player_name = (subject.get("player_name") or "").strip()
-    club_name = (subject.get("club") or "").strip()
-    season = (subject.get("season") or "").strip()
-    player_number = (subject.get("player_number") or "").strip() or None
+    player_name = _real_value(subject.get("player_name"))
+    club_name = _real_value(subject.get("club"))
+    season = _real_value(subject.get("season"))
+    player_number = _real_value(subject.get("player_number")) or None
 
     personalization = report_data.get("personalization_assessment") or {}
     personalization_status = (personalization.get("status") or "").lower()

@@ -66,6 +66,45 @@ class TestGroupProbabilitiesForDisplay:
         assert sum(pct for _, pct in result) == 100
 
 
+class TestSanitizeReportDataSkuPlaceholder:
+    """Regresja na realny incydent (2026-08-24, re-analiza Manchester United,
+    case 2f3b8c13): Agent A nie odczytał SKU i zwrócił subject.sku="nieustalone"
+    (placeholder, nie realny kod) — ale _sanitize_report_data traktowało ten
+    napis jak prawdziwy, "widoczny" kod: generowało fałszywe ostrzeżenie o
+    niepoprawnym formacie Nike dla dosłownego słowa "nieustalone" i podmieniało
+    missing_data na mylące "Kod produktu widoczny na jock tagu..."."""
+
+    def _report(self, sku: str, missing_data=None):
+        return {
+            "subject": {"sku": sku, "brand": "Nike"},
+            "sku_verification": {"status": "not_applicable"},
+            "missing_data": missing_data or ["Brak widocznego kodu SKU na zdjęciu."],
+            "probabilities": {},
+            "recommendations": [],
+            "notes": {},
+        }
+
+    def test_placeholder_sku_does_not_generate_format_warning(self):
+        sanitized = _sanitize_report_data(self._report("nieustalone"))
+        assert sanitized["sku_format_warning"] is None
+
+    def test_placeholder_sku_missing_data_not_rewritten_as_visible(self):
+        sanitized = _sanitize_report_data(self._report("nieustalone"))
+        assert sanitized["missing_data"] == ["Brak widocznego kodu produktu."]
+        assert not any("widoczny na jock tagu" in m for m in sanitized["missing_data"])
+
+    def test_real_invalid_sku_still_triggers_format_warning(self):
+        """Nie zepsuj oryginalnej funkcji — prawdziwy, tylko źle sformatowany
+        kod nadal powinien generować ostrzeżenie."""
+        sanitized = _sanitize_report_data(self._report("09914738"))
+        assert sanitized["sku_format_warning"] is not None
+        assert "09914738" in sanitized["sku_format_warning"]
+
+    def test_real_sku_still_rewrites_missing_data_as_visible(self):
+        sanitized = _sanitize_report_data(self._report("09914738"))
+        assert any("widoczny na jock tagu" in m for m in sanitized["missing_data"])
+
+
 class TestSanitizeReportDataAddsGroupedProbabilities:
     def test_sanitize_adds_grouped_probabilities_field(self):
         report_data = {

@@ -12,6 +12,8 @@ import os
 import re
 from typing import Any, Dict, Optional
 
+from app.services.constants import UNVERIFIED_SUBJECT_VALUES
+
 logger = logging.getLogger(__name__)
 
 SKU_VERIFICATION_PROMPT = """You are a football jersey SKU (product code) lookup specialist.
@@ -139,7 +141,7 @@ async def _run(report_data: Dict[str, Any]) -> Dict[str, Any]:
     subject = report_data.get("subject") or {}
     sku = (subject.get("sku") or "").strip()
 
-    if not sku or sku.lower() in {"nieustalone", "unknown", "brak", "n/a", "—"}:
+    if not sku or sku.lower() in UNVERIFIED_SUBJECT_VALUES:
         return _not_applicable()
 
     club = (subject.get("club") or "").strip()

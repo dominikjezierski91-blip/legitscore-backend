@@ -8,6 +8,8 @@ from typing import Any, Dict
 from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
 
+from app.services.constants import UNVERIFIED_SUBJECT_VALUES
+
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"  # app/templates
 
 _DEV_NOTE_PATTERNS = [
@@ -62,6 +64,14 @@ def _sanitize_report_data(data: Dict[str, Any]) -> Dict[str, Any]:
 
     subject = d.get("subject") or {}
     sku = (subject.get("sku") or "").strip()
+    # "nieustalone"/"unknown" itp. to placeholder Agenta A, gdy SKU nie zostało
+    # odczytane — nie prawdziwy kod. Bez tego wyglądu poniższa logika (3, 4)
+    # traktowała placeholder jak realny, "widoczny" kod: generowała fałszywe
+    # "Kod produktu widoczny na jock tagu..." i ostrzeżenie o niepoprawnym
+    # formacie dla dosłownego słowa "nieustalone" (ten sam zestaw placeholderów
+    # co w app/services/sku_agent.py::_run()).
+    if sku.lower() in UNVERIFIED_SUBJECT_VALUES:
+        sku = ""
     brand = (subject.get("brand") or "").lower()
     missing = list(d.get("missing_data") or [])
 
