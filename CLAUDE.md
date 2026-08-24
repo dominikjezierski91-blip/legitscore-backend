@@ -86,14 +86,16 @@ The AI system outputs probabilities for these categories:
 ## Critical Architecture Rules
 
 ### 1. Agent A is the Single Source of Truth
-Agent A (Gemini Vision) determines the verdict. Backend must **never override semantic verdict fields**:
+Agent A (Gemini Vision) determines the verdict. Backend must **never freely override semantic verdict fields**:
 - `verdict_category`
 - `confidence_percent`
 - `confidence_level`
 - `summary`
 - `label`
 
-Backend may **only normalize** `probabilities` (e.g., 0.6 → 60).
+Backend may always **normalize** `probabilities` (e.g., 0.6 → 60).
+
+**Sole exception**: the 5 deterministic hard-override paths in `run_rule_engine()` (see `app/services/agent_a_gemini.py`) — narrow, evidence-based overrides (SKU hard-reject, no-SKU + poor manufacturing, meczowa + poor manufacturing, neck-tag-poor, print-application-poor), not free-form backend rewriting. Each of these paths that lands on `podrobka` also regenerates `verdict.summary` to stay consistent with the overridden verdict — otherwise the descriptive paragraph (written by Agent A for its pre-override suggestion) contradicts the final verdict shown next to it. Outside these 5 paths, the rule applies without exception.
 
 ### 2. Snapshot Consistency
 All outputs must come from the same snapshot. The result page and PDF must use identical data.

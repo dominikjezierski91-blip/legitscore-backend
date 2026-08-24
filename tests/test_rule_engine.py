@@ -342,6 +342,62 @@ class TestRunRuleEngineSKUMismatch:
         assert dm["A"]["status"] == "RED"
         assert dm["B"]["status"] == "RED"
 
+    def test_format_invalid_does_not_claim_assigned_to_another_jersey(self):
+        """Regresja na realny bug zgłoszony przez Dominika (koszulka Manchester
+        United na produkcji): dla format_invalid confidence_explanation twierdziło
+        'Kod SKU przypisany do innej koszulki' — nieprawda, ustalono tylko że
+        format jest niepoprawny, nie że kod znaleziono przy innym produkcie."""
+        report = self._report_with_sku_status("format_invalid")
+        run_rule_engine(report)
+        explanation = report["verdict"]["confidence_explanation"].lower()
+        assert "przypisany do innej koszulki" not in explanation
+        assert "nieprawidłowy format" in explanation
+
+    def test_mismatch_without_found_product_uses_real_reason_not_generic_text(self):
+        """'mismatch' (i legacy 'invalid') nie występują w aktualnym schemacie
+        sku_agent.py (found_official|found_authorized|found_unofficial|not_found|
+        format_invalid) — to defensywna, dziś nieosiągalna gałąź. Ale musi
+        zostać obsłużona tak samo jak w _build_override_key_evidence: czytać
+        realny sku_verification.reason, nie hardkodowany generyczny tekst,
+        żeby nie wprowadzić tej samej klasy niespójności confidence_explanation
+        vs key_evidence dla tej ścieżki."""
+        report = self._report_with_sku_status("mismatch")
+        run_rule_engine(report)
+        explanation = report["verdict"]["confidence_explanation"].lower()
+        # _report_with_sku_status ustawia reason="SKU test reason."
+        assert "sku test reason" in explanation
+
+    def test_confidence_explanation_matches_key_evidence_reason(self):
+        """Sekcja 'Poziom pewności' (confidence_explanation) i 'Kluczowe sygnały'
+        (key_evidence[0], budowane przez _build_override_key_evidence) muszą
+        opisywać ten sam powód override'u — to dokładnie ta klasa buga, która
+        wywołała ten fix (dwie sekcje tego samego raportu mówiące co innego)."""
+        for status in ["found_unofficial", "format_invalid", "mismatch"]:
+            report = self._report_with_sku_status(status)
+            run_rule_engine(report)
+            explanation = report["verdict"]["confidence_explanation"].lower()
+            evidence = report["key_evidence"][0].lower()
+            # Oba teksty muszą się zgadzać co do statusu — jeśli jeden mówi
+            # "nieprawidłowy format", drugi nie może mówić "przypisany do innej".
+            assert ("nieprawidłowy format" in explanation) == ("nieprawidłowy format" in evidence), status
+            assert ("nieautoryzowanymi" in explanation) == ("nieautoryzowanymi" in evidence), status
+
+    def test_sku_mismatch_regenerates_contradictory_summary(self):
+        """Regresja na realny bug: Agent A pisze summary pod swoją oryginalną
+        sugestię (np. 'wysokie prawdopodobieństwo oryginalności'), a hard override
+        zmienia verdict_category na podróbkę bez dotykania summary — user widział
+        raport sprzeczny sam ze sobą (tekst broniący autentyczności obok werdyktu
+        Podróbka 90%)."""
+        report = self._report_with_sku_status("format_invalid")
+        report["verdict"]["summary"] = (
+            "Cechy fizyczne są zgodne z autentyczną wersją sklepową. Całkowita "
+            "ocena wskazuje na wysokie prawdopodobieństwo oryginalności."
+        )
+        run_rule_engine(report)
+        summary = report["verdict"]["summary"].lower()
+        assert "prawdopodobieństwo oryginalności" not in summary
+        assert "podróbk" in summary
+
 
 class TestRunRuleEngineNoSKUPoorMfg:
     """Brak SKU + poor manufacturing → override na podróbkę."""
@@ -367,6 +423,14 @@ class TestRunRuleEngineNoSKUPoorMfg:
         assert report["verdict"]["verdict_category"] == "podrobka"
         assert report["verdict"]["confidence_percent"] == 80
         assert "no_sku_plus_poor_manufacturing" in result["hard_flags"]
+
+    def test_no_sku_poor_mfg_regenerates_contradictory_summary(self):
+        report = self._report_poor_mfg_no_sku()
+        report["verdict"]["summary"] = "Wysokie prawdopodobieństwo oryginalności."
+        run_rule_engine(report)
+        summary = report["verdict"]["summary"].lower()
+        assert "prawdopodobieństwo oryginalności" not in summary
+        assert "podróbk" in summary
 
     def test_no_sku_poor_mfg_cleans_missing_data(self):
         report = self._report_poor_mfg_no_sku()
@@ -438,6 +502,90 @@ class TestRunRuleEngineProbabilitiesSync:
         run_rule_engine(report)
         assert report["probabilities"]["podrobka"] == 80
         assert report["probabilities"]["meczowa"] == 0
+
+
+class TestRunRuleEngineMeczowaPoorMfgOverride:
+    """meczowa + słaba jakość fizyczna wykonania → override na podróbkę."""
+
+    def _report_meczowa_poor_mfg(self):
+        report = _minimal_report(verdict_category="meczowa", confidence=70)
+        report["sku_verification"] = {"status": "not_found"}
+        report["manufacturing_signals"] = {
+            "seams_quality": "poor", "construction_quality": "poor",
+            "panel_join_quality": "unclear", "finish_quality": "unclear",
+            "material_quality": "unclear", "neck_tag_quality": "unclear",
+            "print_application_quality": "unclear",
+        }
+        return report
+
+    def test_triggers_override_to_podrobka(self):
+        report = self._report_meczowa_poor_mfg()
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "podrobka"
+
+    def test_regenerates_contradictory_summary(self):
+        report = self._report_meczowa_poor_mfg()
+        report["verdict"]["summary"] = "Baza koszulki autentyczna, to egzemplarz meczowy."
+        run_rule_engine(report)
+        summary = report["verdict"]["summary"].lower()
+        assert "egzemplarz meczowy" not in summary
+        assert "podróbk" in summary
+
+
+class TestRunRuleEngineNeckTagPoorOverride:
+    """Słaba jakość wewnętrznej metki (neck tag) + brak SKU → override na podróbkę."""
+
+    def _report_neck_tag_poor(self):
+        report = _minimal_report(verdict_category="oryginalna_sklepowa", confidence=70)
+        report["sku_verification"] = {"status": "not_found"}
+        report["manufacturing_signals"] = {
+            "seams_quality": "good", "construction_quality": "good",
+            "panel_join_quality": "good", "finish_quality": "good",
+            "material_quality": "good", "neck_tag_quality": "poor",
+            "print_application_quality": "good",
+        }
+        return report
+
+    def test_triggers_override_to_podrobka(self):
+        report = self._report_neck_tag_poor()
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "podrobka"
+
+    def test_regenerates_contradictory_summary(self):
+        report = self._report_neck_tag_poor()
+        report["verdict"]["summary"] = "Wysokie prawdopodobieństwo oryginalności."
+        run_rule_engine(report)
+        summary = report["verdict"]["summary"].lower()
+        assert "prawdopodobieństwo oryginalności" not in summary
+        assert "podróbk" in summary
+
+
+class TestRunRuleEnginePrintApplicationPoorOverride:
+    """Słaba jakość aplikacji nadruków + brak SKU → override na podróbkę."""
+
+    def _report_print_app_poor(self):
+        report = _minimal_report(verdict_category="oryginalna_sklepowa", confidence=70)
+        report["sku_verification"] = {"status": "not_found"}
+        report["manufacturing_signals"] = {
+            "seams_quality": "good", "construction_quality": "good",
+            "panel_join_quality": "good", "finish_quality": "good",
+            "material_quality": "good", "neck_tag_quality": "good",
+            "print_application_quality": "poor",
+        }
+        return report
+
+    def test_triggers_override_to_podrobka(self):
+        report = self._report_print_app_poor()
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "podrobka"
+
+    def test_regenerates_contradictory_summary(self):
+        report = self._report_print_app_poor()
+        report["verdict"]["summary"] = "Wysokie prawdopodobieństwo oryginalności."
+        run_rule_engine(report)
+        summary = report["verdict"]["summary"].lower()
+        assert "prawdopodobieństwo oryginalności" not in summary
+        assert "podróbk" in summary
 
 
 # ---------------------------------------------------------------------------

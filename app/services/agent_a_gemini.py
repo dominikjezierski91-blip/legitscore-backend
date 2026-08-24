@@ -1478,6 +1478,37 @@ def _clean_contradictory_data_after_override(report_data: Dict[str, Any]) -> Non
         report_data["notes"] = notes
 
 
+def _sku_hard_reject_reason(sku_verification: Dict[str, Any]) -> str:
+    """Krótki opis powodu hard override na podróbkę, zgodny z faktycznym
+    sku_verification.status. Bez tego confidence_explanation/decision_matrix
+    hardkodowały jeden tekst ('SKU przypisany do innej koszulki') dla
+    wszystkich statusów w _sku_hard_statuses — mylące np. dla format_invalid,
+    gdzie nie ustalono, że kod należy do INNEGO produktu, tylko że jego
+    format jest niepoprawny.
+
+    Branże statusów pokrywa się celowo z _build_override_key_evidence() (ta sama
+    lista _sku_hard_statuses), włącznie z fallbackiem: "mismatch"/"invalid" nie
+    występują już w aktualnym schemacie sku_agent.py (found_official |
+    found_authorized | found_unofficial | not_found | format_invalid) — to
+    legacy/defensywna gałąź, nigdy nie produkowana przez obecny SKU agent —
+    ale zostawiona tu na wypadek starszych zapisanych raportów, więc fallback
+    czyta realny `reason` (jak w _build_override_key_evidence), zamiast
+    hardkodowanego tekstu, żeby nie wprowadzić tej samej klasy niespójności
+    dla tej rzadkiej ścieżki."""
+    status = sku_verification.get("status", "")
+    found_product = (sku_verification.get("found_product_name") or "").strip()
+    if status == "found_unofficial":
+        return "Kod SKU powiązany z nieautoryzowanymi produktami"
+    if status == "format_invalid":
+        return "Kod SKU ma nieprawidłowy format, niezgodny ze wzorcami producenta"
+    if found_product:
+        return f"Kod SKU należy do innego produktu ({found_product})"
+    raw_reason = (sku_verification.get("reason") or "").split(".")[0].strip()
+    if raw_reason:
+        return f"Kod SKU nieautentyczny ({raw_reason})"
+    return "Kod SKU niezgodny z tą koszulką"
+
+
 def _build_override_key_evidence(
     hard_flags: List[str],
     manufacturing_signals: Dict[str, Any],
@@ -1664,12 +1695,21 @@ def run_rule_engine(
 
     Czyta: verdict, decision_matrix, missing_data, subject, reasoning_limits,
            sku_verification, player_club_consistency, coverage_result.
-    Mutuje: report_data["verdict"]["confidence_percent"], ["confidence_level"],
+    Mutuje zawsze: report_data["verdict"]["confidence_percent"], ["confidence_level"],
             opcjonalnie ["confidence_explanation"].
     Zwraca: assessment_v2 dict.
 
     Non-fatal — wywołujący powinien owrapować try/except.
-    NIE zmienia verdict_category, label, summary.
+
+    W ogólnym przypadku NIE zmienia verdict_category, label, summary — Agent A
+    jest jedynym źródłem prawdy dla tych pól (patrz CLAUDE.md, reguła #1).
+    Jedyny wyjątek: 5 deterministycznych, opartych na twardych dowodach ścieżek
+    hard-override (SKU hard-reject, no-SKU+poor-mfg, meczowa+poor-mfg→podrobka,
+    neck-tag-poor, print-application-poor) — te ŚWIADOMIE nadpisują
+    verdict_category/label/confidence_percent/confidence_level, a te kończące
+    się na "podrobka" nadpisują też summary (żeby opisowy akapit nie zaprzeczał
+    finalnemu werdyktowi, skoro Agent A napisał go pod swoją oryginalną,
+    sprzed-override'ową sugestię).
     """
     verdict = report_data.get("verdict") or {}
     dm = report_data.get("decision_matrix") or []
@@ -1721,13 +1761,23 @@ def run_rule_engine(
     _sku_hard_statuses = {"mismatch", "found_unofficial", "format_invalid", "invalid"}
     if sku_verification.get("status") in _sku_hard_statuses:
         raw_sku = (report_data.get("subject") or {}).get("sku", "")
+        _sku_reason = _sku_hard_reject_reason(sku_verification)
         if isinstance(report_data.get("verdict"), dict):
             report_data["verdict"]["verdict_category"] = "podrobka"
             report_data["verdict"]["label"] = "Podróbka"
             report_data["verdict"]["confidence_percent"] = 90
             report_data["verdict"]["confidence_level"] = "bardzo_wysoki"
             report_data["verdict"]["confidence_explanation"] = (
-                "Kod SKU przypisany do innej koszulki — jednoznaczny sygnał podróbki."
+                f"{_sku_reason} — jednoznaczny sygnał podróbki."
+            )
+            # Agent A pisał summary pod swoją oryginalną sugestię (przed tym
+            # override) — bez nadpisania zostawałby tekst argumentujący za
+            # autentycznością obok werdyktu "Podróbka" (realny bug zgłoszony
+            # przez Dominika: raport sprzeczny sam ze sobą).
+            report_data["verdict"]["summary"] = (
+                f"{_sku_reason} — to nadrzędny dowód podróbki, który eliminuje "
+                f"autentyczność niezależnie od jakości wykonania czy zgodności "
+                f"innych cech fizycznych z oryginałem."
             )
         probs = report_data.get("probabilities") or {}
         for k in probs:
@@ -1748,7 +1798,7 @@ def run_rule_engine(
             original_evidence=_original_evidence,
         )
         report_data["key_evidence"] = _new_evidence
-        _update_decision_matrix_row(dm, "A", "RED", "Kod SKU przypisany do innej koszulki — jednoznaczny sygnał podróbki.")
+        _update_decision_matrix_row(dm, "A", "RED", f"{_sku_reason} — jednoznaczny sygnał podróbki.")
         _update_decision_matrix_row(dm, "B", "RED", "Kod SKU niezgodny z tym modelem i sezonem.")
         _clean_contradictory_data_after_override(report_data)
         return {
@@ -1757,7 +1807,7 @@ def run_rule_engine(
             "override_verdict_category_suggestion": "podrobka",
             "evidence_confidence": "high",
             "confidence_ceiling": "high",
-            "ceiling_reason": "SKU przypisany do innej koszulki",
+            "ceiling_reason": _sku_reason,
             "base_shirt_assessment": {
                 "result": "likely_fake",
                 "key_criteria": ["B"],
@@ -1771,7 +1821,7 @@ def run_rule_engine(
             "external_checks_effect": {
                 "sku_effect": "hard_conflict",
                 "consistency_effect": "none",
-                "sku_note": f"Kod SKU ({raw_sku}) nie odpowiada tej koszulce — przypisany do innego modelu.",
+                "sku_note": f"{_sku_reason} (kod: {raw_sku}).",
             },
             "hard_flags": ["sku_mismatch_hard_reject"],
             "reasoning_limits": ["sku_mismatch_overrides_all"],
@@ -1814,6 +1864,11 @@ def run_rule_engine(
             report_data["verdict"]["confidence_explanation"] = (
                 "Brak kodu SKU oraz słaba jakość fizyczna wykonania — "
                 "kombinacja jednoznacznie wskazuje na podróbkę."
+            )
+            report_data["verdict"]["summary"] = (
+                "Brak widocznego kodu SKU w połączeniu ze słabą jakością fizyczną "
+                "wykonania (szwy, konstrukcja, materiał) jednoznacznie wskazuje na "
+                "podróbkę."
             )
         probs = report_data.get("probabilities") or {}
         for k in probs:
@@ -2065,6 +2120,11 @@ def run_rule_engine(
             report_data["verdict"]["confidence_explanation"] = (
                 "Słaba jakość fizyczna wykonania wyklucza wersję meczową — sygnał podróbki."
             )
+            report_data["verdict"]["summary"] = (
+                "Słaba jakość fizyczna wykonania (szwy, konstrukcja, materiał) "
+                "wyklucza wersję meczową i wskazuje na podróbkę, mimo pozornej "
+                "zgodności personalizacji z zawodnikiem."
+            )
         confidence_ceiling, ceiling_reason = _compute_confidence_ceiling(
             sku_effect, dm_statuses, missing_data, "podrobka", coverage_result, reasoning_limits,
             construction_flagged, mfg_quality,
@@ -2094,6 +2154,10 @@ def run_rule_engine(
             report_data["verdict"]["confidence_explanation"] = (
                 "Słaba jakość wewnętrznej metki (neck tag) przy braku "
                 "potwierdzenia SKU — sygnał podróbki."
+            )
+            report_data["verdict"]["summary"] = (
+                "Słaba jakość wewnętrznej metki (neck tag) przy braku potwierdzenia "
+                "kodu SKU jednoznacznie wskazuje na podróbkę."
             )
         probs = report_data.get("probabilities") or {}
         for k in probs:
@@ -2142,6 +2206,10 @@ def run_rule_engine(
             report_data["verdict"]["confidence_explanation"] = (
                 "Słaba jakość aplikacji nadruków (bąbelki, odstawanie) "
                 "przy braku potwierdzenia SKU — sygnał podróbki."
+            )
+            report_data["verdict"]["summary"] = (
+                "Słaba jakość aplikacji nadruków (bąbelki, odstawanie krawędzi) przy "
+                "braku potwierdzenia kodu SKU jednoznacznie wskazuje na podróbkę."
             )
         probs = report_data.get("probabilities") or {}
         for k in probs:

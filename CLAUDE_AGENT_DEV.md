@@ -128,18 +128,25 @@ cd /Users/user/Projects/legitscore-backend
 
 ### Krytyczne reguły architektury
 
-1. **Agent A jest jedynym źródłem prawdy** — backend nigdy nie nadpisuje:
+1. **Agent A jest jedynym źródłem prawdy** — backend swobodnie nie nadpisuje:
    `verdict_category`, `confidence_percent`, `confidence_level`, `summary`, `label`
-   Backend może tylko normalizować `probabilities` (0.6 → 60).
+   Backend może zawsze normalizować `probabilities` (0.6 → 60).
+   **Jedyny wyjątek**: 5 deterministycznych hard-override ścieżek w `run_rule_engine()`
+   (patrz punkt 4) — to świadomy, wąski mechanizm oparty na twardych dowodach
+   (SKU/jakość fizyczna), nie dowolne nadpisywanie. Poza tymi 5 ścieżkami reguła
+   obowiązuje bez wyjątków.
 
 2. **Snapshot consistency** — GET endpointy tylko czytają pliki, nigdy nie przeliczają.
 
 3. **Single execution** — analiza raz per case (lock file).
 
-4. **hard overrides** w `run_rule_engine()`:
+4. **hard overrides** w `run_rule_engine()` — jedyny sankcjonowany wyjątek od punktu 1:
    - `found_authorized` NIE triggeruje override
    - `mfg_quality == "fallback"` blokuje overrides
    - SKU mismatch → override z confidence_percent=90, natychmiastowy return
+   - Każda z 5 ścieżek prowadzących do `podrobka` nadpisuje też `verdict.summary`
+     (zgodnym z override'em tekstem) — bez tego user widział raport sprzeczny sam
+     ze sobą (Agent A pisze summary pod swoją oryginalną sugestię sprzed override'u)
    - `_clean_contradictory_data_after_override()` po KAŻDYM z 5 hard override
 
 ### Kategorie werdyktu
