@@ -54,21 +54,42 @@ Report what you find using these exact status values:
      "commonly found on fakes"
    NOTE: Being on eBay/Amazon does NOT automatically mean found_unofficial.
 
-"not_found" — SKU not found anywhere in search results.
+"not_found" — SKU not found anywhere in search results. This is the DEFAULT outcome
+   when a search turns up nothing and the code's only "problem" is that it doesn't
+   match a currently-listed retail pattern — see the tie-breaker below.
 
-"format_invalid" — SKU format does not match any known brand pattern before even searching:
-   * Nike: XXXXXX-XXX (e.g. FN8680-456) — 6 chars + 3 digits
+"format_invalid" — use RARELY, only for codes that are structurally impossible for
+   ANY brand (e.g. drastically wrong length, contains characters no brand ever uses,
+   obviously truncated or garbled) — never merely "unfamiliar-looking". Known CURRENT
+   retail patterns (reference only — do NOT auto-reject a code just because it doesn't
+   match these; older/pre-2010, regional, or youth/kids-line products routinely use
+   different, still fully legitimate numbering):
+   * Nike (current retail): XXXXXX-XXX (e.g. FN8680-456) — 6 chars + 3 digits
    * Adidas: XXXXXXX (e.g. BI1872S7T1) — alphanumeric mix
    * Puma: XXXXXX-XX — 6 digits + 2 digits
-   * ALL digits only (e.g. 123456789) → format_invalid
-   * Single letter + 9+ digits (e.g. B118723771) → format_invalid
+   Mark format_invalid ONLY if both hold: (1) you searched for the exact code and found
+   nothing anywhere (official, authorized, unofficial, or general marketplace), AND
+   (2) it is structurally nonsensical, not just unfamiliar. A code being all-digits,
+   lacking a dash, or otherwise merely "looking wrong" for a current retail pattern is
+   NOT by itself a reason to skip searching, and NOT by itself grounds for
+   format_invalid — older and youth/kids jerseys frequently carry exactly this kind of
+   code and are completely genuine.
+
+   TIE-BREAKER (important — format_invalid triggers a much harsher downstream
+   authenticity penalty than not_found): if you searched and found nothing, and the
+   ONLY reason to doubt the code is that it doesn't match the patterns above, choose
+   "not_found", NOT "format_invalid". Only use format_invalid when the code itself is
+   structurally impossible, independent of whether search found anything.
 
 CRITICAL RULES:
 - KICKS CREW, StockX, GOAT → always found_authorized, NEVER found_unofficial.
   These platforms authenticate products before sale.
 - eBay listing showing authentic jersey with matching description → found_authorized.
 - Only mark found_unofficial when the source is CLEARLY a fake/replica site.
-- ALWAYS search before reporting — never guess from format alone unless clearly format_invalid.
+- When in doubt between not_found and format_invalid, choose not_found — it has much
+  softer downstream consequences and is the safer default.
+- ALWAYS search first, for every SKU, no matter how the format looks — never conclude
+  format_invalid without having actually performed the search.
 - Report the EXACT product name/description you found.
 - Report the source URL.
 - Write reason in Polish. Be specific about what was found and where.
