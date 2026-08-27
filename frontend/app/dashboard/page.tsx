@@ -57,6 +57,10 @@ type UserRecord = {
   last_activity_at: string | null;
   first_analysis_at: string | null;
   user_type: string | null;
+  credits: number;
+  purchase_count: number;
+  credits_purchased: number;
+  amount_spent_pln_grosz: number;
 };
 
 type Metrics = {
@@ -69,6 +73,15 @@ type Metrics = {
   avg_analyses_per_user: number;
   activation_rate_pct: number;
   users_with_analysis: number;
+  total_collection_items: number;
+  billing?: {
+    total_purchases: number;
+    total_revenue_pln_grosz: number;
+    revenue_7d_pln_grosz: number;
+    total_credits_sold: number;
+    users_with_purchase: number;
+    paying_conversion_pct: number;
+  };
   segments?: {
     user_type: Record<string, number>;
     collection_size: Record<string, number>;
@@ -100,6 +113,14 @@ type UserDetail = {
   created_at: string | null;
   is_admin: boolean;
   user_type: string | null;
+  credits: number;
+  collection_count: number;
+  purchases: {
+    package: string;
+    credits: number;
+    amount_pln_grosz: number;
+    completed_at: string | null;
+  }[];
   cases: {
     case_id: string;
     created_at: string | null;
@@ -111,6 +132,10 @@ type UserDetail = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+function fmtPln(grosz: number): string {
+  return `${(grosz / 100).toLocaleString("pl-PL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł`;
+}
 
 function fmt(iso: string | null): string {
   if (!iso) return "—";
@@ -371,7 +396,7 @@ function TabOverview() {
       {/* Engagement */}
       <section className="space-y-3">
         <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Zaangażowanie</h3>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Analiz łącznie" value={metrics.total_cases} color="slate" />
           <Stat label="Analiz dziś" value={metrics.cases_today} color="emerald" />
           <Stat
@@ -380,6 +405,7 @@ function TabOverview() {
             sub="na aktywnych"
             color="blue"
           />
+          <Stat label="Pozycji w kolekcjach" value={metrics.total_collection_items} color="purple" />
         </div>
         {metrics.segments && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -401,6 +427,37 @@ function TabOverview() {
           </div>
         )}
       </section>
+
+      {/* Przychody */}
+      {metrics.billing && (
+        <section className="space-y-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Przychody</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat
+              label="Przychód łącznie"
+              value={fmtPln(metrics.billing.total_revenue_pln_grosz)}
+              sub={`${metrics.billing.total_purchases} zakupów`}
+              color="emerald"
+            />
+            <Stat
+              label="Przychód 7 dni"
+              value={fmtPln(metrics.billing.revenue_7d_pln_grosz)}
+              color="blue"
+            />
+            <Stat
+              label="Płacący użytkownicy"
+              value={metrics.billing.users_with_purchase}
+              sub={`${metrics.billing.paying_conversion_pct}% konwersji`}
+              color="purple"
+            />
+            <Stat
+              label="Kredytów sprzedanych"
+              value={metrics.billing.total_credits_sold}
+              color="slate"
+            />
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -707,13 +764,15 @@ function TabUsers() {
               <th className="px-3 py-2.5">Status</th>
               <th className="px-3 py-2.5">Analizy</th>
               <th className="px-3 py-2.5">Kolekcja</th>
+              <th className="px-3 py-2.5">Kredyty</th>
+              <th className="px-3 py-2.5">Zakupy</th>
               <th className="px-3 py-2.5">Ostatnia aktywność</th>
               <th className="px-3 py-2.5"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {users.length === 0 ? (
-              <tr><td colSpan={8} className="py-8 text-center text-slate-500">Brak użytkowników</td></tr>
+              <tr><td colSpan={10} className="py-8 text-center text-slate-500">Brak użytkowników</td></tr>
             ) : users.map((u) => (
               <tr key={u.id} className="hover:bg-slate-800/30">
                 <td className="px-3 py-2 text-xs text-slate-200">
@@ -732,6 +791,16 @@ function TabUsers() {
                   {u.collection_count > 0
                     ? <span className="text-blue-300">{u.collection_count}</span>
                     : <span className="text-slate-600">0</span>}
+                </td>
+                <td className="px-3 py-2 text-xs text-slate-300">{u.credits}</td>
+                <td className="px-3 py-2 text-xs">
+                  {u.purchase_count > 0 ? (
+                    <span className="text-purple-300">
+                      {u.purchase_count} · {fmtPln(u.amount_spent_pln_grosz)}
+                    </span>
+                  ) : (
+                    <span className="text-slate-600">0</span>
+                  )}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{fmtDate(u.last_activity_at)}</td>
                 <td className="px-3 py-2">
@@ -773,6 +842,38 @@ function TabUsers() {
                     ×
                   </button>
                 </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-2.5 text-center">
+                    <p className="text-base font-bold text-emerald-300">{selected.credits}</p>
+                    <p className="text-[10px] text-slate-500">Dostępne kredyty</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-2.5 text-center">
+                    <p className="text-base font-bold text-blue-300">{selected.collection_count}</p>
+                    <p className="text-[10px] text-slate-500">W kolekcji</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-2.5 text-center">
+                    <p className="text-base font-bold text-purple-300">
+                      {fmtPln(selected.purchases.reduce((sum, p) => sum + p.amount_pln_grosz, 0))}
+                    </p>
+                    <p className="text-[10px] text-slate-500">Wydane łącznie</p>
+                  </div>
+                </div>
+                {selected.purchases.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-slate-500">Historia zakupów</p>
+                    <div className="rounded-lg border border-slate-700 divide-y divide-slate-800">
+                      {selected.purchases.map((p, i) => (
+                        <div key={i} className="flex items-center justify-between px-3 py-2 text-xs">
+                          <span className="text-slate-300">{p.package} · +{p.credits} kredyt(ów)</span>
+                          <span className="flex items-center gap-3">
+                            <span className="text-slate-500">{fmtDate(p.completed_at)}</span>
+                            <span className="text-purple-300">{fmtPln(p.amount_pln_grosz)}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <p className="text-[11px] text-slate-500">{selected.cases.length} analiz</p>
                   <div className="rounded-lg border border-slate-700 divide-y divide-slate-800 max-h-80 overflow-y-auto">

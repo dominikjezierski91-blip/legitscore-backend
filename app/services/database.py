@@ -1141,7 +1141,7 @@ def get_registration_trend(days: int = 30) -> list:
 
 
 def get_user_detail(user_id: str) -> Optional[dict]:
-    """Szczegóły użytkownika z listą jego analiz."""
+    """Szczegóły użytkownika z listą jego analiz, zakupów i kolekcji."""
     db = SessionLocal()
     try:
         u = db.query(User).filter(User.id == user_id).first()
@@ -1150,12 +1150,30 @@ def get_user_detail(user_id: str) -> Optional[dict]:
         cases = db.query(CaseRecord).filter(
             CaseRecord.email == u.email
         ).order_by(CaseRecord.created_at.desc()).all()
+        collection_count = db.query(CollectionItem).filter(CollectionItem.user_id == u.id).count()
+        purchases = (
+            db.query(CreditPurchase)
+            .filter(CreditPurchase.user_id == u.id, CreditPurchase.status == "completed")
+            .order_by(CreditPurchase.completed_at.desc())
+            .all()
+        )
         return {
             "id": u.id,
             "email": u.email,
             "created_at": u.created_at.isoformat() if u.created_at else None,
             "is_admin": u.is_admin,
             "user_type": u.user_type,
+            "credits": u.credits,
+            "collection_count": collection_count,
+            "purchases": [
+                {
+                    "package": p.package,
+                    "credits": p.credits,
+                    "amount_pln_grosz": p.amount_pln_grosz,
+                    "completed_at": p.completed_at.isoformat() if p.completed_at else None,
+                }
+                for p in purchases
+            ],
             "cases": [
                 {
                     "case_id": c.case_id,
@@ -1261,6 +1279,25 @@ def get_user_list() -> list:
     db = SessionLocal()
     try:
         users = db.query(User).order_by(User.created_at.desc()).all()
+
+        # Zakupy zagregowane jednym zapytaniem (nie N+1) — tylko status=completed,
+        # bo pending/porzucone sesje Stripe nie są realnymi zakupami.
+        purchase_rows = (
+            db.query(
+                CreditPurchase.user_id,
+                _sqla_func.count(CreditPurchase.id),
+                _sqla_func.sum(CreditPurchase.credits),
+                _sqla_func.sum(CreditPurchase.amount_pln_grosz),
+            )
+            .filter(CreditPurchase.status == "completed")
+            .group_by(CreditPurchase.user_id)
+            .all()
+        )
+        purchases_by_user = {
+            row[0]: {"purchase_count": row[1], "credits_purchased": row[2] or 0, "amount_spent_pln_grosz": row[3] or 0}
+            for row in purchase_rows
+        }
+
         result = []
         for u in users:
             analysis_count = db.query(CaseRecord).filter(CaseRecord.email == u.email).count()
@@ -1283,6 +1320,10 @@ def get_user_list() -> list:
                 candidates.append(last_col[0])
             last_activity = max(candidates).isoformat() if candidates else None
 
+            purchase_info = purchases_by_user.get(
+                u.id, {"purchase_count": 0, "credits_purchased": 0, "amount_spent_pln_grosz": 0}
+            )
+
             result.append({
                 "id": u.id,
                 "email": u.email,
@@ -1294,6 +1335,10 @@ def get_user_list() -> list:
                 "first_analysis_at": first_case[0].isoformat() if first_case and first_case[0] else None,
                 "user_type": getattr(u, "user_type", None),
                 "collection_size_range": getattr(u, "collection_size_range", None),
+                "credits": u.credits,
+                "purchase_count": purchase_info["purchase_count"],
+                "credits_purchased": purchase_info["credits_purchased"],
+                "amount_spent_pln_grosz": purchase_info["amount_spent_pln_grosz"],
                 "profile_survey_completed_at": (
                     getattr(u, "profile_survey_completed_at", None).isoformat()
                     if getattr(u, "profile_survey_completed_at", None) else None
@@ -1363,6 +1408,36 @@ def get_dashboard_metrics() -> dict:
             User.profile_survey_skipped_at.isnot(None)
         ).count()
 
+        # Metryki przychodowe — tylko status=completed (pending/porzucone sesje
+        # Stripe nie są realnymi zakupami, patrz complete_credit_purchase()).
+        completed_purchases = db.query(CreditPurchase).filter(CreditPurchase.status == "completed")
+        total_purchases = completed_purchases.count()
+        total_revenue_pln_grosz = (
+            db.query(_sqla_func.sum(CreditPurchase.amount_pln_grosz))
+            .filter(CreditPurchase.status == "completed")
+            .scalar() or 0
+        )
+        total_credits_sold = (
+            db.query(_sqla_func.sum(CreditPurchase.credits))
+            .filter(CreditPurchase.status == "completed")
+            .scalar() or 0
+        )
+        revenue_7d_pln_grosz = (
+            db.query(_sqla_func.sum(CreditPurchase.amount_pln_grosz))
+            .filter(CreditPurchase.status == "completed", CreditPurchase.completed_at >= week_ago)
+            .scalar() or 0
+        )
+        users_with_purchase = (
+            db.query(CreditPurchase.user_id)
+            .filter(CreditPurchase.status == "completed")
+            .distinct()
+            .count()
+        )
+        paying_conversion_pct = (
+            round(users_with_purchase / total_users * 100, 1) if total_users > 0 else 0
+        )
+        total_collection_items = db.query(CollectionItem).count()
+
         return {
             "total_cases": total_cases,
             "cases_today": cases_today,
@@ -1373,6 +1448,15 @@ def get_dashboard_metrics() -> dict:
             "avg_analyses_per_user": avg_analyses,
             "activation_rate_pct": activation_rate,
             "users_with_analysis": users_with_analysis,
+            "total_collection_items": total_collection_items,
+            "billing": {
+                "total_purchases": total_purchases,
+                "total_revenue_pln_grosz": total_revenue_pln_grosz,
+                "revenue_7d_pln_grosz": revenue_7d_pln_grosz,
+                "total_credits_sold": total_credits_sold,
+                "users_with_purchase": users_with_purchase,
+                "paying_conversion_pct": paying_conversion_pct,
+            },
             "segments": {
                 "user_type": {
                     "kolekcjoner": count_user_type("kolekcjoner"),
