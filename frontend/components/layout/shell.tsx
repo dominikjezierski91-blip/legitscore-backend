@@ -112,15 +112,21 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                   {credits !== null && (
                     <Link
                       href="/billing"
+                      aria-label={`Sklep — ${credits} dostępnych analiz`}
                       className={cn(
-                        "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
+                        "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
                         pathname?.startsWith("/billing")
-                          ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
-                          : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                          ? "border-emerald-400/50 bg-emerald-500/15"
+                          : "border-border/50 hover:border-slate-500"
                       )}
                     >
-                      <Store className="h-3.5 w-3.5 shrink-0" />
-                      Sklep · {credits}
+                      <Store
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0",
+                          pathname?.startsWith("/billing") ? "text-emerald-300" : "text-slate-400"
+                        )}
+                      />
+                      <span className="font-semibold text-emerald-300">{credits}</span>
                     </Link>
                   )}
                 </>
