@@ -3,7 +3,7 @@
 import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Shirt, FileText, LayoutGrid, Sparkles } from "lucide-react";
+import { Shirt, FileText, LayoutGrid, Store } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -73,17 +73,6 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               {subtitle ? (
                 <span className="text-muted-foreground">{subtitle}</span>
               ) : null}
-              {user && credits !== null && (
-                <Link
-                  href="/billing"
-                  className="flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300 transition hover:bg-emerald-500/20"
-                >
-                  <Sparkles className="h-3 w-3" />
-                  {credits}
-                  <span className="text-emerald-300/50">·</span>
-                  Sklep
-                </Link>
-              )}
               {user ? (
                 <UserMenu
                   email={user.email}
@@ -100,24 +89,40 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               dropdowna avatara powyżej). Dla wylogowanych zostaje prosta lista. */}
           <nav className="flex flex-wrap items-center gap-2 text-xs">
             {user ? (
-              MAIN_TABS.map(({ href, label, icon: Icon }) => {
-                const active = pathname?.startsWith(href) ?? false;
-                return (
+              <>
+                {MAIN_TABS.map(({ href, label, icon: Icon }) => {
+                  const active = pathname?.startsWith(href) ?? false;
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 font-medium transition",
+                        active
+                          ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
+                          : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
+                    </Link>
+                  );
+                })}
+                {credits !== null && (
                   <Link
-                    key={href}
-                    href={href}
+                    href="/billing"
                     className={cn(
                       "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 font-medium transition",
-                      active
+                      pathname?.startsWith("/billing")
                         ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
                         : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
                     )}
                   >
-                    <Icon className="h-3.5 w-3.5" />
-                    {label}
+                    <Store className="h-3.5 w-3.5" />
+                    Sklep · {credits}
                   </Link>
-                );
-              })
+                )}
+              </>
             ) : (
               <>
                 {!isPublicExample && (
