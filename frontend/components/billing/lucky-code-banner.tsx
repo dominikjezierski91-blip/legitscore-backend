@@ -64,7 +64,7 @@ export function LuckyCodeBanner({ onRedeemed }: Props) {
                   <span className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 font-mono text-[13px] font-bold tracking-wide text-emerald-200">
                     {status.code}
                   </span>{" "}
-                  daje Ci <span className="font-semibold text-emerald-300">{status.credits} kolejne analizy</span> za darmo
+                  daje Ci <span className="font-semibold text-emerald-300">{status.credits} kolejne Legity</span> za darmo
                 </p>
               </div>
             </div>
@@ -105,7 +105,7 @@ export function LuckyCodeBanner({ onRedeemed }: Props) {
               <div>
                 <p className="text-lg font-semibold text-slate-50">Kod odebrany!</p>
                 <p className="mt-1 text-sm text-slate-300">
-                  Dodaliśmy <span className="font-semibold text-emerald-300">{successCredits} analizy</span> do
+                  Dodaliśmy <span className="font-semibold text-emerald-300">{successCredits} Legity</span> do
                   Twojego konta.
                 </p>
               </div>
