@@ -21,6 +21,35 @@ function formatPrice(grosz: number): string {
 
 const PACKAGE_ORDER: BillingPackageKey[] = ["single", "pack3", "pack10"];
 
+// Wizualne wyróżnienie rosnące z wielkością pakietu — złoty akcent na
+// "Ekstraklasa" świadomie powtarza ten sam język (ring-amber, gradient
+// amber-300→amber-500), którego już używamy dla zweryfikowanej oryginalnej
+// koszulki w Kolekcji (isGenuineVerified), żeby "premium" znaczyło to samo
+// wizualnie w całej apce.
+const PACKAGE_STYLE: Record<BillingPackageKey, {
+  ring: string;
+  icon: string;
+  button: string;
+  badge?: string;
+}> = {
+  single: {
+    ring: "",
+    icon: "text-slate-400",
+    button: "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 hover:bg-emerald-400",
+  },
+  pack3: {
+    ring: "ring-1 ring-emerald-400/40",
+    icon: "text-emerald-400",
+    button: "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 hover:bg-emerald-400",
+  },
+  pack10: {
+    ring: "ring-1 ring-amber-400/40",
+    icon: "text-amber-400",
+    button: "bg-gradient-to-br from-amber-300 to-amber-500 text-amber-950 shadow-md shadow-amber-500/30 hover:from-amber-200 hover:to-amber-400",
+    badge: "Najlepsza cena za analizę",
+  },
+};
+
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -146,14 +175,21 @@ export default function BillingPage() {
             if (!pkg) return null;
             const perUnit = pkg.credits > 1 ? pkg.price_pln_grosz / pkg.credits : null;
             const isBuying = buyingPackage === key;
+            const style = PACKAGE_STYLE[key];
             return (
               <div
                 key={key}
-                className="glass-card flex flex-col gap-3 p-5 text-center"
+                className={`glass-card relative flex flex-col gap-3 p-5 text-center ${style.ring}`}
               >
-                <Sparkles className="mx-auto h-5 w-5 text-emerald-400" />
+                {style.badge && (
+                  <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 px-3 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-950 shadow shadow-amber-500/30">
+                    {style.badge}
+                  </span>
+                )}
+                <Sparkles className={`mx-auto h-5 w-5 ${style.icon}`} />
                 <div>
-                  <p className="text-sm font-medium text-slate-200">{pkg.label}</p>
+                  <p className="text-base font-semibold text-slate-50">{pkg.name}</p>
+                  <p className="text-[11px] text-muted-foreground">{pkg.label}</p>
                   <p className="mt-1 text-2xl font-semibold text-slate-50">
                     {formatPrice(pkg.price_pln_grosz)}
                   </p>
@@ -166,7 +202,7 @@ export default function BillingPage() {
                 <button
                   onClick={() => handleBuy(key)}
                   disabled={buyingPackage !== null}
-                  className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-slate-950 shadow-md shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:opacity-60"
+                  className={`mt-auto inline-flex items-center justify-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-medium transition disabled:opacity-60 ${style.button}`}
                 >
                   {isBuying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Kup"}
                 </button>

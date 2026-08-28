@@ -432,6 +432,7 @@ export type BillingPackage = {
   credits: number;
   price_pln_grosz: number;
   label: string;
+  name: string;
 };
 
 export type BillingPackageKey = "single" | "pack3" | "pack10";
