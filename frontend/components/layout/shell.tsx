@@ -87,62 +87,65 @@ export function Shell({ children, className, subtitle }: ShellProps) {
           {/* Rząd 2: dla zalogowanych — 3 główne zakładki jako wyróżnione,
               obramowane przyciski z ikoną (reszta linków przeniesiona do
               dropdowna avatara powyżej). Dla wylogowanych zostaje prosta lista. */}
-          <nav className="no-scrollbar flex flex-nowrap items-center gap-1.5 overflow-x-auto text-xs">
-            {user ? (
-              <>
-                {MAIN_TABS.map(({ href, label, icon: Icon }) => {
-                  const active = pathname?.startsWith(href) ?? false;
-                  return (
+          <div className="relative">
+            <nav className="no-scrollbar flex flex-nowrap items-center gap-1.5 overflow-x-auto text-xs">
+              {user ? (
+                <>
+                  {MAIN_TABS.map(({ href, label, icon: Icon }) => {
+                    const active = pathname?.startsWith(href) ?? false;
+                    return (
+                      <Link
+                        key={href}
+                        href={href}
+                        className={cn(
+                          "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
+                          active
+                            ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
+                            : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        {label}
+                      </Link>
+                    );
+                  })}
+                  {credits !== null && (
                     <Link
-                      key={href}
-                      href={href}
-                      aria-label={label}
+                      href="/billing"
                       className={cn(
                         "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
-                        active
+                        pathname?.startsWith("/billing")
                           ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
                           : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
                       )}
                     >
-                      <Icon className="h-3.5 w-3.5 shrink-0" />
-                      <span className="hidden sm:inline">{label}</span>
+                      <Store className="h-3.5 w-3.5 shrink-0" />
+                      Sklep · {credits}
                     </Link>
-                  );
-                })}
-                {credits !== null && (
-                  <Link
-                    href="/billing"
-                    aria-label="Sklep"
-                    className={cn(
-                      "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
-                      pathname?.startsWith("/billing")
-                        ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
-                        : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
-                    )}
-                  >
-                    <Store className="h-3.5 w-3.5 shrink-0" />
-                    <span className="hidden sm:inline">Sklep ·</span> {credits}
+                  )}
+                </>
+              ) : (
+                <>
+                  {!isPublicExample && (
+                    <Link href="/analyze" className="text-slate-400 transition hover:text-slate-200">
+                      Analiza
+                    </Link>
+                  )}
+                  <Link href="/contact" className="text-slate-400 transition hover:text-slate-200">
+                    Kontakt
                   </Link>
-                )}
-              </>
-            ) : (
-              <>
-                {!isPublicExample && (
-                  <Link href="/analyze" className="text-slate-400 transition hover:text-slate-200">
-                    Analiza
-                  </Link>
-                )}
-                <Link href="/contact" className="text-slate-400 transition hover:text-slate-200">
-                  Kontakt
-                </Link>
-                {!isPublicExample && (
-                  <Link href="/login" className="text-slate-400 transition hover:text-slate-200">
-                    Zaloguj się
-                  </Link>
-                )}
-              </>
+                  {!isPublicExample && (
+                    <Link href="/login" className="text-slate-400 transition hover:text-slate-200">
+                      Zaloguj się
+                    </Link>
+                  )}
+                </>
+              )}
+            </nav>
+            {user && (
+              <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-slate-950/90 to-transparent" />
             )}
-          </nav>
+          </div>
         </header>
 
         <main className={cn("flex flex-1 flex-col", className)}>{children}</main>
