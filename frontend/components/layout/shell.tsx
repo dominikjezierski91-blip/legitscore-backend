@@ -3,7 +3,7 @@
 import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Shirt, FileText, LayoutGrid } from "lucide-react";
+import { Shirt, FileText, LayoutGrid, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -58,7 +58,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
   return (
     <div className="min-h-screen gradient-bg">
       <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6 md:px-6 lg:px-8">
-        <header className="mb-8 space-y-3">
+        <header className="glass-card mb-8 space-y-3 p-4">
           {/* Rząd 1: tożsamość + odznaki — zawsze krótki, praktycznie nigdy się nie zawija */}
           <div className="flex flex-wrap items-center justify-between gap-y-2">
             <div className="flex items-center gap-2">
@@ -73,6 +73,16 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               {subtitle ? (
                 <span className="text-muted-foreground">{subtitle}</span>
               ) : null}
+              {user && credits !== null && (
+                <Link
+                  href="/billing"
+                  title="Sklep — kup więcej analiz"
+                  className="flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300 transition hover:bg-emerald-500/20"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {credits}
+                </Link>
+              )}
               {user ? (
                 <UserMenu
                   email={user.email}

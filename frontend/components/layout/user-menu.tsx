@@ -59,10 +59,14 @@ export function UserMenu({ email, credits, isAdmin, criticalCount }: UserMenuPro
           <p className="truncate px-3 py-1.5 text-xs text-slate-500">{email}</p>
 
           {credits !== null && (
-            <div className="flex items-center gap-2 rounded-xl px-3 py-2 text-emerald-300">
+            <Link
+              href="/billing"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 rounded-xl px-3 py-2 text-emerald-300 transition hover:bg-emerald-500/10"
+            >
               <Sparkles className="h-4 w-4 shrink-0" />
               Dostępne analizy: {credits}
-            </div>
+            </Link>
           )}
 
           <Link
