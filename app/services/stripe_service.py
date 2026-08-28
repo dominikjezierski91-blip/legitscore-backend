@@ -13,12 +13,16 @@ import stripe
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
-# Cennik (Faza 4/5, ustalony 2026-08-18): pierwsza analiza zawsze darmowa (patrz
-# User.credits default=1 w database.py) — to są ceny za KOLEJNE analizy.
+# Cennik (Faza 4/5, ustalony 2026-08-18, obniżony 2026-08-28): pierwsza analiza
+# zawsze darmowa (patrz User.credits default=1 w database.py) — to są ceny za
+# KOLEJNE analizy. Obniżka z 15/39/119 do 10/26/79 zł — realny koszt Gemini per
+# analiza to grosze (~0.30-0.50 zł), więc margines na cenie nie był ograniczeniem;
+# 15 zł okazało się za wysokie względem wartości tańszych koszulek. Proporcje
+# (rabat pakietowy ~13%/~21%) zachowane 1:1 względem poprzedniego cennika.
 PACKAGES = {
-    "single": {"credits": 1, "price_pln_grosz": 1500, "label": "1 analiza"},
-    "pack3": {"credits": 3, "price_pln_grosz": 3900, "label": "Pakiet 3 analizy"},
-    "pack10": {"credits": 10, "price_pln_grosz": 11900, "label": "Pakiet 10 analiz"},
+    "single": {"credits": 1, "price_pln_grosz": 1000, "label": "1 analiza"},
+    "pack3": {"credits": 3, "price_pln_grosz": 2600, "label": "Pakiet 3 analizy"},
+    "pack10": {"credits": 10, "price_pln_grosz": 7900, "label": "Pakiet 10 analiz"},
 }
 
 
