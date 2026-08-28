@@ -58,7 +58,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
   return (
     <div className="min-h-screen gradient-bg">
       <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6 md:px-6 lg:px-8">
-        <header className="glass-card mb-8 space-y-3 p-4">
+        <header className="glass-card relative z-30 mb-8 space-y-3 p-4">
           {/* Rząd 1: tożsamość + odznaki — zawsze krótki, praktycznie nigdy się nie zawija */}
           <div className="flex flex-wrap items-center justify-between gap-y-2">
             <div className="flex items-center gap-2">
