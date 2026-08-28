@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-provider";
 import Link from "next/link";
 import { getCollection, changePassword, deleteAccount, exportUserData, authMe, updateUserProfile, resendVerification, getCredits, type AuthMeResponse } from "@/lib/api";
-import { Loader2, User, LogOut, Download, ChevronDown, ChevronUp, Shield, Trash2, MailWarning } from "lucide-react";
+import { Loader2, User, LogOut, Download, ChevronDown, ChevronUp, Shield, Trash2, MailWarning, Settings } from "lucide-react";
 
 const USER_TYPE_OPTIONS = [
   { value: "kolekcjoner", label: "Kolekcjoner" },
@@ -54,6 +54,10 @@ export default function AccountPage() {
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwSuccess, setPwSuccess] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
+
+  // Zarządzanie kontem — zwinięta domyślnie, żeby "Usuń konto" nie było
+  // od razu na wierzchu strony
+  const [accountMgmtOpen, setAccountMgmtOpen] = useState(false);
 
   // Usuń konto
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
@@ -309,99 +313,122 @@ export default function AccountPage() {
         )}
       </div>
 
-      {/* ── BEZPIECZEŃSTWO ─────────────────────────────────────── */}
+      {/* ── ZARZĄDZANIE KONTEM ─────────────────────────────────── */}
+      {/* Zwinięte domyślnie — hasło/eksport danych/usunięcie konta nie mają
+          być pierwszą rzeczą widoczną na stronie (usunięcie konta zwłaszcza
+          nie powinno być na wyciągnięcie ręki). */}
       <div className="glass-card p-5 space-y-3">
-        <SectionHeader title="Bezpieczeństwo" />
         <button
-          onClick={() => { setPwOpen((v) => !v); setPwError(null); setPwSuccess(false); }}
-          className="flex w-full items-center justify-between rounded-lg py-1 text-sm text-slate-300 hover:text-slate-100 transition"
+          onClick={() => setAccountMgmtOpen((v) => !v)}
+          className="flex w-full items-center justify-between rounded-lg py-1 text-left"
         >
           <span className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-slate-500" />
-            Zmień hasło
+            <Settings className="h-4 w-4 text-slate-500" />
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              Zarządzanie kontem
+            </span>
           </span>
-          {pwOpen ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+          {accountMgmtOpen ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
         </button>
 
-        {pwOpen && (
-          <div className="space-y-3 border-t border-border/30 pt-3">
-            <input
-              type="password"
-              placeholder="Obecne hasło"
-              value={currentPw}
-              onChange={(e) => { setCurrentPw(e.target.value); setPwError(null); setPwSuccess(false); }}
-              className="w-full rounded-xl border border-border/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500/60"
-            />
-            <input
-              type="password"
-              placeholder="Nowe hasło (min. 8 znaków)"
-              value={newPw}
-              onChange={(e) => { setNewPw(e.target.value); setPwError(null); setPwSuccess(false); }}
-              className="w-full rounded-xl border border-border/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500/60"
-            />
-            <input
-              type="password"
-              placeholder="Powtórz nowe hasło"
-              value={newPwConfirm}
-              onChange={(e) => { setNewPwConfirm(e.target.value); setPwError(null); setPwSuccess(false); }}
-              className="w-full rounded-xl border border-border/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500/60"
-            />
-            {pwError && <p className="text-xs text-red-400">{pwError}</p>}
-            {pwSuccess && <p className="text-xs text-emerald-400">Hasło zostało zmienione.</p>}
-            <button
-              onClick={handleChangePassword}
-              disabled={pwLoading}
-              className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
-            >
-              {pwLoading ? "Zapisywanie..." : "Zmień hasło"}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── DANE I PRYWATNOŚĆ ──────────────────────────────────── */}
-      <div className="glass-card p-5 space-y-3">
-        <SectionHeader title="Dane i prywatność" />
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-2 rounded-lg py-1 text-sm text-slate-300 hover:text-slate-100 transition"
-        >
-          <Download className="h-4 w-4 text-slate-500" />
-          Pobierz moje dane (JSON)
-        </button>
-      </div>
-
-      {/* ── STREFA NIEBEZPIECZNA ───────────────────────────────── */}
-      <div className="glass-card p-5 space-y-3 border border-red-500/10">
-        <SectionHeader title="Strefa niebezpieczna" />
-        <p className="text-xs text-slate-400">
-          Usunięcie konta jest nieodwracalne — trwale usuwa kolekcję i wszystkie analizy.
-        </p>
-        {!confirmDeleteAccount ? (
-          <button
-            onClick={() => setConfirmDeleteAccount(true)}
-            className="flex items-center gap-2 rounded-full border border-red-500/40 px-4 py-2 text-sm text-red-400 hover:border-red-400 hover:text-red-300 transition"
-          >
-            <Trash2 className="h-4 w-4" />
-            Usuń konto
-          </button>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-xs text-red-400 font-medium">Czy na pewno? Tej operacji nie można cofnąć.</p>
-            <div className="flex gap-2">
+        {accountMgmtOpen && (
+          <div className="space-y-4 border-t border-border/30 pt-3">
+            {/* Zmień hasło */}
+            <div className="space-y-3">
               <button
-                onClick={handleDeleteAccount}
-                disabled={deleteLoading}
-                className="rounded-full bg-red-500/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-60"
+                onClick={() => { setPwOpen((v) => !v); setPwError(null); setPwSuccess(false); }}
+                className="flex w-full items-center justify-between rounded-lg py-1 text-sm text-slate-300 hover:text-slate-100 transition"
               >
-                {deleteLoading ? "Usuwanie..." : "Tak, usuń konto"}
+                <span className="flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-slate-500" />
+                  Zmień hasło
+                </span>
+                {pwOpen ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
               </button>
+
+              {pwOpen && (
+                <div className="space-y-3 border-t border-border/30 pt-3">
+                  <input
+                    type="password"
+                    placeholder="Obecne hasło"
+                    value={currentPw}
+                    onChange={(e) => { setCurrentPw(e.target.value); setPwError(null); setPwSuccess(false); }}
+                    className="w-full rounded-xl border border-border/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500/60"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Nowe hasło (min. 8 znaków)"
+                    value={newPw}
+                    onChange={(e) => { setNewPw(e.target.value); setPwError(null); setPwSuccess(false); }}
+                    className="w-full rounded-xl border border-border/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500/60"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Powtórz nowe hasło"
+                    value={newPwConfirm}
+                    onChange={(e) => { setNewPwConfirm(e.target.value); setPwError(null); setPwSuccess(false); }}
+                    className="w-full rounded-xl border border-border/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500/60"
+                  />
+                  {pwError && <p className="text-xs text-red-400">{pwError}</p>}
+                  {pwSuccess && <p className="text-xs text-emerald-400">Hasło zostało zmienione.</p>}
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={pwLoading}
+                    className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
+                  >
+                    {pwLoading ? "Zapisywanie..." : "Zmień hasło"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Pobierz moje dane */}
+            <div className="border-t border-border/30 pt-3">
               <button
-                onClick={() => setConfirmDeleteAccount(false)}
-                className="rounded-full border border-slate-600/50 px-4 py-2 text-sm text-slate-400 hover:text-slate-200"
+                onClick={handleExport}
+                className="flex items-center gap-2 rounded-lg py-1 text-sm text-slate-300 hover:text-slate-100 transition"
               >
-                Anuluj
+                <Download className="h-4 w-4 text-slate-500" />
+                Pobierz moje dane (JSON)
               </button>
+            </div>
+
+            {/* Usuń konto */}
+            <div className="space-y-3 border-t border-red-500/10 pt-3">
+              <button
+                onClick={() => setConfirmDeleteAccount((v) => !v)}
+                className="flex w-full items-center justify-between rounded-lg py-1 text-sm text-red-400/90 hover:text-red-300 transition"
+              >
+                <span className="flex items-center gap-2">
+                  <Trash2 className="h-4 w-4" />
+                  Usuń konto
+                </span>
+                {confirmDeleteAccount ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+
+              {confirmDeleteAccount && (
+                <div className="space-y-2 border-t border-border/30 pt-3">
+                  <p className="text-xs text-slate-400">
+                    Usunięcie konta jest nieodwracalne — trwale usuwa kolekcję i wszystkie analizy.
+                  </p>
+                  <p className="text-xs text-red-400 font-medium">Czy na pewno? Tej operacji nie można cofnąć.</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleDeleteAccount}
+                      disabled={deleteLoading}
+                      className="rounded-full bg-red-500/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-60"
+                    >
+                      {deleteLoading ? "Usuwanie..." : "Tak, usuń konto"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteAccount(false)}
+                      className="rounded-full border border-slate-600/50 px-4 py-2 text-sm text-slate-400 hover:text-slate-200"
+                    >
+                      Anuluj
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
