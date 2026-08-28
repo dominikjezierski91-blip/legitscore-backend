@@ -117,8 +117,8 @@ export function SubmitSummaryCard({
           {!isLoggedIn ? (
             <SummaryRow
               icon={<Sparkles className="h-3 w-3" />}
-              label="Kredyty"
-              value="1. analiza gratis po założeniu konta"
+              label="Dostępne analizy"
+              value="pierwsza gratis"
               status="ok"
             />
           ) : credits !== null ? (
