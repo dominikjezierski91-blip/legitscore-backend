@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 import { SocialLoginButtons } from "@/components/auth/social-login-buttons";
+import { FreeFeaturesStrip } from "@/components/auth/free-features-strip";
 import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 
 // Przyciski OAuth renderują się tylko gdy te env vary są ustawione (patrz
@@ -46,7 +47,8 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex flex-1 items-center justify-center py-10">
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 py-10">
+      <FreeFeaturesStrip />
       <div className="glass-card w-full max-w-sm space-y-6 p-8">
         <div className="flex flex-col items-center gap-3">
           <LegitScoreLogo size={100} className="h-16 w-auto" />

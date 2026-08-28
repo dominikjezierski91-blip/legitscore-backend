@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { ProfileSurveyModal } from "@/components/onboarding/profile-survey-modal";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 import { SocialLoginButtons } from "@/components/auth/social-login-buttons";
+import { FreeFeaturesStrip } from "@/components/auth/free-features-strip";
 
 const OAUTH_AVAILABLE = Boolean(
   process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_FACEBOOK_APP_ID
@@ -71,7 +72,8 @@ function RegisterForm() {
         <ProfileSurveyModal onDone={() => router.replace(next)} />
       )}
 
-      <div className="flex flex-1 items-center justify-center py-10">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 py-10">
+        <FreeFeaturesStrip />
         <div className="glass-card w-full max-w-sm space-y-6 p-8">
           <div className="flex flex-col items-center gap-3">
             <LegitScoreLogo size={100} className="h-16 w-auto" />
