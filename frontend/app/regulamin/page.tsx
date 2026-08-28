@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 const CONTENT = `
 <h1>Regulamin serwisu LegitScore</h1>
-<p class="meta">legitscore.app · Wersja 2.0 · obowiązuje od [DATA WEJŚCIA W ŻYCIE]</p>
+<p class="meta">legitscore.app · Wersja 2.0 · obowiązuje od 27 sierpnia 2026</p>
 
 <div class="note">
   <strong>Najważniejsze:</strong> LegitScore dostarcza <strong>ocenę ryzyka autentyczności</strong> koszulki na podstawie zdjęć, wykonywaną przez systemy sztucznej inteligencji. <strong>Nie jest to certyfikat autentyczności, gwarancja ani ekspertyza rzeczoznawcza — i może zawierać błędy.</strong> Wynik ma charakter informacyjny i pomocniczy — ostateczną decyzję (w tym zakupową lub sprzedażową) podejmujesz wyłącznie samodzielnie, na własne ryzyko. Skorzystanie z Usługi wymaga założenia Konta i zalogowania się.

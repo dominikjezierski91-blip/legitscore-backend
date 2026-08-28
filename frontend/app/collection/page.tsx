@@ -961,12 +961,19 @@ function CollectionCard({
         </div>
       </div>
 
-      {/* Delete confirmation modal */}
-      {confirmDelete && (
+      {/* Delete confirmation modal — portal do document.body: karta ma backdrop-blur (glass-card),
+          które w WebKit tworzy własny containing block dla position:fixed, więc bez portalu ten
+          popup renderował się wciśnięty (i przycięty przez overflow-hidden) w miejsce małej karty
+          zamiast pokrywać cały ekran — na Safari wyglądało to jak "klik w kosz nic nie robi". */}
+      {confirmDelete && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={() => setConfirmDelete(false)}>
           <div className="glass-card w-full max-w-sm space-y-4 rounded-2xl p-6" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-medium text-slate-100">Czy na pewno chcesz usunąć tę koszulkę z kolekcji?</p>
-            <p className="text-xs text-slate-400">{item.club || "Nieznany klub"}{item.season ? ` · ${item.season}` : ""}</p>
+            <p className="text-sm font-medium text-slate-100">
+              Na pewno usunąć {item.club || "tę koszulkę"} z kolekcji?
+            </p>
+            <p className="text-xs text-slate-400">
+              Będziesz mógł dodać ją ponownie później — z poziomu nowej analizy albo ręcznie — ale stracisz zapisaną wycenę i historię cen tej pozycji.
+            </p>
             <div className="flex gap-2">
               <button
                 onClick={() => { setConfirmDelete(false); onDelete(item.id); }}
@@ -982,7 +989,8 @@ function CollectionCard({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Widok szczegółowy — okno "na froncie" nad całą siatką; karta w siatce nigdy się nie przesuwa.

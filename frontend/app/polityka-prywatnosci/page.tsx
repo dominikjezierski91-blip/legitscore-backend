@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 const CONTENT = `
 <h1>Polityka prywatności</h1>
-<p class="meta">Serwis LegitScore (legitscore.app) · Wersja 2.0 · obowiązuje od [DATA WEJŚCIA W ŻYCIE]</p>
+<p class="meta">Serwis LegitScore (legitscore.app) · Wersja 2.0 · obowiązuje od 27 sierpnia 2026</p>
 
 <div class="note">
   <strong>W skrócie:</strong> LegitScore wymaga założenia Konta (e-mail i hasło, albo logowanie przez Google/Facebook) i zalogowania się przed uruchomieniem analizy przesłanych zdjęć koszulek. Analiza jest wykonywana z użyciem zewnętrznych usług sztucznej inteligencji. Poniżej wyjaśniamy, jakie dane zbieramy, po co, komu je powierzamy i jakie masz prawa.
