@@ -118,7 +118,7 @@ export function SubmitSummaryCard({
             <SummaryRow
               icon={<Sparkles className="h-3 w-3" />}
               label="Dostępne analizy"
-              value="pierwsza gratis"
+              value="Pierwsza gratis"
               status="ok"
             />
           ) : credits !== null ? (
