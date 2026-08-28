@@ -86,7 +86,7 @@ function RegisterForm() {
           </div>
 
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Załóż darmowe konto, a otrzymasz:</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Załóż darmowe konto, a następnie:</p>
             <ul className="space-y-1.5 text-xs text-slate-300">
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
