@@ -67,7 +67,7 @@ export default function HistoriaPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">Historia</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Wszystkie Twoje raporty — niezależnie od tego, czy dodałeś je do Kolekcji.
+          Wszystkie Twoje raporty — niezależnie od tego, czy dodałeś koszulkę do Kolekcji.
         </p>
       </div>
 

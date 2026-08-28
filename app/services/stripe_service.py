@@ -20,8 +20,8 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 # 15 zł okazało się za wysokie względem wartości tańszych koszulek. Proporcje
 # (rabat pakietowy ~13%/~21%) zachowane 1:1 względem poprzedniego cennika.
 PACKAGES = {
-    "single": {"credits": 1, "price_pln_grosz": 1000, "label": "1 analiza", "name": "Sprawdzenie"},
-    "pack3": {"credits": 3, "price_pln_grosz": 2600, "label": "Pakiet 3 analizy", "name": "Kolekcjoner"},
+    "single": {"credits": 1, "price_pln_grosz": 1000, "label": "1 analiza", "name": "Debiut"},
+    "pack3": {"credits": 3, "price_pln_grosz": 2600, "label": "Pakiet 3 analizy", "name": "I Liga"},
     "pack10": {"credits": 10, "price_pln_grosz": 7900, "label": "Pakiet 10 analiz", "name": "Ekstraklasa"},
 }
 
