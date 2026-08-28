@@ -7,7 +7,6 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { ProfileSurveyModal } from "@/components/onboarding/profile-survey-modal";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 import { SocialLoginButtons } from "@/components/auth/social-login-buttons";
-import { FreeFeaturesStrip } from "@/components/auth/free-features-strip";
 
 const OAUTH_AVAILABLE = Boolean(
   process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_FACEBOOK_APP_ID
@@ -72,8 +71,7 @@ function RegisterForm() {
         <ProfileSurveyModal onDone={() => router.replace(next)} />
       )}
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 py-10">
-        <FreeFeaturesStrip />
+      <div className="flex flex-1 items-center justify-center py-10">
         <div className="glass-card w-full max-w-sm space-y-6 p-8">
           <div className="flex flex-col items-center gap-3">
             <LegitScoreLogo size={100} className="h-16 w-auto" />
@@ -88,7 +86,7 @@ function RegisterForm() {
           </div>
 
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Dlaczego warto?</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Załóż darmowe konto, a otrzymasz:</p>
             <ul className="space-y-1.5 text-xs text-slate-300">
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
@@ -105,6 +103,14 @@ function RegisterForm() {
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
                 Śledź wartość swoich koszulek
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-emerald-400 font-semibold">✓</span>
+                Śledź historię wszystkich analiz
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-emerald-400 font-semibold">✓</span>
+                Odbierz bonus +2 analizy po pierwszym sprawdzeniu
               </li>
             </ul>
           </div>
