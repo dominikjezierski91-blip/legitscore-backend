@@ -76,11 +76,12 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               {user && credits !== null && (
                 <Link
                   href="/billing"
-                  title="Sklep — kup więcej analiz"
-                  className="flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300 transition hover:bg-emerald-500/20"
+                  className="flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300 transition hover:bg-emerald-500/20"
                 >
                   <Sparkles className="h-3 w-3" />
                   {credits}
+                  <span className="text-emerald-300/50">·</span>
+                  Sklep
                 </Link>
               )}
               {user ? (
