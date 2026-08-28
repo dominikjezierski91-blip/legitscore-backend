@@ -30,3 +30,11 @@ body {
   @apply rounded-2xl border border-emerald-400/20 bg-slate-950/80 shadow-glass backdrop-blur;
 }
 
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+

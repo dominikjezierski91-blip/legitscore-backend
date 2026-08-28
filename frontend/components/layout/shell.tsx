@@ -58,7 +58,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
   return (
     <div className="min-h-screen gradient-bg">
       <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6 md:px-6 lg:px-8">
-        <header className="glass-card relative z-30 mb-8 space-y-3 p-4">
+        <header className="glass-card relative z-30 mb-8 space-y-3 p-3">
           {/* Rząd 1: tożsamość + odznaki — zawsze krótki, praktycznie nigdy się nie zawija */}
           <div className="flex flex-wrap items-center justify-between gap-y-2">
             <div className="flex items-center gap-2">
@@ -87,7 +87,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
           {/* Rząd 2: dla zalogowanych — 3 główne zakładki jako wyróżnione,
               obramowane przyciski z ikoną (reszta linków przeniesiona do
               dropdowna avatara powyżej). Dla wylogowanych zostaje prosta lista. */}
-          <nav className="flex flex-wrap items-center gap-2 text-xs">
+          <nav className="no-scrollbar flex flex-nowrap items-center gap-1.5 overflow-x-auto text-xs">
             {user ? (
               <>
                 {MAIN_TABS.map(({ href, label, icon: Icon }) => {
@@ -97,13 +97,13 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                       key={href}
                       href={href}
                       className={cn(
-                        "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 font-medium transition",
+                        "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
                         active
                           ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
                           : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
                       )}
                     >
-                      <Icon className="h-3.5 w-3.5" />
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
                       {label}
                     </Link>
                   );
@@ -112,13 +112,13 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                   <Link
                     href="/billing"
                     className={cn(
-                      "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 font-medium transition",
+                      "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
                       pathname?.startsWith("/billing")
                         ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
                         : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
                     )}
                   >
-                    <Store className="h-3.5 w-3.5" />
+                    <Store className="h-3.5 w-3.5 shrink-0" />
                     Sklep · {credits}
                   </Link>
                 )}
