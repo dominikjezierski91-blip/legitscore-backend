@@ -2,6 +2,7 @@
 
 import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Bug, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,11 @@ type ShellProps = {
 
 export function Shell({ children, className, subtitle }: ShellProps) {
   const { user } = useAuth();
+  const pathname = usePathname();
+  // Strona /przyklad jest publiczną wizytówką linkowaną z landing page'a (Lovable) —
+  // dopóki oba serwisy nie są ze sobą spięte, odwiedzający nie powinien mieć stąd
+  // furtki do wejścia w aplikację (analiza/logowanie) z pominięciem landing page'a.
+  const isPublicExample = pathname?.startsWith("/przyklad") ?? false;
   const { openSettings } = useCookieConsent();
   const [criticalCount, setCriticalCount] = useState(0);
   const [credits, setCredits] = useState<number | null>(null);
@@ -112,15 +118,19 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               </>
             ) : (
               <>
-                <Link href="/analyze" className="text-slate-400 transition hover:text-slate-200">
-                  Analiza
-                </Link>
+                {!isPublicExample && (
+                  <Link href="/analyze" className="text-slate-400 transition hover:text-slate-200">
+                    Analiza
+                  </Link>
+                )}
                 <Link href="/contact" className="text-slate-400 transition hover:text-slate-200">
                   Kontakt
                 </Link>
-                <Link href="/login" className="text-slate-400 transition hover:text-slate-200">
-                  Zaloguj się
-                </Link>
+                {!isPublicExample && (
+                  <Link href="/login" className="text-slate-400 transition hover:text-slate-200">
+                    Zaloguj się
+                  </Link>
+                )}
               </>
             )}
           </nav>

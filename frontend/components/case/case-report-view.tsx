@@ -121,13 +121,6 @@ export async function CaseReportView({ caseId, mode, autoOpenCollection, isExamp
                 >
                   ← Strona główna
                 </a>
-                <Link
-                  href="/analyze/form"
-                  target="_top"
-                  className="inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 shadow-md shadow-emerald-500/40 transition hover:bg-emerald-400"
-                >
-                  Sprawdź koszulkę
-                </Link>
               </div>
             </div>
           ) : (
