@@ -96,6 +96,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                     <Link
                       key={href}
                       href={href}
+                      aria-label={label}
                       className={cn(
                         "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
                         active
@@ -104,13 +105,14 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                       )}
                     >
                       <Icon className="h-3.5 w-3.5 shrink-0" />
-                      {label}
+                      <span className="hidden sm:inline">{label}</span>
                     </Link>
                   );
                 })}
                 {credits !== null && (
                   <Link
                     href="/billing"
+                    aria-label="Sklep"
                     className={cn(
                       "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1.5 font-medium transition",
                       pathname?.startsWith("/billing")
@@ -119,7 +121,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                     )}
                   >
                     <Store className="h-3.5 w-3.5 shrink-0" />
-                    Sklep · {credits}
+                    <span className="hidden sm:inline">Sklep ·</span> {credits}
                   </Link>
                 )}
               </>
