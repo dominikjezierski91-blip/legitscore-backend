@@ -84,8 +84,8 @@ export default function BillingSuccessPage() {
             {resuming
               ? "Zdjęcia masz już wgrane — nie musisz przesyłać ich ponownie."
               : credits !== null
-              ? `Dostępne Legity: ${credits}`
-              : "Za chwilę zobaczysz doliczone Legity."}
+              ? `Dostępne analizy: ${credits}`
+              : "Za chwilę zobaczysz doliczone analizy."}
           </p>
         </div>
         {!resuming && (

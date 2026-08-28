@@ -110,7 +110,7 @@ function RegisterForm() {
               </li>
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
-                Odbierz bonus +2 Legity po pierwszym sprawdzeniu
+                Odbierz bonus +2 analizy po pierwszym sprawdzeniu
               </li>
             </ul>
           </div>

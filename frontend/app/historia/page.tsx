@@ -67,7 +67,7 @@ export default function HistoriaPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">Historia</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Wszystkie Twoje analizy — niezależnie od tego, czy dodałeś je do Kolekcji.
+          Wszystkie Twoje raporty — niezależnie od tego, czy dodałeś je do Kolekcji.
         </p>
       </div>
 
@@ -84,7 +84,7 @@ export default function HistoriaPage() {
       {items !== null && items.length === 0 && (
         <div className="glass-card flex flex-col items-center gap-3 p-10 text-center">
           <Camera className="h-8 w-8 text-slate-500" />
-          <p className="text-sm text-muted-foreground">Nie masz jeszcze żadnych analiz.</p>
+          <p className="text-sm text-muted-foreground">Nie masz jeszcze żadnych raportów.</p>
           <Link
             href="/analyze/form"
             className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-slate-950 shadow-md shadow-emerald-500/30 transition hover:bg-emerald-400"

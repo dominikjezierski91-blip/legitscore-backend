@@ -15,12 +15,12 @@ import { useAuth } from "@/components/auth/auth-provider";
 
 type InputMode = "photos" | "url";
 
-function pluralLegits(n: number): string {
-  if (n === 1) return "1 dostępny Legit";
+function pluralAnalyses(n: number): string {
+  if (n === 1) return "1 dostępną analizę";
   const mod10 = n % 10;
   const mod100 = n % 100;
-  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return `${n} dostępne Legity`;
-  return `${n} dostępnych Legitów`;
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return `${n} dostępne analizy`;
+  return `${n} dostępnych analiz`;
 }
 
 export function AnalyzeForm() {
@@ -167,7 +167,7 @@ export function AnalyzeForm() {
             <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-2 shadow-sm shadow-emerald-500/10">
               <Sparkles className="h-4 w-4 shrink-0 text-emerald-300" />
               <span className="text-sm font-semibold text-emerald-200">
-                Masz {pluralLegits(credits)}
+                Masz {pluralAnalyses(credits)}
               </span>
             </div>
           )}

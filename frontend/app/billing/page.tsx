@@ -14,7 +14,7 @@ import {
 } from "@/lib/api";
 import { Loader2, Sparkles, Ticket, Zap, ShieldCheck, Receipt } from "lucide-react";
 import { LuckyCodeBanner } from "@/components/billing/lucky-code-banner";
-import { declineLegit } from "@/lib/utils";
+import { declineAnaliza } from "@/lib/utils";
 
 function formatPrice(grosz: number): string {
   return `${(grosz / 100).toFixed(2).replace(".00", "")} zł`;
@@ -47,7 +47,7 @@ const PACKAGE_STYLE: Record<BillingPackageKey, {
     ring: "ring-1 ring-amber-400/40",
     icon: "text-amber-400",
     button: "bg-gradient-to-br from-amber-300 to-amber-500 text-amber-950 shadow-md shadow-amber-500/30 hover:from-amber-200 hover:to-amber-400",
-    badge: "Najlepsza cena za Legit",
+    badge: "Najlepsza cena za analizę",
   },
 };
 
@@ -129,11 +129,11 @@ export default function BillingPage() {
   return (
     <div className="flex flex-1 flex-col gap-5 py-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-50">Twoje Legity</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-50">Twoje analizy</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {credits === null
             ? "Pierwsza analiza jest zawsze darmowa — kolejne kupujesz pojedynczo albo w pakiecie."
-            : "1 Legit = 1 analiza koszulki. Przegląd salda, historii analiz i zakupów."}
+            : "Przegląd salda, historii analiz i zakupów."}
         </p>
       </div>
 
@@ -142,7 +142,7 @@ export default function BillingPage() {
           <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
             <Zap className="h-4 w-4 text-emerald-400" />
             <p className="text-2xl font-bold tracking-tight text-emerald-300">{summary.credits}</p>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Dostępne Legity</p>
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Dostępne analizy</p>
           </div>
           <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
             <ShieldCheck className="h-4 w-4 text-slate-300" />
@@ -152,7 +152,7 @@ export default function BillingPage() {
           <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
             <Receipt className="h-4 w-4 text-slate-300" />
             <p className="text-2xl font-bold tracking-tight text-slate-100">{totalPurchasedCredits}</p>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Łącznie kupione Legity</p>
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">Łącznie kupione analizy</p>
           </div>
         </div>
       )}
@@ -191,17 +191,14 @@ export default function BillingPage() {
                 <div>
                   <p className="text-base font-semibold text-slate-50">{pkg.name}</p>
                   <p className="mt-2 text-2xl font-bold tracking-tight text-slate-50">
-                    {pkg.credits} {declineLegit(pkg.credits)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    = {pkg.label.replace(/^Pakiet /, "")}
+                    {pkg.credits} {declineAnaliza(pkg.credits)}
                   </p>
                   <p className="mt-2 text-xl font-semibold text-slate-50">
                     {formatPrice(pkg.price_pln_grosz)}
                   </p>
                   {perUnit !== null && (
                     <p className="text-[11px] text-muted-foreground">
-                      {formatPrice(perUnit)} / Legit
+                      {formatPrice(perUnit)} / analiza
                     </p>
                   )}
                 </div>
@@ -257,7 +254,7 @@ export default function BillingPage() {
                     {packages?.[p.package as BillingPackageKey]?.label ?? p.package}
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    {p.completed_at ? new Date(p.completed_at).toLocaleDateString("pl-PL") : "—"} · +{p.credits} {declineLegit(p.credits)}
+                    {p.completed_at ? new Date(p.completed_at).toLocaleDateString("pl-PL") : "—"} · +{p.credits} {declineAnaliza(p.credits)}
                   </p>
                 </div>
                 <p className="text-sm font-medium text-slate-300">{formatPrice(p.amount_pln_grosz)}</p>
