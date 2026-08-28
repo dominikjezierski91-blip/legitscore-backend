@@ -3,7 +3,7 @@
 import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bug, Sparkles } from "lucide-react";
+import { Shirt, FileText, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -11,6 +11,13 @@ import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 import { useCookieConsent } from "@/components/layout/cookie-consent-provider";
 import { authHeaders } from "@/lib/auth";
 import { getCredits } from "@/lib/api";
+import { UserMenu } from "@/components/layout/user-menu";
+
+const MAIN_TABS = [
+  { href: "/analyze/form", label: "Analiza", icon: Shirt },
+  { href: "/historia", label: "Historia", icon: FileText },
+  { href: "/collection", label: "Kolekcja", icon: LayoutGrid },
+];
 
 type ShellProps = {
   children: ReactNode;
@@ -66,56 +73,40 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               {subtitle ? (
                 <span className="text-muted-foreground">{subtitle}</span>
               ) : null}
-              {user && credits !== null && (
-                <Link
-                  href="/billing"
-                  title="Dostępne analizy — kliknij, żeby dokupić"
-                  className="flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300 transition hover:bg-emerald-500/20"
-                >
-                  <Sparkles className="h-3 w-3" />
-                  Dostępne analizy: {credits}
-                </Link>
-              )}
-              {criticalCount > 0 && (
-                <Link
-                  href="/dashboard#monitoring"
-                  title={`${criticalCount} CRITICAL ticket${criticalCount > 1 ? "y" : ""}`}
-                  className="relative text-red-400 transition hover:text-red-300"
-                >
-                  <Bug className="h-4 w-4" />
-                  <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
-                    {criticalCount}
-                  </span>
-                </Link>
-              )}
+              {user ? (
+                <UserMenu
+                  email={user.email}
+                  credits={credits}
+                  isAdmin={user.is_admin}
+                  criticalCount={criticalCount}
+                />
+              ) : null}
             </div>
           </div>
 
-          {/* Rząd 2: linki nawigacji — osobny wiersz, zawija się niezależnie od odznak powyżej */}
-          <nav className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+          {/* Rząd 2: dla zalogowanych — 3 główne zakładki jako wyróżnione,
+              obramowane przyciski z ikoną (reszta linków przeniesiona do
+              dropdowna avatara powyżej). Dla wylogowanych zostaje prosta lista. */}
+          <nav className="flex flex-wrap items-center gap-2 text-xs">
             {user ? (
-              <>
-                <Link href="/analyze/form" className="text-slate-400 transition hover:text-slate-200">
-                  Analiza
-                </Link>
-                <Link href="/historia" className="text-slate-400 transition hover:text-slate-200">
-                  Historia
-                </Link>
-                <Link href="/collection" className="text-slate-400 transition hover:text-slate-200">
-                  Kolekcja
-                </Link>
-                <Link href="/contact" className="text-slate-400 transition hover:text-slate-200">
-                  Kontakt
-                </Link>
-                <Link href="/account" className="text-slate-400 transition hover:text-slate-200">
-                  Konto
-                </Link>
-                {user.is_admin && (
-                  <Link href="/dashboard" className="text-slate-400 transition hover:text-slate-200">
-                    Dashboard
+              MAIN_TABS.map(({ href, label, icon: Icon }) => {
+                const active = pathname?.startsWith(href) ?? false;
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 font-medium transition",
+                      active
+                        ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
+                        : "border-border/50 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
                   </Link>
-                )}
-              </>
+                );
+              })
             ) : (
               <>
                 {!isPublicExample && (
