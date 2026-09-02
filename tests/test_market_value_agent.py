@@ -229,6 +229,86 @@ class TestFilterListingsByCategory:
         assert result == []
 
 
+class TestParseSeasonPair:
+    def test_full_year_slash_format(self):
+        assert mva._parse_season_pair("Bayern Munich 2015/2016 Home Shirt") == (2015, 2016)
+
+    def test_full_year_dash_format(self):
+        assert mva._parse_season_pair("2015-2016 shirt") == (2015, 2016)
+
+    def test_short_year_format(self):
+        assert mva._parse_season_pair("15/16 kit") == (2015, 2016)
+
+    def test_no_season_returns_none(self):
+        assert mva._parse_season_pair("BAYERN MUNICH ADIDAS SIZE M ADULT RIBERY 7") is None
+
+    def test_reversed_years_returns_none(self):
+        """Para w kolejności malejącej to nie sezon (np. przypadkowy zakres numerów)."""
+        assert mva._parse_season_pair("2016/2015") is None
+
+    def test_skips_kids_clothing_size_range_and_finds_real_season(self):
+        """Regresja złapana przez code review: '104/110' (rozmiarówka dziecięca,
+        EU height-based sizing) pasuje do regexu pary liczb, ale nie jest sezonem
+        — funkcja musi ją pominąć i znaleźć właściwą parę lat dalej w tytule,
+        zamiast fałszywie zwrócić (104, 110) i odrzucić poprawnie dopasowaną ofertę."""
+        title = "Kids 104/110 Bayern Munich Home Shirt 2015/2016 Adidas"
+        assert mva._parse_season_pair(title) == (2015, 2016)
+
+    def test_pure_clothing_size_range_with_no_real_season_returns_none(self):
+        assert mva._parse_season_pair("Kids football shirt size 104/110") is None
+
+
+class TestFilterListingsByRelevance:
+    def test_no_season_no_model_returns_unchanged(self):
+        listings = [{"title": "Bayern Munich 2018/2019 Away Shirt", "price_pln": 200}]
+        assert mva._filter_listings_by_relevance(listings, {}) == listings
+
+    def test_rejects_wrong_season_case_from_real_incident(self):
+        """Regresja na case 20260902-6d29c75e (Bayern/Ribéry 2015/2016): query
+        eBay zwracał koszulki z zupełnie innych sezonów tego samego klubu,
+        rozmywając medianę w dół (mediana 234 PLN zamiast realnych ~680 PLN)."""
+        listings = [
+            {"title": "BAYERN MUNICH GERMANY 2015/2016 HOME FOOTBALL SHIRT JERSEY ADIDAS", "price_pln": 585},
+            {"title": "Bayern Munich 2018 - 2019 Home football Adidas shirt size XL", "price_pln": 214},
+            {"title": "FC Bayern 2014/2015 Home Jersey DFB-Pokal Final Size Large", "price_pln": 254},
+            {"title": "BAYERN MUNICH 2008/2009 AWAY FOOTBALL SHIRT ADIDAS #7 RIBERY", "price_pln": 431},
+            {"title": "BAYERN MUNICH GERMANY 2015/2016 HOME FOOTBALL SHIRT JERSEY ADIDAS", "price_pln": 780},
+        ]
+        subject = {"season": "2015/2016", "model": "domowa"}
+        result = mva._filter_listings_by_relevance(listings, subject)
+        assert {l["price_pln"] for l in result} == {585, 780}
+
+    def test_keeps_listings_without_season_in_title(self):
+        """Brak sezonu w tytule to brak informacji, nie sprzeczność — oferta zostaje."""
+        listings = [{"title": "Bayern Munich Home Shirt Adidas Ribery 7", "price_pln": 500}]
+        result = mva._filter_listings_by_relevance(listings, {"season": "2015/2016"})
+        assert result == listings
+
+    def test_rejects_conflicting_kit_type(self):
+        listings = [
+            {"title": "Bayern Munich Home Shirt", "price_pln": 500},
+            {"title": "Bayern Munich Away Shirt", "price_pln": 150},
+            {"title": "Bayern Munich Third Kit", "price_pln": 180},
+        ]
+        result = mva._filter_listings_by_relevance(listings, {"model": "domowa"})
+        assert result == [{"title": "Bayern Munich Home Shirt", "price_pln": 500}]
+
+    def test_keeps_listings_without_kit_type_in_title(self):
+        listings = [{"title": "Bayern Munich Shirt Adidas Ribery 7", "price_pln": 500}]
+        result = mva._filter_listings_by_relevance(listings, {"model": "wyjazdowa"})
+        assert result == listings
+
+    def test_unknown_model_value_skips_kit_type_filter(self):
+        listings = [{"title": "Bayern Munich Away Shirt", "price_pln": 150}]
+        result = mva._filter_listings_by_relevance(listings, {"model": "nieustalone"})
+        assert result == listings
+
+    def test_missing_title_does_not_crash(self):
+        listings = [{"price_pln": 100}]
+        result = mva._filter_listings_by_relevance(listings, {"season": "2015/2016", "model": "domowa"})
+        assert result == listings
+
+
 class TestRejectOutliers:
     def test_below_three_priced_listings_returns_unchanged(self):
         """Za mało danych, żeby bezpiecznie odróżnić odstającą cenę od

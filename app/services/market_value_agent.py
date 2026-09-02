@@ -73,6 +73,91 @@ def _filter_listings_by_category(listings: List[Dict], verdict_category: str) ->
     return filtered
 
 
+# eBay Browse API robi luźne dopasowanie tekstowe (q=...), nie wymaga zgodności
+# WSZYSTKICH słów zapytania — dla popularnego klubu/marki potrafi więc zwrócić
+# koszulki z zupełnie innych sezonów i wariantów (domowa/wyjazdowa/trzecia) tego
+# samego klubu. _filter_listings_by_category powyżej łapie tylko pomyloną
+# kategorię (replika vs meczowa); to nie chroni przed pomyloną edycją tego
+# samego tieru. Efekt: zaniżona mediana, bo próbka jest zdominowana przez
+# niedopasowane, zwykle tańsze oferty — a jedyna trafna, poprawnie wyceniona
+# oferta bywa dodatkowo odrzucana przez _reject_outliers jako rzekomy outlier,
+# skoro reszta próbki jest zaniżona. Znaleziono na case'ie Bayern/Ribéry
+# 2015/2016 (raport 20260902-6d29c75e): 8/10 ofert eBay miało inny sezon lub
+# wariant, mediana wyszła 234 PLN przy realnej ofercie ~680 PLN.
+_SEASON_PAIR_RE = re.compile(r"(\d{2,4})\s*[/\-]\s*(\d{2,4})")
+
+# Granice sensownego roku sezonu — bez tego "104/110" (rozmiarówka dziecięca,
+# EU height-based sizing) parsowałoby się jako rzekomy sezon "(104, 110)" i
+# fałszywie odrzucało poprawnie dopasowaną ofertę tylko dlatego, że rozmiar w
+# tytule wystąpił przed sezonem (np. "Kids 104/110 Bayern Munich 2015/2016").
+_SEASON_MIN_YEAR = 1900
+_SEASON_MAX_YEAR = 2035
+
+_KIT_TYPE_CONFLICT_KEYWORDS: Dict[str, List[str]] = {
+    "domowa": ["away", "wyjazdowa", "third", "trzecia", "alternate", "gk", "goalkeeper", "bramkarska"],
+    "wyjazdowa": ["home", "domowa", "third", "trzecia", "alternate", "gk", "goalkeeper", "bramkarska"],
+    "trzecia": ["home", "domowa", "away", "wyjazdowa", "gk", "goalkeeper", "bramkarska"],
+    "bramkarska": ["home", "domowa", "away", "wyjazdowa", "third", "trzecia"],
+}
+
+
+def _normalize_season_year(raw: str) -> int:
+    year = int(raw)
+    if year < 100:
+        return 2000 + year if year <= 50 else 1900 + year
+    return year
+
+
+def _parse_season_pair(text: str) -> Optional[tuple]:
+    """Wyciąga pierwszą PRAWDOPODOBNĄ parę lat sezonu (np. '2015/2016' → (2015, 2016),
+    '15/16' → (2015, 2016)) z tekstu — iteruje po wszystkich dopasowaniach regexu i
+    zwraca pierwsze mieszczące się w sensownym zakresie roku (patrz _SEASON_MIN_YEAR/
+    _SEASON_MAX_YEAR), żeby np. rozmiarówka dziecięca ('104/110') występująca przed
+    sezonem w tytule nie przesłoniła właściwej pary. Zwraca None, gdy nie znaleziono
+    żadnej wiarygodnej pary — brak informacji o sezonie w tytule NIE jest traktowany
+    jako konflikt (patrz _filter_listings_by_relevance)."""
+    for match in _SEASON_PAIR_RE.finditer(text):
+        start = _normalize_season_year(match.group(1))
+        end = _normalize_season_year(match.group(2))
+        if end < start:
+            continue
+        if not (_SEASON_MIN_YEAR <= start <= _SEASON_MAX_YEAR and _SEASON_MIN_YEAR <= end <= _SEASON_MAX_YEAR):
+            continue
+        return (start, end)
+    return None
+
+
+def _filter_listings_by_relevance(listings: List[Dict], subject: Dict[str, Any]) -> List[Dict]:
+    """Odrzuca oferty, których tytuł jawnie wskazuje na INNY sezon lub INNY wariant
+    (domowa/wyjazdowa/trzecia/bramkarska) niż deklarowany w analizie. Filtrujemy
+    tylko na twardej sprzeczności — brak sezonu/wariantu w tytule NIE jest powodem
+    odrzucenia, tylko jawna niezgodność (np. deklarowana '2015/2016', tytuł mówi
+    '2018/2019'; deklarowana 'domowa', tytuł mówi 'away')."""
+    season = str(subject.get("season") or "").strip()
+    model = str(subject.get("model") or "").strip().lower()
+
+    declared_season = _parse_season_pair(season) if season else None
+    conflict_keywords = next(
+        (kws for prefix, kws in _KIT_TYPE_CONFLICT_KEYWORDS.items() if model.startswith(prefix)),
+        None,
+    )
+
+    if not declared_season and not conflict_keywords:
+        return listings
+
+    filtered = []
+    for listing in listings:
+        title_lower = (listing.get("title") or "").lower()
+        if declared_season:
+            listing_season = _parse_season_pair(title_lower)
+            if listing_season and listing_season != declared_season:
+                continue
+        if conflict_keywords and any(kw in title_lower for kw in conflict_keywords):
+            continue
+        filtered.append(listing)
+    return filtered
+
+
 def _get_client() -> Optional[genai.Client]:
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
@@ -612,8 +697,10 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     Gemini (samoraportowane wyniki wyszukiwania, bez możliwości weryfikacji).
     Obie listy są filtrowane po kategorii (patrz _filter_listings_by_category)
     — oferty z tytułem wskazującym na inny tier cenowy niż werdykt (np.
-    "replica" dla koszulki meczowej) są odrzucane, żeby nie zniekształcały
-    mediany.
+    "replica" dla koszulki meczowej) są odrzucane — oraz po sezonie/wariancie
+    (patrz _filter_listings_by_relevance) — oferty z innym sezonem lub innym
+    wariantem (domowa/wyjazdowa/trzecia) niż deklarowany są odrzucane, żeby nie
+    zniekształcały mediany.
 
     Kolejność (celowo NIE równoległa): najpierw eBay. Jeśli po filtrze ma
     wystarczająco dużo ofert (_MIN_RELIABLE_SAMPLE_SIZE), Gemini w ogóle nie
@@ -625,10 +712,12 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     oferta eBay nie przyćmiła bogatszych danych z Gemini.
     """
     verdict_category = ((report_data.get("verdict") or {}).get("verdict_category") or "").strip()
+    subject = report_data.get("subject") or {}
     query = build_search_query(report_data)
 
     ebay_listings_raw = await estimate_via_ebay_browse(query)
     ebay_listings = _filter_listings_by_category(ebay_listings_raw, verdict_category)
+    ebay_listings = _filter_listings_by_relevance(ebay_listings, subject)
 
     if len(ebay_listings) >= _MIN_RELIABLE_SAMPLE_SIZE:
         stats = _recalculate_stats(ebay_listings)
@@ -646,6 +735,7 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     # dociągamy Gemini i łączymy oba źródła zamiast tracić dobre dane z eBay.
     gemini_result = await estimate_via_gemini(report_data)
     gemini_listings = _filter_listings_by_category(gemini_result.get("listings") or [], verdict_category)
+    gemini_listings = _filter_listings_by_relevance(gemini_listings, subject)
 
     combined = ebay_listings + gemini_listings
     if combined:

@@ -245,6 +245,39 @@ def _is_duplicate_signal(s: str, existing: list) -> bool:
     return any(sl in e.lower() or e.lower() in sl for e in existing)
 
 
+def _is_stale_sku_limitation(item) -> bool:
+    """True dla bulleta key_evidence typu 'limitation' twierdzącego, że SKU nie
+    dało się niezależnie zweryfikować. Agent A pisze te obserwacje ZANIM
+    sku_verification się wykona — bullet zostaje sprzeczny z decision_matrix,
+    gdy weryfikacja faktycznie coś ustaliła (patrz _clean_stale_sku_key_evidence)."""
+    if not isinstance(item, dict) or item.get("type") != "limitation":
+        return False
+    text = str(item.get("text", "")).lower()
+    return "sku" in text and ("weryfikac" in text or "zweryfikować" in text)
+
+
+def _clean_stale_sku_key_evidence(key_evidence: list) -> list:
+    """Usuwa z key_evidence bullet'y sprzeczne z faktycznym wynikiem weryfikacji
+    SKU (found_official/found_authorized/found_unofficial/format_invalid — każdy
+    status inny niż not_found/uncertain/not_applicable). Wołane tylko gdy SKU
+    verification faktycznie coś ustaliła — patrz _sku_status_confirms_verification
+    i wywołanie w run-decision. Znaleziono na case'ie 20260902-6d29c75e: status
+    found_authorized, ale key_evidence nadal twierdził że weryfikacja jest
+    niemożliwa."""
+    return [item for item in (key_evidence or []) if not _is_stale_sku_limitation(item)]
+
+
+def _sku_status_confirms_verification(sku_status: str) -> bool:
+    """True gdy sku_verification faktycznie coś ustaliła (pozytywnie lub negatywnie),
+    więc bullet "brak możliwości weryfikacji SKU" napisany przez Agenta A wcześniej
+    stał się sprzeczny i powinien zniknąć z key_evidence. False dla "not_found"/
+    "uncertain"/"not_applicable" — tam weryfikacja NIC nie ustaliła, więc ten bullet
+    jest wciąż prawdziwy i nie powinien być czyszczony (celowo nie reużywamy
+    `status in _sku_dm_map` w run-decision, bo ta mapa zawiera też "not_found", dla
+    którego usunięcie tego bulleta byłoby tym samym błędem w drugą stronę)."""
+    return sku_status not in ("not_found", "uncertain", "not_applicable")
+
+
 def _normalize_detected_views(detected_views: dict) -> dict:
     """Mapuje alternatywne nazwy widoków na klucze używane w _REQUIRED_VIEWS."""
     result = dict(detected_views)
@@ -1034,6 +1067,14 @@ async def run_decision(
                             elif _row.get("code") == "B" and _b_update:
                                 _row["status"] = _b_update[0]
                                 _row["observation"] = _b_update[1]
+
+                    # Sprzątanie key_evidence sprzecznego z faktycznym wynikiem
+                    # weryfikacji SKU (patrz _clean_stale_sku_key_evidence i
+                    # _sku_status_confirms_verification powyżej).
+                    if _sku_status_confirms_verification(_sku_status):
+                        report_data["key_evidence"] = _clean_stale_sku_key_evidence(
+                            report_data.get("key_evidence")
+                        )
 
                     _update_progress("mfg_check", 75, "Ocena jakości wykonania...")
 
