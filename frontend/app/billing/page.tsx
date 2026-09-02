@@ -32,22 +32,26 @@ const PACKAGE_STYLE: Record<BillingPackageKey, {
   icon: string;
   button: string;
   badge?: string;
+  description: string;
 }> = {
   single: {
     ring: "",
     icon: "text-slate-400",
     button: "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 hover:bg-emerald-400",
+    description: "Taniej niż kawa na mieście — a sprawdza koszulkę wartą setki złotych.",
   },
   pack3: {
     ring: "ring-1 ring-emerald-400/40",
     icon: "text-emerald-400",
     button: "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 hover:bg-emerald-400",
+    description: "Dla aktywnych kupujących. ~1,7% ceny koszulki za 500 zł — tyle kosztuje spokój.",
   },
   pack10: {
     ring: "ring-1 ring-amber-400/40",
     icon: "text-amber-400",
     button: "bg-gradient-to-br from-amber-300 to-amber-500 text-amber-950 shadow-md shadow-amber-500/30 hover:from-amber-200 hover:to-amber-400",
     badge: "Najlepsza cena za analizę",
+    description: "Ekspert bierze zwykle 50–200 zł za ocenę. U nas 7,90 zł za analizę.",
   },
 };
 
@@ -201,6 +205,9 @@ export default function BillingPage() {
                       {formatPrice(perUnit)} / analiza
                     </p>
                   )}
+                  <p className="mt-2 text-xs leading-snug text-slate-400 opacity-70">
+                    {style.description}
+                  </p>
                 </div>
                 <button
                   onClick={() => handleBuy(key)}
