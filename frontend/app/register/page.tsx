@@ -224,7 +224,7 @@ function RegisterForm() {
           </p>
 
           <p className="text-center text-[10px] text-slate-600">
-            Nie wysyłamy spamu. Możesz usunąć konto w dowolnym momencie.
+            Możesz usunąć konto w dowolnym momencie.
             Dane analizowanych zdjęć nie są przechowywane po zakończeniu analizy.
           </p>
         </div>

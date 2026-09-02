@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 const CONTENT = `
 <h1>Polityka prywatności</h1>
-<p class="meta">Serwis LegitScore (legitscore.app) · Wersja 2.0 · obowiązuje od 27 sierpnia 2026</p>
+<p class="meta">Serwis LegitScore (legitscore.app) · Wersja 2.1 · obowiązuje od 2 września 2026</p>
 
 <div class="note">
   <strong>W skrócie:</strong> LegitScore wymaga założenia Konta (e-mail i hasło, albo logowanie przez Google/Facebook) i zalogowania się przed uruchomieniem analizy przesłanych zdjęć koszulek. Analiza jest wykonywana z użyciem zewnętrznych usług sztucznej inteligencji. Poniżej wyjaśniamy, jakie dane zbieramy, po co, komu je powierzamy i jakie masz prawa.
@@ -35,6 +35,7 @@ const CONTENT = `
   <tr><td>Założenie i obsługa Konta, w tym logowanie przez Google/Facebook, uwierzytelnianie i zabezpieczenie dostępu</td><td>art. 6 ust. 1 lit. b (niezbędność do wykonania umowy o świadczenie usług drogą elektroniczną)</td></tr>
   <tr><td>Wykonanie usługi analizy i udostępnienie Raportu</td><td>art. 6 ust. 1 lit. b oraz lit. a (zgoda) — w zakresie przetwarzania przesłanych zdjęć</td></tr>
   <tr><td>Wysyłka wiadomości e-mail związanych z Kontem (powitalna, potwierdzenie adresu e-mail, reset hasła)</td><td>art. 6 ust. 1 lit. b oraz lit. f (prawnie uzasadniony interes — bezpieczeństwo Konta)</td></tr>
+  <tr><td>Wysyłka materiałów promocyjnych i marketingowych LegitScore (np. kody promocyjne, informacje o nowych funkcjach) na adres e-mail Konta</td><td>art. 6 ust. 1 lit. a (zgoda wyrażona przy zakładaniu Konta — zob. <a href="/regulamin">Regulamin</a>); zgodę można wycofać w każdej chwili bez wpływu na możliwość korzystania z Konta</td></tr>
   <tr><td>Analityka i statystyki (cookies)</td><td>art. 6 ust. 1 lit. a (zgoda wyrażona w banerze cookies)</td></tr>
   <tr><td>Bezpieczeństwo serwisu, zapobieganie nadużyciom (w tym wielokrotnemu zakładaniu Kont), dochodzenie/obrona roszczeń</td><td>art. 6 ust. 1 lit. f (prawnie uzasadniony interes administratora)</td></tr>
 </table>
@@ -65,8 +66,8 @@ const CONTENT = `
 <h2>7. Okres przechowywania</h2>
 <ul>
   <li><strong>Dane Konta</strong> (e-mail, hasło, dane logowania OAuth): do czasu usunięcia Konta. Konto możesz usunąć samodzielnie w każdej chwili w ustawieniach Konta w Serwisie — usunięcie jest natychmiastowe i obejmuje dane Konta oraz powiązaną Kolekcję.</li>
-  <li><strong>Zdjęcia i Raporty:</strong> przez czas niezbędny do wykonania usługi i obsługi ewentualnych reklamacji, nie dłużej niż [np. 24 miesiące] lub do momentu usunięcia Konta / cofnięcia zgody / żądania usunięcia.</li>
-  <li><strong>Dane techniczne / logi:</strong> przez okres niezbędny dla bezpieczeństwa, zwykle do [np. 12 miesięcy].</li>
+  <li><strong>Zdjęcia i Raporty:</strong> przez czas niezbędny do wykonania usługi i obsługi ewentualnych reklamacji, nie dłużej niż 24 miesiące lub do momentu usunięcia Konta / cofnięcia zgody / żądania usunięcia.</li>
+  <li><strong>Dane techniczne / logi:</strong> przez okres niezbędny dla bezpieczeństwa, zwykle do 12 miesięcy.</li>
   <li><strong>Dane analityczne (cookies):</strong> zgodnie z okresami ważności poszczególnych plików cookies i do czasu cofnięcia zgody.</li>
 </ul>
 <p class="meta">[Okresy do potwierdzenia z rzeczywistą konfiguracją systemu.]</p>

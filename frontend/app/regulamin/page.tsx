@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 const CONTENT = `
 <h1>Regulamin serwisu LegitScore</h1>
-<p class="meta">legitscore.app · Wersja 2.0 · obowiązuje od 27 sierpnia 2026</p>
+<p class="meta">legitscore.app · Wersja 2.1 · obowiązuje od 2 września 2026</p>
 
 <div class="note">
   <strong>Najważniejsze:</strong> LegitScore dostarcza <strong>ocenę ryzyka autentyczności</strong> koszulki na podstawie zdjęć, wykonywaną przez systemy sztucznej inteligencji. <strong>Nie jest to certyfikat autentyczności, gwarancja ani ekspertyza rzeczoznawcza — i może zawierać błędy.</strong> Wynik ma charakter informacyjny i pomocniczy — ostateczną decyzję (w tym zakupową lub sprzedażową) podejmujesz wyłącznie samodzielnie, na własne ryzyko. Skorzystanie z Usługi wymaga założenia Konta i zalogowania się.
@@ -48,6 +48,7 @@ const CONTENT = `
   <li>Użytkownik zobowiązany jest zachować w poufności dane dostępowe do Konta i ponosi odpowiedzialność za działania podejmowane przy ich użyciu, chyba że utrata poufności nastąpiła z przyczyn leżących po stronie Usługodawcy.</li>
   <li>Adres e-mail podany przy rejestracji może wymagać potwierdzenia poprzez kliknięcie linku weryfikacyjnego. Brak potwierdzenia adresu e-mail nie ogranicza obecnie możliwości korzystania z Serwisu, może jednak stanowić warunek korzystania z wybranych funkcji w przyszłości (np. limitów darmowych Analiz), o czym Użytkownik zostanie poinformowany.</li>
   <li>Logowanie za pośrednictwem Google lub Facebook podlega dodatkowo regulaminom i politykom prywatności tych dostawców, niezależnym od Usługodawcy.</li>
+  <li>Zakładając Konto, Użytkownik wyraża zgodę na kontakt e-mailowy ze strony Usługodawcy związany z Kontem i Usługą (np. informacje o kodach promocyjnych, zmianach w Serwisie) oraz na otrzymywanie materiałów promocyjnych i marketingowych dotyczących LegitScore. Zgoda na materiały promocyjne i marketingowe jest dobrowolna i można ją wycofać w każdej chwili — klikając link rezygnacji zamieszczony w wiadomości e-mail albo pisząc na <a href="mailto:info@legitscore.app">info@legitscore.app</a> — bez wpływu na możliwość korzystania z Konta i Usługi. Szczegóły przetwarzania danych w tym zakresie opisuje <a href="/polityka-prywatnosci">Polityka prywatności</a>.</li>
   <li>Użytkownik może w każdej chwili usunąć swoje Konto samodzielnie, w ustawieniach Konta w Serwisie, albo poprzez zgłoszenie takiego żądania na adres <a href="mailto:info@legitscore.app">info@legitscore.app</a>. Usunięcie Konta jest nieodwracalne i wiąże się z utratą dostępu do Kolekcji i Historii analiz powiązanych z Kontem.</li>
   <li>Usługodawca może zawiesić lub usunąć Konto Użytkownika naruszającego Regulamin lub obowiązujące przepisy prawa, po uprzedniej próbie wyjaśnienia sytuacji, chyba że charakter naruszenia uzasadnia natychmiastowe działanie.</li>
 </ol>
