@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Shirt, FileText, LayoutGrid, Store } from "lucide-react";
@@ -35,6 +35,36 @@ export function Shell({ children, className, subtitle }: ShellProps) {
   const { openSettings } = useCookieConsent();
   const [criticalCount, setCriticalCount] = useState(0);
   const [credits, setCredits] = useState<number | null>(null);
+
+  // Zakładki (Analiza/Historia/Kolekcja/Sklep) potrafią się nie zmieścić na
+  // wąskim ekranie i wymagają przewinięcia w poziomie. Sam gradient na
+  // krawędzi (bez warunku) wyglądał jak ucięta treść nawet gdy nic więcej
+  // nie było do przewinięcia — pokazujemy go tylko, gdy realnie jest co
+  // przewinąć, i chowamy po dojechaniu do końca, żeby nie sugerować
+  // nieistniejącej dalszej zawartości.
+  const navRef = useRef<HTMLElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollFade = useCallback(() => {
+    const el = navRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    updateScrollFade();
+    const el = navRef.current;
+    if (!el) return;
+    const resizeObserver = new ResizeObserver(updateScrollFade);
+    resizeObserver.observe(el);
+    window.addEventListener("resize", updateScrollFade);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateScrollFade);
+    };
+  }, [updateScrollFade, user, credits]);
 
   useEffect(() => {
     if (!user?.is_admin) return;
@@ -88,7 +118,11 @@ export function Shell({ children, className, subtitle }: ShellProps) {
               obramowane przyciski z ikoną (reszta linków przeniesiona do
               dropdowna avatara powyżej). Dla wylogowanych zostaje prosta lista. */}
           <div className="relative">
-            <nav className="no-scrollbar flex flex-nowrap items-center gap-1.5 overflow-x-auto text-xs">
+            <nav
+              ref={navRef}
+              onScroll={updateScrollFade}
+              className="no-scrollbar flex flex-nowrap items-center gap-1.5 overflow-x-auto pr-6 text-xs"
+            >
               {user ? (
                 <>
                   {MAIN_TABS.map(({ href, label, icon: Icon }) => {
@@ -148,8 +182,11 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                 </>
               )}
             </nav>
-            {user && (
-              <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-slate-950/90 to-transparent" />
+            {user && canScrollLeft && (
+              <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-slate-950/90 to-transparent" />
+            )}
+            {user && canScrollRight && (
+              <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-slate-950/90 to-transparent" />
             )}
           </div>
         </header>
