@@ -123,6 +123,14 @@ LUCKY_CODE_CREDITS = 2
 PERSONAL_PROMO_CODE = "SZYMON3"
 PERSONAL_PROMO_CREDITS = 3
 
+# Kod dla grupy wczesnych testerów zaproszonych mailem (link/CTA do rejestracji nie
+# jest jeszcze nigdzie publicznie spięty, więc kod nie wycieka poza tę grupę). max_uses
+# ograniczony do garstki odbiorców, nie evergreen jak LS7 — do usunięcia stąd i z
+# init_db() gdy runda testów się skończy.
+TESTER_PROMO_CODE = "TESTER10"
+TESTER_PROMO_CREDITS = 10
+TESTER_PROMO_MAX_USES = 20
+
 
 class PromoCode(Base):
     """Kod zaproszenia doładowujący darmowe kredyty przy rejestracji (np. link
@@ -293,6 +301,7 @@ def init_db():
     _migrate_promo_redemptions_unique()
     _seed_lucky_code()
     _seed_personal_promo_code()
+    _seed_tester_promo_code()
 
 
 def _migrate_password_reset_tokens():
@@ -559,6 +568,29 @@ def _seed_personal_promo_code():
         exists = db.query(PromoCode).filter(PromoCode.code == PERSONAL_PROMO_CODE).first()
         if not exists:
             db.add(PromoCode(code=PERSONAL_PROMO_CODE, credits=PERSONAL_PROMO_CREDITS, max_uses=1, expires_at=None))
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+    finally:
+        db.close()
+
+
+def _seed_tester_promo_code():
+    """Jednorazowy insert kodu TESTER_PROMO_CODE dla zaproszonych mailem testerów —
+    idempotentne, ten sam wyścig i zabezpieczenie co _seed_lucky_code."""
+    from sqlalchemy.exc import IntegrityError
+
+    db = SessionLocal()
+    try:
+        exists = db.query(PromoCode).filter(PromoCode.code == TESTER_PROMO_CODE).first()
+        if not exists:
+            db.add(PromoCode(
+                code=TESTER_PROMO_CODE,
+                credits=TESTER_PROMO_CREDITS,
+                max_uses=TESTER_PROMO_MAX_USES,
+                expires_at=None,
+            ))
             try:
                 db.commit()
             except IntegrityError:
