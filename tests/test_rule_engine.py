@@ -8,6 +8,7 @@ from app.services.agent_a_gemini import (
     _clean_contradictory_data_after_override,
     _compute_confidence_ceiling,
     _compute_manufacturing_quality,
+    _meczowa_label,
     run_rule_engine,
 )
 
@@ -502,6 +503,70 @@ class TestRunRuleEngineProbabilitiesSync:
         run_rule_engine(report)
         assert report["probabilities"]["podrobka"] == 80
         assert report["probabilities"]["meczowa"] == 0
+
+
+class TestMeczowaLabel:
+    """Regresja na case 20260903-238a181d (PSG/Messi): etykieta "Meczowa /
+    Player Issue" była zawsze taka sama niezależnie od meczowa_detail.status,
+    więc user nie mógł odróżnić taniej wersji player issue od potwierdzonej,
+    dużo cenniejszej match_worn. Etykieta ma teraz odzwierciedlać substatus."""
+
+    def test_player_issue(self):
+        report = {"meczowa_detail": {"status": "player_issue"}}
+        assert _meczowa_label(report) == "Meczowa — Player Issue"
+
+    def test_match_worn(self):
+        report = {"meczowa_detail": {"status": "match_worn"}}
+        label = _meczowa_label(report)
+        assert label.startswith("Meczowa —")
+        assert "potwierdzona" in label
+
+    def test_match_prepared(self):
+        report = {"meczowa_detail": {"status": "match_prepared"}}
+        label = _meczowa_label(report)
+        assert label.startswith("Meczowa —")
+        assert "przygotowana" in label
+
+    def test_unknown_status_falls_back_to_generic_label(self):
+        report = {"meczowa_detail": {"status": "unknown"}}
+        assert _meczowa_label(report) == "Meczowa / Player Issue"
+
+    def test_missing_meczowa_detail_falls_back_to_generic_label(self):
+        """Legacy raporty sprzed tego pola / override bez własnego meczowa_detail."""
+        assert _meczowa_label({}) == "Meczowa / Player Issue"
+
+    def test_missing_status_key_falls_back_to_generic_label(self):
+        assert _meczowa_label({"meczowa_detail": {}}) == "Meczowa / Player Issue"
+
+
+class TestRunRuleEngineMeczowaLabelIntegration:
+    """run_rule_engine musi faktycznie zsynchronizować label z meczowa_detail.status
+    po wszystkich overrides, nie tylko _meczowa_label() w izolacji."""
+
+    def test_player_issue_gets_substatus_label(self):
+        report = _minimal_report(verdict_category="meczowa", confidence=70)
+        report["meczowa_detail"] = {"status": "player_issue"}
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "meczowa"
+        assert report["verdict"]["label"] == "Meczowa — Player Issue"
+
+    def test_match_worn_gets_substatus_label(self):
+        report = _minimal_report(verdict_category="meczowa", confidence=70)
+        report["meczowa_detail"] = {"status": "match_worn"}
+        run_rule_engine(report)
+        assert report["verdict"]["label"] == "Meczowa — potwierdzona (koszulka noszona na boisku)"
+
+    def test_no_meczowa_detail_keeps_generic_label(self):
+        """_minimal_report() nie ustawia meczowa_detail — musi zostać stara,
+        generyczna etykieta (backward-compat dla starszych/uboższych raportów)."""
+        report = _minimal_report(verdict_category="meczowa", confidence=70)
+        run_rule_engine(report)
+        assert report["verdict"]["label"] == "Meczowa / Player Issue"
+
+    def test_non_meczowa_category_unaffected(self):
+        report = _minimal_report(verdict_category="oryginalna_sklepowa", confidence=80)
+        run_rule_engine(report)
+        assert report["verdict"]["label"] == "Oryginalna (Sklepowa)"
 
 
 class TestRunRuleEngineMeczowaPoorMfgOverride:

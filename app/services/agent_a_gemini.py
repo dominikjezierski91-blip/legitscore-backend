@@ -692,6 +692,30 @@ _LABEL_MAP = {
 }
 _CEILING_MAP = {"high": 100, "medium": 60, "low": 40}
 
+# "Meczowa" pokazywała się zawsze jako identyczna etykieta "Meczowa / Player
+# Issue" niezależnie od meczowa_detail.status — user nie miał jak odróżnić
+# koszulki player issue (nowa, nigdy nie noszona na meczu, ~150-500 PLN) od
+# faktycznie potwierdzonej match_worn (noszona na boisku, wielokrotnie
+# wyższa wartość, praktycznie nieobecna na eBay/Vinted). meczowa_detail.status
+# już to rozróżnia (prompt_a.txt KROK 6) — tylko etykieta go ignorowała.
+# Znaleziono na case'ie 20260903-238a181d (PSG/Messi, status=player_issue,
+# wycena ~470 PLN "czuła się" za niska pod etykietą sugerującą "meczowa").
+_MECZOWA_SUBSTATUS_LABELS = {
+    "player_issue": "Meczowa — Player Issue",
+    "match_prepared": "Meczowa — przygotowana meczowo (niepotwierdzone noszenie)",
+    "match_worn": "Meczowa — potwierdzona (koszulka noszona na boisku)",
+}
+
+
+def _meczowa_label(report_data: Dict[str, Any]) -> str:
+    """Etykieta dla verdict_category == 'meczowa', świadoma substatusu z
+    meczowa_detail.status. Fallback na generyczną etykietę, gdy substatus
+    jest nieznany/brakujący (np. 'unknown', legacy raporty sprzed tego pola,
+    albo werdykt skorygowany na meczowa przez hard override bez własnego
+    meczowa_detail) — zachowuje dotychczasowe zachowanie w tych przypadkach."""
+    status = ((report_data.get("meczowa_detail") or {}).get("status") or "").strip()
+    return _MECZOWA_SUBSTATUS_LABELS.get(status, _LABEL_MAP["meczowa"])
+
 
 def _round_to_10(n: int) -> int:
     # round-half-up (nie banker's rounding domyślne w Pythonie)
@@ -2312,7 +2336,10 @@ def run_rule_engine(
     final_verdict = report_data.get("verdict") or {}
     if isinstance(final_verdict, dict):
         final_cat = final_verdict.get("verdict_category", "")
-        if final_cat and final_cat in _LABEL_MAP:
+        if final_cat == "meczowa":
+            final_verdict["label"] = _meczowa_label(report_data)
+            report_data["verdict"] = final_verdict
+        elif final_cat and final_cat in _LABEL_MAP:
             final_verdict["label"] = _LABEL_MAP[final_cat]
             report_data["verdict"] = final_verdict
 
