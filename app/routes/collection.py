@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.services.database import get_db, CollectionItem, SessionLocal
 from app.routes.auth import get_current_user
 from app.services.database import User
-from app.services.market_value_agent import estimate_market_value
+from app.services.market_value_agent import estimate_market_value, should_update_market_value
 
 router = APIRouter()
 
@@ -92,7 +92,7 @@ async def _auto_estimate_market_value(item_id: str) -> None:
             "verdict": {"verdict_category": item.verdict_category},
         }
         result = await estimate_market_value(report_data)
-        if result.get("sample_size", 0) > 0:
+        if should_update_market_value(item.market_value_pln, result):
             item.market_value_pln = result.get("median_pln")
             item.market_value_range_min = result.get("range_min_pln")
             item.market_value_range_max = result.get("range_max_pln")
@@ -364,7 +364,7 @@ async def refresh_market_value(
 
     result = await estimate_market_value(report_data)
 
-    if result.get("sample_size", 0) > 0:
+    if should_update_market_value(item.market_value_pln, result):
         item.market_value_pln = result.get("median_pln")
         item.market_value_range_min = result.get("range_min_pln")
         item.market_value_range_max = result.get("range_max_pln")

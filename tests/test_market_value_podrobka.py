@@ -5,6 +5,7 @@ codziennym daily refreshu. Frontend w ich miejsce pokazuje cenę zakupu (jeśli
 user ją podał) — logika czysto frontendowa, tu testujemy tylko backend:
 że estimate_market_value w ogóle nie jest wołane dla podróbek.
 """
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
@@ -14,6 +15,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.auth_service import create_access_token, hash_password
 from app.services.database import SessionLocal, User, CollectionItem
+from app.services.market_value_agent import refresh_stale_market_values
 
 client = TestClient(app)
 
@@ -174,4 +176,56 @@ class TestDailyRefreshSkipsPodrobka:
             assert stale_ids == {real_item.id}
         finally:
             db.close()
+            _cleanup(user.id)
+
+
+class TestDailyRefreshBumpsTimestampEvenWhenSkipped:
+    """Regresja złapana przez code review (2026-09-04): gdy should_update_market_value
+    blokuje zapis (próbka za mała), market_value_updated_at musi mimo to zostać
+    zaktualizowane — inaczej pozycja z trwale wąskim rynkiem kwalifikowałaby się
+    do odświeżenia CODZIENNIE zamiast raz na 7 dni (docstring refresh_stale_market_values),
+    zużywając niepotrzebnie limit Gemini/eBay i zajmując miejsce w dziennej paczce
+    kosztem innych pozycji faktycznie gotowych do odświeżenia."""
+
+    def test_thin_sample_bumps_timestamp_without_changing_value(self):
+        user = _make_user()
+        db = SessionLocal()
+        try:
+            old_updated_at = datetime.now(timezone.utc) - timedelta(days=10)
+            item = CollectionItem(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                case_id=f"manual_{uuid.uuid4().hex[:12]}",
+                club="FC Barcelona",
+                season="2026/2027",
+                verdict_category="oryginalna_sklepowa",
+                is_manual=True,
+                market_value_pln=470.0,
+                market_value_updated_at=old_updated_at,
+            )
+            db.add(item)
+            db.commit()
+            item_id = item.id
+        finally:
+            db.close()
+
+        try:
+            # sample_size=1 < _MIN_SAMPLE_TO_UPDATE=2 -> should_update_market_value
+            # zwraca False, wartość NIE powinna się zmienić, ale timestamp TAK.
+            thin_result = AsyncMock(return_value={"median_pln": 168, "sample_size": 1, "source": "ebay"})
+            with patch("app.services.market_value_agent.estimate_market_value", new=thin_result):
+                asyncio.run(refresh_stale_market_values(max_items=50))
+
+            db = SessionLocal()
+            try:
+                refreshed_item = db.query(CollectionItem).filter(CollectionItem.id == item_id).first()
+                assert refreshed_item.market_value_pln == 470.0, "wartość nie powinna się zmienić przy zbyt małej próbce"
+                # SQLite zwraca DateTime jako naive — porównaj na tej samej podstawie.
+                assert refreshed_item.market_value_updated_at > old_updated_at.replace(tzinfo=None), (
+                    "timestamp musi się zaktualizować mimo pominięcia zapisu wartości, "
+                    "inaczej pozycja odświeżałaby się codziennie zamiast raz na 7 dni"
+                )
+            finally:
+                db.close()
+        finally:
             _cleanup(user.id)

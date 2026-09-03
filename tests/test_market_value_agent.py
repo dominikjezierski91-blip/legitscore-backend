@@ -359,79 +359,101 @@ class TestFilterListingsByRelevance:
         assert result == listings
 
 
-class TestRejectOutliers:
-    def test_below_three_priced_listings_returns_unchanged(self):
-        """Za mało danych, żeby bezpiecznie odróżnić odstającą cenę od
-        normalnej wariancji — nawet ewidentnie dziwna cena zostaje."""
-        listings = [
-            {"price_pln": 200, "title": "a"},
-            {"price_pln": 5000, "title": "b"},
-        ]
-        assert mva._reject_outliers(listings) == listings
+class TestTopOffersStats:
+    """Regresja na powtarzający się wzorzec (Bayern/Ribéry, PSG/Messi,
+    Barcelona/Cubarsí): tanie oferty w próbce to prawie zawsze złe dopasowania
+    lub podróbki, więc licz medianę z _TOP_OFFERS_COUNT najdrożej wycenionych
+    dopasowanych ofert, nie z całej próbki."""
 
-    def test_rejects_price_far_from_median(self):
-        listings = [
-            {"price_pln": 200, "title": "a"},
-            {"price_pln": 210, "title": "b"},
-            {"price_pln": 220, "title": "c"},
-            {"price_pln": 5000, "title": "d — inny produkt/żart"},
-        ]
-        result = mva._reject_outliers(listings)
-        assert {l["title"] for l in result} == {"a", "b", "c"}
-
-    def test_never_drops_below_two_listings(self):
-        """Gdyby filtr zostawił mniej niż 2 oferty (bo cały rozrzut jest duży),
-        lepiej pokazać wszystko niż zgadywać, co odrzucić."""
-        listings = [
-            {"price_pln": 100, "title": "a"},
-            {"price_pln": 1000, "title": "b"},
-            {"price_pln": 5000, "title": "c"},
-        ]
-        assert mva._reject_outliers(listings) == listings
-
-    def test_ignores_listings_without_price(self):
-        listings = [
-            {"price_pln": 200, "title": "a"},
-            {"price_pln": 210, "title": "b"},
-            {"price_pln": 220, "title": "c"},
-            {"title": "no price"},
-        ]
-        result = mva._reject_outliers(listings)
-        assert {l["title"] for l in result} == {"a", "b", "c", "no price"}
-
-    def test_normal_case_nothing_rejected(self):
-        """Ceny blisko siebie (bez odstającej wartości) — filtr nie powinien
-        niczego ruszyć, nawet mając wystarczająco dużo danych do aktywacji."""
-        listings = [
-            {"price_pln": 200, "title": "a"},
-            {"price_pln": 210, "title": "b"},
-            {"price_pln": 190, "title": "c"},
-            {"price_pln": 205, "title": "d"},
-        ]
-        assert mva._reject_outliers(listings) == listings
-
-
-class TestRecalculateStats:
     def test_empty_listings_returns_zero_sample_with_listings_key(self):
-        assert mva._recalculate_stats([]) == {"sample_size": 0, "listings": []}
+        assert mva._top_offers_stats([]) == {"sample_size": 0, "listings": []}
 
     def test_listings_without_price_returns_zero_sample(self):
-        stats = mva._recalculate_stats([{"title": "no price"}])
+        stats = mva._top_offers_stats([{"title": "no price"}])
         assert stats == {"sample_size": 0, "listings": []}
 
-    def test_listings_key_reflects_outlier_rejection(self):
-        """stats['listings'] musi odpowiadać dokładnie cenom użytym do mediany —
-        inaczej odrzucony outlier nadal wyświetlałby się userowi na liście ofert."""
+    def test_takes_top_3_highest_not_full_median(self):
+        """5 ofert, w tym 3 bardzo tanie (złe dopasowania) i 2 drogie (dobre) —
+        mediana z całości wyszłaby nisko; mediana z top-3 (dwie drogie +
+        trzecia najwyższa z tanich) ma wyjść wysoko."""
         listings = [
-            {"price_pln": 200, "title": "a"},
-            {"price_pln": 210, "title": "b"},
-            {"price_pln": 220, "title": "c"},
-            {"price_pln": 9000, "title": "outlier"},
+            {"price_pln": 100, "title": "zle dopasowanie 1"},
+            {"price_pln": 120, "title": "zle dopasowanie 2"},
+            {"price_pln": 140, "title": "zle dopasowanie 3"},
+            {"price_pln": 700, "title": "dobre dopasowanie 1"},
+            {"price_pln": 800, "title": "dobre dopasowanie 2"},
         ]
-        stats = mva._recalculate_stats(listings)
+        stats = mva._top_offers_stats(listings)
         assert stats["sample_size"] == 3
-        assert {l["title"] for l in stats["listings"]} == {"a", "b", "c"}
-        assert stats["median_pln"] == 210
+        assert {l["title"] for l in stats["listings"]} == {
+            "dobre dopasowanie 1", "dobre dopasowanie 2", "zle dopasowanie 3",
+        }
+        assert stats["median_pln"] == 700
+
+    def test_single_joke_listing_does_not_dominate_top_3(self):
+        """Mediana (nie średnia) z top-3 chroni przed jedną żartobliwą/
+        oszukańczą ultra-wysoką ofertą — środkowa wartość, nie najwyższa."""
+        listings = [
+            {"price_pln": 500, "title": "normalna"},
+            {"price_pln": 550, "title": "normalna 2"},
+            {"price_pln": 99999, "title": "żart/oszustwo"},
+        ]
+        stats = mva._top_offers_stats(listings)
+        assert stats["median_pln"] == 550
+
+    def test_fewer_than_n_listings_uses_all_of_them(self):
+        listings = [{"price_pln": 300, "title": "a"}, {"price_pln": 400, "title": "b"}]
+        stats = mva._top_offers_stats(listings)
+        assert stats["sample_size"] == 2
+        assert stats["median_pln"] == 350
+
+    def test_single_listing_returns_its_own_price(self):
+        stats = mva._top_offers_stats([{"price_pln": 250, "title": "jedyna"}])
+        assert stats["sample_size"] == 1
+        assert stats["median_pln"] == 250
+
+    def test_custom_n_parameter(self):
+        listings = [{"price_pln": p, "title": str(p)} for p in [100, 200, 300, 400, 500]]
+        stats = mva._top_offers_stats(listings, n=2)
+        assert stats["sample_size"] == 2
+        assert stats["median_pln"] == 450  # (400+500)/2
+
+
+class TestShouldUpdateMarketValue:
+    """Regresja na case Barcelona/Cubarsí (2026-09-03, sezon 2026/2027):
+    odświeżenie trafiło na moment gdy znaleziono tylko 1 (podejrzanie tanią)
+    ofertę i Gemini przejściowo nic nie zwróciło — zapisana wycena spadła z
+    ~470 zł do 168 zł na podstawie jednej, niepewnej oferty."""
+
+    def test_blocks_update_with_too_few_samples(self):
+        result = {"median_pln": 168, "sample_size": 1}
+        assert mva.should_update_market_value(None, result) is False
+        assert mva.should_update_market_value(470, result) is False
+
+    def test_allows_update_with_enough_samples_and_no_prior_value(self):
+        """Pierwsze szacowanie (dodanie do kolekcji) — current_pln=None, brak
+        punktu odniesienia do porównania odchylenia."""
+        result = {"median_pln": 470, "sample_size": 2}
+        assert mva.should_update_market_value(None, result) is True
+
+    def test_blocks_update_when_deviation_too_large(self):
+        """168 zł vs obecne 470 zł to odchylenie ~64%, ponad próg 50%."""
+        result = {"median_pln": 168, "sample_size": 3}
+        assert mva.should_update_market_value(470, result) is False
+
+    def test_allows_update_when_deviation_within_threshold(self):
+        result = {"median_pln": 420, "sample_size": 3}
+        assert mva.should_update_market_value(470, result) is True
+
+    def test_allows_large_upward_deviation_within_threshold(self):
+        result = {"median_pln": 690, "sample_size": 3}  # +47% vs 470
+        assert mva.should_update_market_value(470, result) is True
+
+    def test_blocks_when_median_pln_missing(self):
+        assert mva.should_update_market_value(470, {"sample_size": 5}) is False
+
+    def test_blocks_when_median_pln_is_zero(self):
+        assert mva.should_update_market_value(470, {"median_pln": 0, "sample_size": 5}) is False
 
 
 class TestEstimateMarketValueBlending:
@@ -551,7 +573,9 @@ class TestEstimateMarketValueBlending:
 
     def test_lone_ebay_listing_below_threshold_combines_with_gemini_instead_of_being_used_alone(self):
         """Regresja: jedna samotna oferta eBay (poniżej progu) nie może całkowicie
-        przyćmić bogatszych danych z Gemini — muszą się połączyć."""
+        przyćmić bogatszych danych z Gemini — muszą się połączyć. Finalna
+        próbka to top-3 z połączonych 4 ofert (patrz _top_offers_stats) —
+        najtańsza (400) odpada, zostaje mediana z [420, 450, 500] = 450."""
         async def fake_gemini(report_data):
             return {
                 "listings": [
@@ -571,8 +595,9 @@ class TestEstimateMarketValueBlending:
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
 
         assert result["source"] == "ebay+gemini"
-        assert result["sample_size"] == 4
-        assert len(result["listings"]) == 4
+        assert result["sample_size"] == 3
+        assert len(result["listings"]) == 3
+        assert result["median_pln"] == 450
         assert result["low_confidence"] is False
 
     def test_lone_ebay_listing_with_no_gemini_data_is_flagged_low_confidence(self):

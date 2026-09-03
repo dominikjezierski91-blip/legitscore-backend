@@ -619,54 +619,74 @@ async def estimate_via_ebay(query: str) -> List[Dict]:
     return listings
 
 
-_OUTLIER_FACTOR = 3  # cena uznana za odstającą, jeśli jest > 3x lub < 1/3 wstępnej mediany
+_TOP_OFFERS_COUNT = 3  # ile najdrożej wycenionych, dopasowanych ofert bierzemy pod uwagę
 
-
-def _reject_outliers(listings: List[Dict]) -> List[Dict]:
-    """Odrzuca oferty z ceną skrajnie odstającą od wstępnej mediany, zanim policzymy
-    finalne statystyki. Przy typowych dla tego systemu małych próbkach (2-6 ofert)
-    jedna źle dopasowana (inny produkt) lub żartobliwie wyceniona oferta potrafi
-    mocno wypaczyć medianę. Wymaga min. 3 ofert z ceną (przy mniejszej próbce nie
-    da się bezpiecznie odróżnić odstającej ceny od normalnej wariancji rynku) i
-    nigdy nie zejdzie poniżej 2 — jeśli odrzucenie zostawiłoby mniej, zwraca
-    listę bez zmian, bo bez sensownego punktu odniesienia lepiej pokazać wszystko
-    niż zgadywać, co odrzucić."""
-    priced = [l for l in listings if l.get("price_pln")]
-    if len(priced) < 3:
-        return listings
-    prices = sorted(l["price_pln"] for l in priced)
-    n = len(prices)
-    pre_median = prices[n // 2] if n % 2 else (prices[n // 2 - 1] + prices[n // 2]) / 2
-    # Listingi bez ceny nie brały udziału w wykryciu odstającej wartości — zostają
-    # bez zmian, tylko priced ocenia się względem wstępnej mediany.
-    kept = [
-        l for l in listings
-        if not l.get("price_pln") or pre_median / _OUTLIER_FACTOR <= l["price_pln"] <= pre_median * _OUTLIER_FACTOR
-    ]
-    if sum(1 for l in kept if l.get("price_pln")) < 2:
-        return listings
-    return kept
-
-
-def _recalculate_stats(listings: List[Dict]) -> Dict[str, Any]:
-    """Przelicza median/min/max/sample_size z listy ogłoszeń (po odrzuceniu
-    odstających cen — patrz _reject_outliers). Zwraca też przefiltrowaną listę
-    pod kluczem 'listings', żeby oferty pokazywane userowi zawsze odpowiadały
-    tym faktycznie użytym do wyliczenia mediany — bez tego odrzucony outlier
-    nadal wyświetlałby się na liście, mimo że nie wpłynął na cenę."""
-    listings = _reject_outliers(listings)
-    prices = sorted(l["price_pln"] for l in listings if l.get("price_pln"))
-    if not prices:
+# Poprzednie podejście (mediana z CAŁEJ odfiltrowanej próbki + odrzucanie
+# outlierów) systematycznie zaniżało wycenę: w powtarzających się przypadkach
+# (Bayern/Ribéry, PSG/Messi, Barcelona/Cubarsí — patrz komentarze przy
+# _filter_listings_by_relevance) tanie oferty w próbce to niemal zawsze złe
+# dopasowania (zły sezon/wariant/tier) albo podróbki, a to właśnie NAJDROŻEJ
+# wycenione, dobrze dopasowane oferty najlepiej reprezentują realną wartość —
+# a mechanizm odrzucania outlierów akurat je odrzucał jako "zbyt wysokie".
+# Nowe podejście: bierz _TOP_OFFERS_COUNT najdrożej wycenionych ofert (po
+# filtrach kategorii/sezonu/wariantu) i licz z nich medianę — nie średnią, żeby
+# pojedyncza żartobliwa/oszukańcza ultra-wysoka oferta nie zdominowała wyniku
+# (środkowa z 3 najwyższych, nie sama najwyższa).
+def _top_offers_stats(listings: List[Dict], n: int = _TOP_OFFERS_COUNT) -> Dict[str, Any]:
+    """Liczy medianę z n najdrożej wycenionych ofert (po filtrach kategorii/
+    sezonu/wariantu — patrz wywołania w estimate_market_value). Zwraca też te
+    oferty pod kluczem 'listings', żeby to co widzi user zawsze odpowiadało
+    temu co faktycznie weszło do wyliczenia."""
+    top = sorted(
+        (l for l in listings if l.get("price_pln")),
+        key=lambda l: l["price_pln"],
+        reverse=True,
+    )[:n]
+    if not top:
         return {"sample_size": 0, "listings": []}
-    n = len(prices)
-    median = prices[n // 2] if n % 2 else (prices[n // 2 - 1] + prices[n // 2]) / 2
+    prices = sorted(l["price_pln"] for l in top)
+    m = len(prices)
+    median = prices[m // 2] if m % 2 else (prices[m // 2 - 1] + prices[m // 2]) / 2
     return {
         "median_pln": round(median),
         "range_min_pln": round(min(prices)),
         "range_max_pln": round(max(prices)),
-        "sample_size": n,
-        "listings": listings,
+        "sample_size": m,
+        "listings": top,
     }
+
+
+_MIN_SAMPLE_TO_UPDATE = 2  # poniżej tego NIE aktualizujemy zapisanej wyceny
+_MAX_PRICE_DEVIATION_RATIO = 0.5  # >50% odchylenia od obecnej wyceny → nie aktualizuj
+
+
+def should_update_market_value(current_pln: Optional[float], result: Dict[str, Any]) -> bool:
+    """Decyduje czy nowo policzona wycena powinna nadpisać już zapisaną wartość.
+    Dotyczy WYŁĄCZNIE odświeżania istniejącej pozycji w kolekcji — przy
+    pierwszym szacowaniu (dodanie do kolekcji) current_pln=None, więc druga
+    bramka jest pomijana, ale pierwsza nadal obowiązuje.
+
+    Znaleziono na case'ie Barcelona/Cubarsí (2026-09-03, sezon 2026/2027):
+    odświeżenie trafiło na moment gdy eBay znalazł tylko 1 (podejrzanie tanią)
+    ofertę, a Gemini przejściowo nie zwróciło nic — wynik: zapisana wycena
+    spadła z realistycznych ~470 zł do 168 zł na podstawie jednej, niepewnej
+    oferty. Dwie bramki:
+    1. Za mało realnych ofert (< _MIN_SAMPLE_TO_UPDATE) → nie aktualizuj,
+       zostaw jak jest — pojedyncza oferta to zbyt duży szum.
+    2. Nowa mediana odbiega drastycznie (> _MAX_PRICE_DEVIATION_RATIO) od
+       obecnie zapisanej → nie aktualizuj automatycznie. Chwilowy szum danych
+       nie powinien nadpisywać ugruntowanej wartości; realna, trwała zmiana
+       ceny przejdzie tę bramkę przy kolejnym odświeżeniu, gdy nowa wartość
+       przestanie znacząco odbiegać od poprzedniej."""
+    new_pln = result.get("median_pln")
+    sample_size = result.get("sample_size", 0)
+    if not new_pln or sample_size < _MIN_SAMPLE_TO_UPDATE:
+        return False
+    if current_pln:
+        deviation = abs(new_pln - current_pln) / current_pln
+        if deviation > _MAX_PRICE_DEVIATION_RATIO:
+            return False
+    return True
 
 
 async def refresh_stale_market_values(max_items: int = 50) -> int:
@@ -708,14 +728,21 @@ async def refresh_stale_market_values(max_items: int = 50) -> int:
                     "verdict": {"verdict_category": item.verdict_category},
                 }
                 result = await estimate_market_value(report_data)
-                if result.get("sample_size", 0) > 0:
+                if should_update_market_value(item.market_value_pln, result):
                     item.market_value_pln = result.get("median_pln")
                     item.market_value_range_min = result.get("range_min_pln")
                     item.market_value_range_max = result.get("range_max_pln")
                     item.market_value_sample_size = result.get("sample_size")
                     item.market_value_source = result.get("source", "gemini")
-                    item.market_value_updated_at = datetime.now(timezone.utc)
                     refreshed += 1
+                # market_value_updated_at bumpowane ZAWSZE po próbie (nie tylko po
+                # udanej aktualizacji) — inaczej pozycja z trwale wąskim rynkiem
+                # (sample_size<2 za każdym razem) kwalifikowałaby się do odświeżenia
+                # codziennie zamiast raz na 7 dni jak zakłada docstring, zużywając
+                # niepotrzebnie limit Gemini/eBay i zajmując miejsce w dziennej
+                # paczce max_items kosztem innych pozycji faktycznie gotowych do
+                # odświeżenia (znalezione podczas code review 2026-09-04).
+                item.market_value_updated_at = datetime.now(timezone.utc)
             except Exception:
                 logger.exception("Daily refresh failed for item %s", item.id)
         db.commit()
@@ -747,6 +774,11 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     po filtrze) — wtedy oba źródła są łączone (source="ebay+gemini" albo
     samo "gemini" gdy eBay był całkiem pusty), żeby pojedyncza, samotna
     oferta eBay nie przyćmiła bogatszych danych z Gemini.
+
+    Finalna cena to mediana _TOP_OFFERS_COUNT najdrożej wycenionych ofert z
+    odfiltrowanej próbki (patrz _top_offers_stats) — nie mediana z całości.
+    Nadpisanie już zapisanej wyceny w kolekcji (nie dotyczy tej funkcji wprost,
+    ale wywołujących ją endpointów) idzie przez should_update_market_value().
     """
     verdict_category = ((report_data.get("verdict") or {}).get("verdict_category") or "").strip()
     subject = report_data.get("subject") or {}
@@ -758,8 +790,8 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     ebay_listings = _filter_listings_by_relevance(ebay_listings, subject)
 
     if len(ebay_listings) >= _MIN_RELIABLE_SAMPLE_SIZE:
-        stats = _recalculate_stats(ebay_listings)
-        # Drugie sprawdzenie progu: _recalculate_stats() dodatkowo odrzuca
+        stats = _top_offers_stats(ebay_listings)
+        # Drugie sprawdzenie progu: _top_offers_stats() dodatkowo odrzuca
         # listingi bez poprawnej ceny (price_pln), więc liczba ofert PO
         # filtrze kategorii (sprawdzona wyżej) może być większa niż liczba
         # ofert faktycznie użytych w statystyce.
@@ -777,7 +809,7 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
 
     combined = ebay_listings + gemini_listings
     if combined:
-        stats = _recalculate_stats(combined)
+        stats = _top_offers_stats(combined)
         if stats.get("sample_size", 0) > 0:
             # Nawet po połączeniu obu źródeł może zostać poniżej progu (np.
             # eBay=1 + Gemini=0) — flagujemy to jawnie zamiast cicho zwracać
