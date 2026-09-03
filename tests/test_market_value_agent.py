@@ -181,6 +181,56 @@ class TestEstimateViaEbayBrowse:
         assert len(listings) == len(mva._EBAY_MARKETPLACES) - 1
 
 
+class TestBuildEbaySearchQuery:
+    """Regresja na case 20260903-238a181d (PSG/Messi): pełne, wielojęzyczne
+    zapytanie (build_search_query) nie znajdowało realnej, aktywnej oferty
+    użytkownika (1500 PLN) na eBay — krótsze, samo-angielskie zapytanie
+    (klub/sezon/gracza/numer/marka, bez wariantu, kategorii werdyktu i
+    polskiego 'koszulka piłkarska') znajdowało ją od razu."""
+
+    def test_includes_only_club_season_brand_player_number(self):
+        report_data = {
+            "subject": {
+                "club": "Paris Saint-Germain", "season": "2022/23", "brand": "Nike",
+                "model": "wyjazdowa", "player_name": "Messi", "player_number": "30",
+            },
+            "verdict": {"verdict_category": "meczowa"},
+        }
+        query = mva.build_ebay_search_query(report_data)
+        assert query == "Paris Saint-Germain 2022/23 Nike Messi #30"
+
+    def test_excludes_model_variant(self):
+        report_data = {"subject": {"club": "Bayern", "model": "domowa"}, "verdict": {}}
+        query = mva.build_ebay_search_query(report_data)
+        assert "domowa" not in query
+
+    def test_excludes_verdict_category_term(self):
+        report_data = {"subject": {"club": "Bayern"}, "verdict": {"verdict_category": "meczowa"}}
+        query = mva.build_ebay_search_query(report_data)
+        assert "match worn" not in query
+        assert "meczowa" not in query
+
+    def test_excludes_polish_suffix(self):
+        report_data = {"subject": {"club": "Bayern"}, "verdict": {}}
+        query = mva.build_ebay_search_query(report_data)
+        assert "koszulka" not in query
+
+    def test_missing_fields_skipped_like_build_search_query(self):
+        report_data = {"subject": {"club": "Bayern"}, "verdict": {}}
+        assert mva.build_ebay_search_query(report_data) == "Bayern"
+
+    def test_empty_subject_returns_empty_string(self):
+        assert mva.build_ebay_search_query({"subject": {}, "verdict": {}}) == ""
+
+
+class TestEbayMarketplaces:
+    def test_includes_poland(self):
+        """Regresja: realna aktywna oferta usera (1500 PLN, case 20260903-238a181d)
+        była wystawiona na ebay.pl i nigdy nie pojawiała się w wynikach, bo
+        EBAY_PL nie był przeszukiwany (tylko GB/DE/US)."""
+        assert "EBAY_PL" in mva._EBAY_MARKETPLACES
+
+
 class TestFilterListingsByCategory:
     def test_no_filter_defined_for_category_returns_unchanged(self):
         listings = [{"title": "replica jersey"}]
@@ -544,3 +594,64 @@ class TestEstimateMarketValueBlending:
         assert result["source"] == "ebay"
         assert result["sample_size"] == 1
         assert result["low_confidence"] is True
+
+    def test_ebay_called_with_short_query_not_full_gemini_query(self):
+        """Regresja złapana przez review: rdzeń fixu #238a181d jest w tym, że do
+        eBay leci build_ebay_search_query() (krótkie), nie build_search_query()
+        (pełne, wielojęzyczne) — dotąd sprawdzone tylko jednostkowo dla samego
+        build_ebay_search_query(), nie na poziomie integracji z estimate_market_value()."""
+        captured_query = {}
+
+        async def fake_gemini(report_data):
+            return {"listings": [], "sample_size": 0}
+
+        async def fake_ebay(query):
+            captured_query["value"] = query
+            return [
+                {"source": "ebay", "price_pln": 200, "title": "jersey"},
+                {"source": "ebay", "price_pln": 210, "title": "jersey"},
+                {"source": "ebay", "price_pln": 220, "title": "jersey"},
+            ]
+
+        report_data = {
+            "subject": {
+                "club": "Paris Saint-Germain", "season": "2022/23", "brand": "Nike",
+                "model": "wyjazdowa", "player_name": "Messi", "player_number": "30",
+            },
+            "verdict": {"verdict_category": "meczowa"},
+        }
+        with patch.object(mva, "estimate_via_gemini", fake_gemini), \
+             patch.object(mva, "estimate_via_ebay_browse", fake_ebay):
+            result = run(mva.estimate_market_value(report_data))
+
+        assert captured_query["value"] == mva.build_ebay_search_query(report_data)
+        assert captured_query["value"] == "Paris Saint-Germain 2022/23 Nike Messi #30"
+        for forbidden in ("wyjazdowa", "meczowa", "koszulka", "match worn", "player issue"):
+            assert forbidden not in captured_query["value"]
+        assert result["query_used"] == captured_query["value"]
+
+    def test_query_used_reflects_ebay_query_in_combined_path(self):
+        """Regresja złapana przez review: w ścieżce eBay+Gemini, query_used
+        pokazywał pełne zapytanie zbudowane dla Gemini nawet gdy source=="ebay"
+        albo "ebay+gemini" — czyli nie odzwierciedlał tego co faktycznie
+        wysłano do eBay. To samo pole posłużyło do zdiagnozowania oryginalnego
+        buga (#238a181d), więc jego niespójność myliłaby przy przyszłym debugu."""
+        async def fake_gemini(report_data):
+            return {
+                "listings": [{"source": "gemini", "price_pln": 400, "title": "koszulka"}],
+                "sample_size": 1,
+                "query_used": "pelne zapytanie gemini",
+            }
+
+        async def fake_ebay(query):
+            return [{"source": "ebay", "price_pln": 500, "title": "jersey"}]
+
+        report_data = {"subject": {"club": "Bayern"}, "verdict": {}}
+        with patch.object(mva, "estimate_via_gemini", fake_gemini), \
+             patch.object(mva, "estimate_via_ebay_browse", fake_ebay):
+            result = run(mva.estimate_market_value(report_data))
+
+        assert result["source"] == "ebay+gemini"
+        ebay_query = mva.build_ebay_search_query(report_data)
+        assert ebay_query in result["query_used"]
+        assert "pelne zapytanie gemini" in result["query_used"]

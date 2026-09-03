@@ -195,6 +195,39 @@ def build_search_query(report_data: Dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def build_ebay_search_query(report_data: Dict[str, Any]) -> str:
+    """Buduje krótsze, samo-angielskie zapytanie pod eBay Browse API —
+    osobno od build_search_query() (używanego dla Gemini, gdzie dłuższe,
+    wielojęzyczne zapytanie pomaga, bo Gemini szuka też po Vinted.pl/Allegro.pl).
+
+    eBay Browse API robi zwykłe dopasowanie tekstowe (nie semantyczne) — długie
+    zapytanie z polskimi słowami-wypełniaczami (kategoria werdyktu, wariant
+    domowa/wyjazdowa, "koszulka piłkarska") rozmywa trafność i wypycha dobrze
+    dopasowane oferty poza wyniki. Potwierdzone na case'ie PSG/Messi (raport
+    20260903-238a181d): pełne zapytanie nie znalazło REALNEJ, aktywnej oferty
+    użytkownika (1500 PLN) na żadnym z przeszukiwanych rynków — krótkie
+    zapytanie (klub + sezon + gracz + numer) znalazło ją od razu, na 1. miejscu.
+    Kategoria werdyktu i wariant (domowa/wyjazdowa/trzecia) są i tak
+    egzekwowane po fakcie przez _filter_listings_by_category/_filter_listings_by_relevance,
+    więc pominięcie ich w samym zapytaniu nie osłabia filtrowania."""
+    subject = report_data.get("subject") or {}
+    parts: List[str] = []
+
+    for field in ["club", "season", "brand"]:
+        val = subject.get(field)
+        if val and str(val).lower().strip() not in _SKIP_VALUES:
+            parts.append(str(val).strip())
+
+    player = subject.get("player_name")
+    if player and str(player).lower().strip() not in _SKIP_VALUES:
+        parts.append(str(player).strip())
+    number = subject.get("player_number")
+    if number and str(number).lower().strip() not in _SKIP_VALUES:
+        parts.append(f"#{str(number).strip()}")
+
+    return " ".join(parts)
+
+
 def to_pln(price: float, currency: str) -> float:
     rate = _FX_TO_PLN.get((currency or "PLN").upper().strip(), 1.0)
     return round(price * rate, 2)
@@ -368,7 +401,11 @@ _ebay_token_lock = None  # leniwie tworzony asyncio.Lock (patrz _get_ebay_oauth_
 # Finding API (stara) filtrowała po walucie EUR globalnie, przeszukując cały
 # eBay. Browse API wymaga jednego marketplace per request — żeby nie zawężać
 # realnie zasięgu, odpytujemy kilka głównych rynków równolegle i łączymy wyniki.
-_EBAY_MARKETPLACES = ["EBAY_GB", "EBAY_DE", "EBAY_US"]
+# EBAY_PL dodany po tym, jak realna aktywna oferta usera (case 20260903-238a181d,
+# 1500 PLN, wystawiona na ebay.pl) w ogóle nie była widoczna w wynikach — dla
+# polskiego produktu z polskimi użytkownikami polski rynek eBay musi być
+# przeszukiwany, nie tylko GB/DE/US.
+_EBAY_MARKETPLACES = ["EBAY_GB", "EBAY_DE", "EBAY_US", "EBAY_PL"]
 
 
 async def _get_ebay_oauth_token() -> Optional[str]:
@@ -714,8 +751,9 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     verdict_category = ((report_data.get("verdict") or {}).get("verdict_category") or "").strip()
     subject = report_data.get("subject") or {}
     query = build_search_query(report_data)
+    ebay_query = build_ebay_search_query(report_data)
 
-    ebay_listings_raw = await estimate_via_ebay_browse(query)
+    ebay_listings_raw = await estimate_via_ebay_browse(ebay_query)
     ebay_listings = _filter_listings_by_category(ebay_listings_raw, verdict_category)
     ebay_listings = _filter_listings_by_relevance(ebay_listings, subject)
 
@@ -727,7 +765,7 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
         # ofert faktycznie użytych w statystyce.
         if stats.get("sample_size", 0) >= _MIN_RELIABLE_SAMPLE_SIZE:
             stats["source"] = "ebay"
-            stats["query_used"] = query
+            stats["query_used"] = ebay_query
             stats["low_confidence"] = False
             return stats
 
@@ -745,13 +783,16 @@ async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
             # eBay=1 + Gemini=0) — flagujemy to jawnie zamiast cicho zwracać
             # pojedynczą, przypadkową cenę jako pełnoprawną "wycenę rynkową".
             stats["low_confidence"] = stats["sample_size"] < _MIN_RELIABLE_SAMPLE_SIZE
+            gemini_query_used = gemini_result.get("query_used", query)
             if ebay_listings and gemini_listings:
                 stats["source"] = "ebay+gemini"
+                stats["query_used"] = f"eBay: {ebay_query} | Gemini: {gemini_query_used}"
             elif ebay_listings:
                 stats["source"] = "ebay"
+                stats["query_used"] = ebay_query
             else:
                 stats["source"] = "gemini"
-            stats["query_used"] = gemini_result.get("query_used", query)
+                stats["query_used"] = gemini_query_used
             return stats
 
     return {"error": gemini_result.get("error") or "Brak wyników po odfiltrowaniu kategorii.", "sample_size": 0, "listings": []}
