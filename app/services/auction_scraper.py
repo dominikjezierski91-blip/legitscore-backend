@@ -153,6 +153,76 @@ def _vinted_photo_id(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+_VINTED_TIMESTAMP_RE = re.compile(r"/f800/(\d+)\.\w+")
+
+
+def _filter_vinted_avatar_outliers(images: List[str], candidates: List[Dict]) -> List[str]:
+    """
+    Vinted preloaduje w <head> (rel=preload as=image) nie tylko zdjęcia galerii
+    oferty, ale też awatar sprzedawcy — dane sekcji "user_info_header" (sidebar)
+    są w tym samym payloadzie strony, a URL awatara pasuje do tego samego wzorca
+    CDN co zdjęcia produktu (images*.vinted.net/t/.../f800/{timestamp}.webp), więc
+    generyczna ekstrakcja (kroki og:image/link_preload/inline_script wyżej) nie
+    odróżnia go od prawdziwego zdjęcia oferty.
+
+    Prawdziwe zdjęcia oferty dzielą wspólny znacznik czasu uploadu (segment
+    /f800/{timestamp}/ — wszystkie wgrane w tej samej turze); awatar sprzedawcy
+    ma inny, bo wgrany kiedy indziej, niezależnie. Potwierdzone na realnym
+    przypadku (case b545a7d4, ogłoszenie PSG/Dembélé, 2026-09-04): 6 zdjęć
+    koszulki ze znacznikiem 1788519287, 1 awatar sprzedawcy ze znacznikiem
+    1785782475 (zdjęcie Pepa Guardioli z pucharem Ligi Mistrzów, ustawione jako
+    zdjęcie profilowe sprzedawcy) — trafił do analizy Agenta A jako rzekome
+    7. zdjęcie koszulki.
+
+    Odrzuca tylko odosobnione (singleton) znaczniki czasu, gdy istnieje wyraźnie
+    dominująca grupa (≥3 zdjęcia) — celowo nie wymusza jednej grupy, żeby nie
+    ryzykować odrzucenia prawdziwych zdjęć przy ogłoszeniu, do którego sprzedawca
+    dograł zdjęcia w dwóch turach edycji (wtedy obie grupy mogą być realne).
+
+    URL-e, z których nie da się wyciągnąć znacznika czasu (inny wariant
+    rozmiaru CDN niż /f800/), są CAŁKOWICIE pomijane w tej analizie — nigdy
+    nie trafiają do żadnej grupy i nigdy nie są odrzucane (QA, 2026-09-04:
+    wspólny klucz "unknown" dla wszystkich niedopasowanych URL-i błędnie
+    traktował je jak jedną grupę — mogło to zarówno odrzucić prawdziwe
+    zdjęcie w innym wariancie rozmiaru, jak i przepuścić dwa niepowiązane
+    obce zdjęcia, które przypadkiem skolidowały w tej samej grupie). To
+    zachowanie jest spójne z resztą funkcji: wolimy nie odrzucić niczego,
+    gdy nie mamy pewności, niż zaryzykować odrzucenie prawdziwego zdjęcia.
+    """
+    groups: Dict[str, List[str]] = {}
+    for url in images:
+        if "vinted.net" not in url.lower():
+            continue
+        m = _VINTED_TIMESTAMP_RE.search(url)
+        if not m:
+            continue
+        groups.setdefault(m.group(1), []).append(url)
+
+    if len(groups) <= 1:
+        return images
+
+    largest_size = max(len(urls) for urls in groups.values())
+    if largest_size < 3:
+        return images
+
+    dropped_urls = {
+        url
+        for urls in groups.values()
+        if len(urls) == 1
+        for url in urls
+    }
+    if not dropped_urls:
+        return images
+
+    dropped_prefixes = {url[:200] for url in dropped_urls}
+    for c in candidates:
+        if c["status"] == "used" and c["url"] in dropped_prefixes:
+            c["status"] = "dropped"
+            c["drop_reason"] = "vinted_avatar_outlier"
+
+    return [u for u in images if u not in dropped_urls]
+
+
 def _extract_images_from_html(html: str, base_url: str) -> Tuple[List[str], Dict]:
     """
     Wyciąga URL-e obrazów z HTML strony.
@@ -321,6 +391,10 @@ def _extract_images_from_html(html: str, base_url: str) -> Tuple[List[str], Dict
             script_body,
         ):
             try_add(m.group(0), "inline_script")
+
+    # Vinted: odsiej awatar sprzedawcy podszywający się pod zdjęcie oferty —
+    # patrz _filter_vinted_avatar_outliers.
+    images = _filter_vinted_avatar_outliers(images, candidates)
 
     # Podsumowanie diagnostyczne
     dropped = [c for c in candidates if c["status"] == "dropped"]
