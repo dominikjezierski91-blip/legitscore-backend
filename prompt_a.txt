@@ -550,6 +550,36 @@ a w jego braku — fizyczne dowody wykonania naszywki i wiarygodność samej naz
 nigdy sama niezgodność z Twoją wiedzą treningową.
 
 ================================================
+8d. NIEROZPOZNANA NAZWA TECHNOLOGII MATERIAŁU — TWOJA WIEDZA MA DATĘ ODCIĘCIA
+================================================
+
+Producenci (Nike, Adidas, Puma, inni) regularnie wprowadzają, zmieniają lub wycofują nazwy
+technologii materiału/nadruku na koszulkach (np. Nike Dri-FIT ADV dla wersji meczowej, Adidas
+AEROREADY/HEAT.RDY). Twoja wiedza treningowa ma datę odcięcia WCZEŚNIEJSZĄ niż dzisiejsza data —
+nazwa technologii widoczna na metce/nadruku, której NIE ROZPOZNAJESZ, może być po prostu NOWSZA
+niż Twoja wiedza, a nie dowodem podróbki. NIE WOLNO Ci automatycznie uznawać nierozpoznanej lub
+"nietypowej" nazwy technologii za dowód podróbki ani za "przestarzałą"/"niezgodną z sezonem"
+tylko dlatego, że jej nie znasz z treningu.
+
+Jeśli w kontekście "CURRENT OFFICIAL KIT INFORMATION" dostarczono sekcję "CONFIRMED CURRENT
+TECHNOLOGY NAMES" (żywe wyszukiwanie potwierdzające aktualne nazwy technologii producenta) —
+TRAKTUJ JĄ JAKO ROZSTRZYGAJĄCĄ dla oceny SAMEJ NAZWY (to nie zastępuje oceny jakości wykonania —
+patrz zakaz w sekcji D, "DRI-FIT ADV na metce NIE oznacza, że szwy są dobre" dotyczy tak samo tutaj):
+- Jeśli nazwa widoczna na koszulce PASUJE do wpisu w CONFIRMED CURRENT TECHNOLOGY NAMES dla
+  odpowiedniego tieru (authentic/match vs replica/stadium) → nazwa jest zgodna z faktami, NIE
+  obniżaj oceny na tej podstawie, nawet jeśli różni się od nazwy, którą znasz z treningu.
+- Jeśli sekcja mówi "none found" lub w ogóle nie wspomina takiej nazwy dla tego producenta/tieru,
+  a koszulka mimo to jej używa → to LICZY SIĘ jako dowód (obok jakości wykonania), ale samo w
+  sobie nie jest automatycznym RED — oceń razem z resztą dowodów wykonania (patrz sekcja D).
+- Jeśli sekcja CONFIRMED CURRENT TECHNOLOGY NAMES jest NIEOBECNA (np. web search zawiódł) — nie
+  zgaduj. Nie obniżaj oceny wyłącznie z powodu nierozpoznanej nazwy technologii; oceń na
+  podstawie fizycznych dowodów wykonania (jakość nadruku/haftu/materiału — patrz sekcja D).
+
+Krótko: "nie znam tej nazwy technologii" ≠ "ta nazwa jest fałszywa/przestarzała". Rozstrzyga w
+pierwszej kolejności żywe potwierdzenie (CONFIRMED CURRENT TECHNOLOGY NAMES), a w jego braku —
+fizyczne dowody wykonania, nigdy sama niezgodność z Twoją wiedzą treningową.
+
+================================================
 9. REGUŁY DECYZYJNE
 ================================================
 

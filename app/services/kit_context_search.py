@@ -20,6 +20,8 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
+_MAX_CONTEXT_BLOCK_CHARS = 1500
+
 
 def _current_season_start_years(count: int = 4) -> List[int]:
     """Rok startowy N ostatnich sezonów piłkarskich, licząc od dzisiejszej daty
@@ -114,6 +116,33 @@ Start with "RECENT CONFIRMED TITLES:" then list each confirmed result on its own
 If no confirmed titles were found at all, write exactly: "RECENT CONFIRMED TITLES: none found"."""
 
 
+def _build_tech_name_search_prompt() -> str:
+    """Buduje prompt z aktualnym sezonem — patrz _build_search_fallback_prompt()."""
+    label = _season_label(_current_season_start_years(1)[0])
+    return f"""You are a sportswear technology researcher with access to Google Search.
+
+Search for the CURRENT, OFFICIAL fabric/moisture-wicking technology brand names that the given
+manufacturer uses on football/soccer jerseys for the {label} season, across product tiers
+(authentic/match-issue vs replica/stadium/fan version). Manufacturers regularly introduce, rename,
+or retire these technology names across seasons (e.g. Nike's Dri-FIT ADV for the authentic/match
+tier, Adidas's AEROREADY/HEATRDY) — the name you find for {label} may differ from what you learned
+during training, which has an earlier cutoff. Do not assume an unfamiliar name is wrong just
+because you don't recognize it.
+
+MANDATORY searches — run ALL:
+1. "[manufacturer] football jersey technology name authentic match {label}"
+2. "[manufacturer] [club] authentic jersey technology fabric {label}"
+3. "[manufacturer] soccer jersey stadium replica technology name {label}"
+
+For each tier you find (authentic/match vs replica/stadium/fan), report the current official
+technology name(s) actually in use for {label}, and explicitly note if it differs from an older
+name (e.g. a rename from a prior season).
+
+Start with "CONFIRMED CURRENT TECHNOLOGY NAMES:" then list each finding as:
+[tier] — [technology name] — [note]
+If nothing could be confirmed, write exactly: "CONFIRMED CURRENT TECHNOLOGY NAMES: none found"."""
+
+
 def _club_to_footy_headlines_slug(club: str) -> str:
     """FC Barcelona → fc-barcelona, Atlético Madrid → atletico-madrid"""
     normalized = unicodedata.normalize("NFKD", club)
@@ -186,6 +215,7 @@ async def run_kit_context_search(asset_paths: List[str]) -> str:
     if club.lower() == "unknown":
         logger.info("[KIT_CONTEXT] Nieznany klub — pomijam search")
         return ""
+    manufacturer = lines.get("manufacturer", "unknown")
 
     # --- Krok 2a: żywa weryfikacja ostatnich tytułów/pucharów (Google Search) ---
     # Uruchamiana ZAWSZE, niezależnie od tego, czy web-scraping designu kroju się
@@ -196,6 +226,19 @@ async def run_kit_context_search(asset_paths: List[str]) -> str:
     # wywołanie Gemini, więc czekanie na nie po kolei tylko dokładałoby pełny
     # dodatkowy round-trip do czasu każdej analizy bez potrzeby.
     trophy_task = asyncio.create_task(_fetch_recent_trophies(client, fast_model, types, club))
+
+    # --- Krok 2a-bis: żywa weryfikacja aktualnych nazw technologii materiału ---
+    # Ten sam problem co trofea, inna postać: producenci zmieniają nazwy technologii
+    # materiału/nadruku między sezonami (np. Nike Dri-FIT ADV dla wersji meczowej),
+    # a Agent A z datą odcięcia treningu nie zna nazw nowszych niż jego wiedza —
+    # patrz incydent PSG Dembélé (2026-09-04): raport uznał nazwę "AERO-FIT" za
+    # "przestarzałą technologię Nike" i to był kluczowy dowód werdyktu "Podróbka
+    # 95%", mimo że to literalnie aktualna, oficjalna nazwa Nike dla tej dokładnie
+    # autentycznej koszulki (potwierdzone na nike.com pod tym samym SKU).
+    # Odpalana równolegle z resztą, non-fatal.
+    tech_name_task = asyncio.create_task(
+        _fetch_current_technology_names(client, fast_model, types, manufacturer, club)
+    )
 
     # --- Krok 2b: live scraping footy-headlines.com via url_context ---
     slug = _club_to_footy_headlines_slug(club)
@@ -217,10 +260,22 @@ async def run_kit_context_search(asset_paths: List[str]) -> str:
     if trophy_context:
         logger.info("[KIT_CONTEXT] Trophy search ok (%d znaków)", len(trophy_context))
 
-    # Trophy context na początku (krótszy, decyzyjnie ważniejszy) — przeżyje
-    # ewentualne ucięcie extra_context[:4000] w agent_a_gemini.py, nawet jeśli
-    # opis kroju jest długi.
-    parts_out = [p for p in (trophy_context, kit_context) if p]
+    tech_name_context = await tech_name_task
+    if tech_name_context:
+        logger.info("[KIT_CONTEXT] Technology name search ok (%d znaków)", len(tech_name_context))
+
+    # Trophy + tech-name context na początku (krótsze, decyzyjnie ważniejsze) —
+    # przeżyją ewentualne ucięcie extra_context[:4000] w agent_a_gemini.py, nawet
+    # jeśli opis kroju jest długi. Tylko te dwa krótkie/decyzyjne bloki są tu
+    # ograniczone do _MAX_CONTEXT_BLOCK_CHARS (code review, 2026-09-04) — kit_context
+    # celowo NIE jest capowany tutaj, bo to on ma być tym, co outer extra_context[:4000]
+    # obcina jako pierwsze w normalnym przypadku. Bez tego capu dwa nieograniczone
+    # bloki mogłyby w skrajnym przypadku razem przekroczyć 4000 znaków i uciąć drugi
+    # blok w połowie, łamiąc marker "CONFIRMED CURRENT TECHNOLOGY NAMES:", którego
+    # szuka Agent A.
+    trophy_context = trophy_context[:_MAX_CONTEXT_BLOCK_CHARS] if trophy_context else trophy_context
+    tech_name_context = tech_name_context[:_MAX_CONTEXT_BLOCK_CHARS] if tech_name_context else tech_name_context
+    parts_out = [p for p in (trophy_context, tech_name_context, kit_context) if p]
     return "\n\n".join(parts_out)
 
 
@@ -241,6 +296,29 @@ async def _fetch_recent_trophies(client, model: str, types, club: str) -> str:
         return ""
     except Exception as e:
         logger.warning("[KIT_CONTEXT] Trophy search error: %s", e)
+        return ""
+
+
+async def _fetch_current_technology_names(client, model: str, types, manufacturer: str, club: str) -> str:
+    manufacturer = (manufacturer or "").strip()
+    if not manufacturer or manufacturer.lower() in ("unknown", "other"):
+        return ""
+    try:
+        resp = await client.aio.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=[types.Part(text=f"Manufacturer: {manufacturer}\nClub: {club}")])],
+            config=types.GenerateContentConfig(
+                system_instruction=_build_tech_name_search_prompt(),
+                temperature=0.1,
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+            ),
+        )
+        text = (resp.text or "").strip()
+        if "CONFIRMED CURRENT TECHNOLOGY NAMES:" in text:
+            return text
+        return ""
+    except Exception as e:
+        logger.warning("[KIT_CONTEXT] Technology name search error: %s", e)
         return ""
 
 
