@@ -246,36 +246,51 @@ def _is_duplicate_signal(s: str, existing: list) -> bool:
 
 
 def _is_stale_sku_limitation(item) -> bool:
-    """True dla bulleta key_evidence typu 'limitation' twierdzącego, że SKU nie
-    dało się niezależnie zweryfikować. Agent A pisze te obserwacje ZANIM
-    sku_verification się wykona — bullet zostaje sprzeczny z decision_matrix,
-    gdy weryfikacja faktycznie coś ustaliła (patrz _clean_stale_sku_key_evidence)."""
-    if not isinstance(item, dict) or item.get("type") != "limitation":
+    """True dla bulleta key_evidence wyrażającego wątpliwość/ograniczenie co do
+    SKU (nie dało się zweryfikować / format nietypowy / budzi wątpliwości),
+    napisanego przez Agenta A ZANIM sku_verification się wykonał. Bullet
+    zostaje sprzeczny z decision_matrix, gdy weryfikacja faktycznie POZYTYWNIE
+    potwierdziła SKU (patrz _clean_stale_sku_key_evidence).
+
+    Celowo NIE wymagamy pola "type": schemat key_evidence Agenta A jest
+    niespójny — bywa {type, text} (jak w case 20260902-6d29c75e) albo samo
+    {text, status} bez "type" w ogóle (case 20260904-9c78243b, Dembélé). Przy
+    wymogu type=="limitation" ta funkcja nigdy nie dopasowywała bulletów bez
+    "type", więc czyszczenie było martwym kodem dla części raportów — właśnie
+    tak przeszedł Dembélé: "Format kodu SKU jest nietypowy... budzi dodatkowe
+    wątpliwości" obok decision_matrix mówiącej "Kod SKU potwierdzony u
+    autoryzowanego sprzedawcy"."""
+    if not isinstance(item, dict):
         return False
     text = str(item.get("text", "")).lower()
-    return "sku" in text and ("weryfikac" in text or "zweryfikować" in text)
+    if not re.search(r"\bsku\b", text):
+        return False
+    return any(
+        marker in text
+        for marker in ("weryfikac", "zweryfikować", "nietypow", "wątpliwo", "podejrzan")
+    )
 
 
 def _clean_stale_sku_key_evidence(key_evidence: list) -> list:
     """Usuwa z key_evidence bullet'y sprzeczne z faktycznym wynikiem weryfikacji
-    SKU (found_official/found_authorized/found_unofficial/format_invalid — każdy
-    status inny niż not_found/uncertain/not_applicable). Wołane tylko gdy SKU
-    verification faktycznie coś ustaliła — patrz _sku_status_confirms_verification
-    i wywołanie w run-decision. Znaleziono na case'ie 20260902-6d29c75e: status
-    found_authorized, ale key_evidence nadal twierdził że weryfikacja jest
-    niemożliwa."""
+    SKU. Wołane tylko gdy SKU verification POZYTYWNIE potwierdziła SKU — patrz
+    _sku_status_positively_confirmed i wywołanie w run-decision. Znaleziono na
+    case'ie 20260902-6d29c75e: status found_authorized, ale key_evidence nadal
+    twierdził że weryfikacja jest niemożliwa; powtórzone na 20260904-9c78243b
+    z inną frazą ("format nietypowy") — patrz _is_stale_sku_limitation."""
     return [item for item in (key_evidence or []) if not _is_stale_sku_limitation(item)]
 
 
-def _sku_status_confirms_verification(sku_status: str) -> bool:
-    """True gdy sku_verification faktycznie coś ustaliła (pozytywnie lub negatywnie),
-    więc bullet "brak możliwości weryfikacji SKU" napisany przez Agenta A wcześniej
-    stał się sprzeczny i powinien zniknąć z key_evidence. False dla "not_found"/
-    "uncertain"/"not_applicable" — tam weryfikacja NIC nie ustaliła, więc ten bullet
-    jest wciąż prawdziwy i nie powinien być czyszczony (celowo nie reużywamy
-    `status in _sku_dm_map` w run-decision, bo ta mapa zawiera też "not_found", dla
-    którego usunięcie tego bulleta byłoby tym samym błędem w drugą stronę)."""
-    return sku_status not in ("not_found", "uncertain", "not_applicable")
+def _sku_status_positively_confirmed(sku_status: str) -> bool:
+    """True tylko gdy weryfikacja POZYTYWNIE potwierdziła SKU (found_official/
+    found_authorized) — tylko wtedy bullet wyrażający wątpliwość co do SKU jest
+    faktycznie sprzeczny i powinien zniknąć z key_evidence. Dla
+    found_unofficial/format_invalid taki bullet jest nadal PRAWDZIWY (spójny z
+    negatywnym wynikiem weryfikacji) i nie powinien być czyszczony — stąd to
+    węższe niż "coś ustaliła w dowolną stronę" (celowo nie reużywamy
+    `status in _sku_dm_map`, bo ta mapa zawiera też "not_found", dla którego
+    usunięcie bulletu o wątpliwości byłoby tym samym błędem w drugą stronę)."""
+    return sku_status in ("found_official", "found_authorized")
 
 
 def _normalize_detected_views(detected_views: dict) -> dict:
@@ -1070,8 +1085,8 @@ async def run_decision(
 
                     # Sprzątanie key_evidence sprzecznego z faktycznym wynikiem
                     # weryfikacji SKU (patrz _clean_stale_sku_key_evidence i
-                    # _sku_status_confirms_verification powyżej).
-                    if _sku_status_confirms_verification(_sku_status):
+                    # _sku_status_positively_confirmed powyżej).
+                    if _sku_status_positively_confirmed(_sku_status):
                         report_data["key_evidence"] = _clean_stale_sku_key_evidence(
                             report_data.get("key_evidence")
                         )
