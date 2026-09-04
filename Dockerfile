@@ -17,6 +17,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ app/
+COPY scripts/ scripts/
 COPY prompt_a.txt prompt_a_backup_v3.txt prompt_a_v4_candidate.txt ./
 
 EXPOSE 8000
