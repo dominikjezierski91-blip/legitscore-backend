@@ -223,11 +223,61 @@ class CollectionItem(Base):
     market_value_sample_size = Column(Integer, nullable=True)
     market_value_source = Column(String, nullable=True)
     market_value_updated_at = Column(DateTime, nullable=True)
+    # confidence: 'high' | 'medium' | 'low' — patrz market_value_agent._estimate_from_matched.
+    market_value_confidence = Column(String, nullable=True)
+    # Bumpowane przy KAŻDEJ próbie odświeżenia (udanej czy nie) — osobno od
+    # market_value_updated_at, które zmienia się TYLKO gdy zapisana wartość
+    # faktycznie się zmieniła. Bez tego rozdziału pozycja z trwale słabym
+    # rynkiem (matched_count=0) albo próbowałaby się odświeżać codziennie
+    # (gdyby stale-query patrzył na updated_at), albo "zaokrąglałaby" userowi
+    # updated_at mimo braku realnej zmiany ceny. Patrz spec 2026-09-03 §7.
+    market_value_last_attempt_at = Column(DateTime, nullable=True)
 
     # Ręczne dodawanie do kolekcji (bez analizy)
     is_manual = Column(Boolean, default=False, nullable=True)
     photo_path = Column(String, nullable=True)  # ścieżka do zdjęcia profilowego (manual lub override)
     photo_path_2 = Column(String, nullable=True)  # opcjonalne drugie zdjęcie (np. tył koszulki)
+
+
+class MarketValueHistory(Base):
+    """Append-only log każdego POLICZONEGO odczytu wyceny rynkowej dla pozycji
+    kolekcji — niezależnie czy nadpisał zapisaną wartość (applied) czy nie
+    (np. za słaba próbka/zbyt duże odchylenie od bardziej wiarygodnej wartości).
+    Do trendu w UI i diagnostyki — patrz spec 2026-09-03 §10."""
+    __tablename__ = "market_value_history"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    collection_item_id = Column(String, index=True, nullable=False)
+    date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    price = Column(Float, nullable=True)
+    low = Column(Float, nullable=True)
+    high = Column(Float, nullable=True)
+    confidence = Column(String, nullable=True)
+    matched_count = Column(Integer, nullable=True)
+    applied = Column(Boolean, default=False, nullable=False)
+
+
+def log_market_value_history(
+    db,
+    item_id: str,
+    price,
+    low,
+    high,
+    confidence,
+    matched_count,
+    applied: bool,
+) -> None:
+    """Dopisuje wiersz do MarketValueHistory. Nie commituje — wywołujący
+    zarządza własną transakcją (spójnie z resztą modułu)."""
+    db.add(MarketValueHistory(
+        collection_item_id=item_id,
+        price=price,
+        low=low,
+        high=high,
+        confidence=confidence,
+        matched_count=matched_count,
+        applied=applied,
+    ))
 
 
 class SupportSubmission(Base):
@@ -375,6 +425,8 @@ def _migrate_collection_market_value():
         ("market_value_sample_size", "INTEGER"),
         ("market_value_source", "TEXT"),
         ("market_value_updated_at", "TEXT"),
+        ("market_value_confidence", "TEXT"),
+        ("market_value_last_attempt_at", "TEXT"),
     ]
     with engine.connect() as conn:
         existing = {row[1] for row in conn.execute(

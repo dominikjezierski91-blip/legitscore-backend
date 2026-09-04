@@ -43,6 +43,15 @@ function effectiveItemValue(item: any): number | null {
   return item.market_value_pln ?? null;
 }
 
+// "high" nie dostaje ostrzeżenia (wystarczy sama liczba ofert obok daty) —
+// tylko "medium"/"low" jawnie mówią userowi że wycena jest orientacyjna,
+// żeby nie sugerować fałszywej precyzji przy słabej próbce.
+function marketValueConfidenceLabel(confidence: string | null | undefined): string | null {
+  if (confidence === "medium") return "Wycena orientacyjna";
+  if (confidence === "low") return "Wycena orientacyjna — mało ofert porównawczych";
+  return null;
+}
+
 // Podróbki nigdy nie dostaną market_value_pln (backend celowo go nie liczy —
 // patrz effectiveItemValue) — bez tego wykluczenia polling niżej odpytywałby
 // API co 5s przez 30s za każdym razem, gdy w kolekcji jest choć jedna podróbka,
@@ -854,7 +863,7 @@ function CollectionCard({
     try {
       const result = await refreshMarketValue(item.id);
       onMarketValueRefresh(item.id, result);
-      if ((result?.market_value_result?.sample_size ?? result?.sample_size ?? 0) === 0) {
+      if ((result?.market_value_result?.matched_count ?? result?.market_value_sample_size ?? 0) === 0) {
         setNoDataAfterRefresh(true);
       }
     } catch {
@@ -1110,10 +1119,20 @@ function CollectionCard({
                     </span>
                   )}
                   </div>
+                  {!isFake && item.market_value_range_min != null && item.market_value_range_max != null && (
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Widełki: {Math.round(item.market_value_range_min).toLocaleString("pl-PL")}–{Math.round(item.market_value_range_max).toLocaleString("pl-PL")} PLN
+                    </p>
+                  )}
                   {!isFake && item.market_value_updated_at && (
                     <p className="mt-0.5 text-[11px] text-slate-600">
                       Wycena: {new Date(item.market_value_updated_at).toLocaleDateString("pl-PL")}
                       {item.market_value_sample_size ? ` · ${item.market_value_sample_size} aukcji` : ""}
+                    </p>
+                  )}
+                  {!isFake && marketValueConfidenceLabel(item.market_value_confidence) && (
+                    <p className="mt-0.5 text-[11px] font-medium text-amber-400/90">
+                      {marketValueConfidenceLabel(item.market_value_confidence)}
                     </p>
                   )}
                   <p className="mt-1 text-[10px] leading-snug text-slate-600">

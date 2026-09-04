@@ -13,6 +13,8 @@ import json
 import logging
 import os
 import re
+import statistics
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -619,74 +621,223 @@ async def estimate_via_ebay(query: str) -> List[Dict]:
     return listings
 
 
-_TOP_OFFERS_COUNT = 3  # ile najdrożej wycenionych, dopasowanych ofert bierzemy pod uwagę
 
-# Poprzednie podejście (mediana z CAŁEJ odfiltrowanej próbki + odrzucanie
-# outlierów) systematycznie zaniżało wycenę: w powtarzających się przypadkach
-# (Bayern/Ribéry, PSG/Messi, Barcelona/Cubarsí — patrz komentarze przy
-# _filter_listings_by_relevance) tanie oferty w próbce to niemal zawsze złe
-# dopasowania (zły sezon/wariant/tier) albo podróbki, a to właśnie NAJDROŻEJ
-# wycenione, dobrze dopasowane oferty najlepiej reprezentują realną wartość —
-# a mechanizm odrzucania outlierów akurat je odrzucał jako "zbyt wysokie".
-# Nowe podejście: bierz _TOP_OFFERS_COUNT najdrożej wycenionych ofert (po
-# filtrach kategorii/sezonu/wariantu) i licz z nich medianę — nie średnią, żeby
-# pojedyncza żartobliwa/oszukańcza ultra-wysoka oferta nie zdominowała wyniku
-# (środkowa z 3 najwyższych, nie sama najwyższa).
-def _top_offers_stats(listings: List[Dict], n: int = _TOP_OFFERS_COUNT) -> Dict[str, Any]:
-    """Liczy medianę z n najdrożej wycenionych ofert (po filtrach kategorii/
-    sezonu/wariantu — patrz wywołania w estimate_market_value). Zwraca też te
-    oferty pod kluczem 'listings', żeby to co widzi user zawsze odpowiadało
-    temu co faktycznie weszło do wyliczenia."""
-    top = sorted(
-        (l for l in listings if l.get("price_pln")),
-        key=lambda l: l["price_pln"],
-        reverse=True,
-    )[:n]
-    if not top:
-        return {"sample_size": 0, "listings": []}
-    prices = sorted(l["price_pln"] for l in top)
-    m = len(prices)
-    median = prices[m // 2] if m % 2 else (prices[m // 2 - 1] + prices[m // 2]) / 2
+# ============================================================
+# CONFIDENCE-AWARE MATCHING — spec 2026-09-03
+# ============================================================
+#
+# Poprzednie podejście (mediana z top-3 najdrożej wycenionych ofert) naprawiło
+# systematyczne zaniżanie ceny (Bayern/Ribéry, PSG/Messi), ale wprowadziło nowy
+# problem: gdy zapisana wartość sama była błędna (np. Cubarsí: 168 zł ze
+# skrajnie cienkiej próbki sprzed tej poprawki), bramka "nie aktualizuj gdy
+# odchylenie >50%" blokowała jej korektę tak samo jak chroniłaby dobrą wartość
+# przed zaszumieniem — nie było jak odróżnić "nowa wartość to szum" od "stara
+# wartość była błędem, a nowa go naprawia".
+#
+# Nowe podejście: decyzja o nadpisaniu zależy od JAKOŚCI nowej próbki
+# (confidence: high/medium/low), nie od samego odchylenia ceny. Silna próbka
+# nadpisuje bezwarunkowo (także starą błędną wartość); słaba próbka nigdy nie
+# nadpisuje wartości o wyższej pewności. Do tego: filtr dopasowania per-oferta
+# (match_score) zamiast brania tylko kilku najdrożej wycenionych — teraz
+# WSZYSTKIE dobrze dopasowane oferty wchodzą do estymaty, jakość dopasowania
+# jest wymuszona wcześniej, nie przez wybór "kilku najlepszych po cenie".
+
+_MATCH_MIN = 0.6
+
+# eBay Browse API zwraca WYŁĄCZNIE oferty aktywne (soldItemsOnly jest przez
+# eBay jawnie odrzucany, errorId 12002 — patrz docstring estimate_via_ebay_browse).
+# "eBay sold" (waga 1.0 w oryginalnym pomyśle) jest więc nieosiągalne przy
+# obecnej integracji — świadomie pominięte, nie przeoczone.
+_SOURCE_SCORE_EBAY = 0.8
+_SOURCE_SCORE_VINTED_ALLEGRO = 0.6
+_SOURCE_SCORE_GEMINI_GENERIC = 0.5
+
+
+def _source_score(listing: Dict) -> float:
+    source = str(listing.get("source") or "").lower()
+    if "vinted" in source or "allegro" in source:
+        return _SOURCE_SCORE_VINTED_ALLEGRO
+    if "ebay" in source:
+        return _SOURCE_SCORE_EBAY
+    return _SOURCE_SCORE_GEMINI_GENERIC  # Gemini-derived, źródło nieokreślone
+
+
+# Polskie "ł"/"Ł" (i kilka innych europejskich liter częstych w nazwiskach
+# piłkarzy) nie mają kanonicznej dekompozycji NFKD — to samodzielne litery, nie
+# litera bazowa + znak kombinujący, więc unicodedata.normalize("NFKD", ...) ich
+# nie rusza (w przeciwieństwie do ą/ć/ę/ń/ó/ś/ź/ż, które NFKD poprawnie
+# rozkłada). Znalezione przez QA/review 2026-09-04 przy okazji fixu na
+# Ribéry/Cubarsí — jawna mapa na wypadek liter, których NFKD nie obsłuży.
+_NON_NFKD_LETTER_MAP = str.maketrans({
+    "ł": "l", "Ł": "L",  # polski
+    "đ": "d", "Đ": "D",  # chorwacki/serbski (np. Đorđe)
+    "ø": "o", "Ø": "O",  # duński/norweski
+})
+
+
+def _strip_diacritics(text: str) -> str:
+    """Usuwa znaki diakrytyczne (Ribéry→Ribery, Cubarsí→Cubarsi, Łukasz→Lukasz)
+    — tytuły ofert są zwykle po angielsku bez diakrytyków, podczas gdy nazwiska
+    w subject (pochodzące z analizy AI) je zachowują. Bez tego dokładne
+    dopasowanie zawodnika w tytule zawodziłoby regularnie."""
+    text = text.translate(_NON_NFKD_LETTER_MAP)
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
+def _title_club_component(title_lower: str, subject: Dict[str, Any]) -> float:
+    """1.0 gdy KTÓRYKOLWIEK znaczący token nazwy klubu występuje w tytule, 0.2
+    gdy żaden (patrz code review 2026-09-04: 0.5 był zbyt łagodny — brak klubu
+    W OGÓLE w tytule to mocny sygnał złego dopasowania, nie powinien ledwo
+    obniżać wyniku). Sprawdza WSZYSTKIE tokeny, nie tylko najdłuższy — nazwy
+    klubów w subject bywają spolszczone (np. "Bayern Monachium", "Real
+    Madryt"), a tytuły ofert są zwykle po angielsku ("Bayern Munich").
+    Najdłuższy token to tu często właśnie ta spolszczona nazwa miasta
+    ("Monachium"), która nigdy nie wystąpi w angielskim tytule — sprawdzanie
+    tylko jego dawało fałszywe 0.5 nawet dla oczywistego dopasowania klubu."""
+    club = str(subject.get("club") or "").strip()
+    if not club or club.lower() in _SKIP_VALUES:
+        return 1.0  # brak deklarowanego klubu — nie karzemy za jego brak w tytule
+    tokens = [_strip_diacritics(t.lower()) for t in re.split(r"\s+", club) if len(t) > 2]
+    if not tokens:
+        return 1.0
+    return 1.0 if any(t in title_lower for t in tokens) else 0.2
+
+
+# Lookbehind (?<![A-Za-z0-9]) wymaga że przed prefiksem NIE ma litery/cyfry —
+# bez tego "no"/"nr" dopasowywało się jako podciąg dłuższego słowa (np. "piano.7"
+# fałszywie trafiało jako "pia" + "no.7", znalezione przez code review 2026-09-04).
+_PLAYER_NUMBER_RE_TEMPLATE = r"(?<![A-Za-z0-9])(?:#|no\.?\s*|nr\.?\s*){num}\b"
+
+
+def _title_player_component(title_lower: str, subject: Dict[str, Any]) -> float:
+    player = str(subject.get("player_name") or "").strip()
+    if not player or player.lower() in _SKIP_VALUES:
+        return 1.0
+    player_norm = _strip_diacritics(player.lower())
+    title_norm = _strip_diacritics(title_lower)
+    if player_norm in title_norm:
+        return 1.0
+    number = str(subject.get("player_number") or "").strip()
+    if number and number not in _SKIP_VALUES:
+        # łapie "#7", "No.7", "No 7", "Nr7", "nr 7" — nie samą gołą liczbę
+        # (za duże ryzyko fałszywego trafienia na rozmiar/cenę).
+        if re.search(_PLAYER_NUMBER_RE_TEMPLATE.format(num=re.escape(number)), title_lower):
+            return 1.0
+    return 0.7  # personalizacja bywa pominięta w samym tytule mimo że jest na koszulce — kara, nie dyskwalifikacja
+
+
+def _match_score(listing: Dict, subject: Dict[str, Any]) -> float:
+    """Liczy match_score ∈ [0,1] dla oferty, która JUŻ przeszła twarde bramki
+    kategorii/sezonu/wariantu (_filter_listings_by_category,
+    _filter_listings_by_relevance — wołane PRZED tym w estimate_market_value;
+    zły sezon/wariant/tier odrzuca ofertę CAŁKOWICIE, nie obniża wyniku —
+    to dokładnie ten mechanizm, który naprawił Bayern/Ribéry i PSG/Messi, więc
+    nie zamieniamy go na "miękkie" ważenie w match_score).
+
+    Blend: 60% dopasowanie tytułu (klub + zawodnik), 40% wiarygodność źródła.
+    Wagi 50/50 z pierwszej wersji (code review 2026-09-04) sprawiały, że
+    match_score był matematycznie bezwładny dla eBay/Vinted/Allegro — nawet
+    kompletnie niedopasowany tytuł (błąd klubu I zawodnika) i tak przechodził
+    próg dzięki samej wysokiej wiarygodności źródła, więc realnie filtrowały
+    tylko twarde bramki, nie sam match_score. Przy 60/40 + zaostrzonej karze za
+    brak klubu w tytule (_title_club_component: 0.2 zamiast 0.5), zupełnie
+    niedopasowany tytuł faktycznie odpada nawet dla eBay, a legalne
+    dopasowania z pominiętą personalizacją (częsty, niegroźny przypadek)
+    nadal przechodzą komfortowo."""
+    title_lower = str(listing.get("title") or "").lower()
+    title_component = (
+        _title_club_component(title_lower, subject) + _title_player_component(title_lower, subject)
+    ) / 2
+    return 0.6 * title_component + 0.4 * _source_score(listing)
+
+
+_CONF_HIGH_N = 3
+_CONF_HIGH_SPREAD = 0.35
+_CONF_MED_SPREAD = 0.6
+
+
+def _compute_confidence(n: int, spread: float) -> str:
+    if n >= _CONF_HIGH_N and spread <= _CONF_HIGH_SPREAD:
+        return "high"
+    if n == 2 or (n >= _CONF_HIGH_N and spread <= _CONF_MED_SPREAD):
+        return "medium"
+    return "low"
+
+
+def _estimate_from_matched(matched: List[Dict]) -> Dict[str, Any]:
+    """Liczy price/low/high/matched_count/confidence z listy JUŻ dopasowanych
+    ofert (po twardych bramkach + match_score >= _MATCH_MIN). price = mediana,
+    low/high = 25./75. percentyl (dla n=1: wszystkie trzy równe tej jednej
+    cenie, confidence='low'). Spec 2026-09-03 §5-6."""
+    priced = sorted(l["price_pln"] for l in matched if l.get("price_pln"))
+    n = len(priced)
+    if n == 0:
+        return {"price": None, "low": None, "high": None, "matched_count": 0, "confidence": "low", "listings": []}
+    if n == 1:
+        p = round(priced[0])
+        return {"price": p, "low": p, "high": p, "matched_count": 1, "confidence": "low", "listings": matched}
+    price = statistics.median(priced)
+    q1, _, q3 = statistics.quantiles(priced, n=4, method="inclusive")
+    spread = (q3 - q1) / price if price else 1.0
     return {
-        "median_pln": round(median),
-        "range_min_pln": round(min(prices)),
-        "range_max_pln": round(max(prices)),
-        "sample_size": m,
-        "listings": top,
+        "price": round(price),
+        "low": round(q1),
+        "high": round(q3),
+        "matched_count": n,
+        "confidence": _compute_confidence(n, spread),
+        "listings": matched,
     }
 
 
-_MIN_SAMPLE_TO_UPDATE = 2  # poniżej tego NIE aktualizujemy zapisanej wyceny
-_MAX_PRICE_DEVIATION_RATIO = 0.5  # >50% odchylenia od obecnej wyceny → nie aktualizuj
+_CONF_RANK = {"low": 0, "medium": 1, "high": 2}
+_DEV_TOL = 0.35
+# Domyślna ranga gdy stored_confidence jest None (cena zapisana, ale bez
+# wypełnionej kolumny confidence — dotyczy WSZYSTKICH pozycji kolekcji od
+# razu po tej migracji, zanim backfill_market_values.py --apply ją uzupełni).
+# Świadomie 'medium', NIE 'low' (patrz code review 2026-09-04): domyślne 'low'
+# pozwalało pojedynczej słabej ofercie nadpisać istniejącą, realną cenę w tym
+# przejściowym okresie — dokładnie ten sam wzorzec błędu (Cubarsí), tylko
+# odtworzony przez lukę w kolejności wdrożenia zamiast przez próbkę danych.
+_UNKNOWN_STORED_CONF_RANK = _CONF_RANK["medium"]
 
 
-def should_update_market_value(current_pln: Optional[float], result: Dict[str, Any]) -> bool:
-    """Decyduje czy nowo policzona wycena powinna nadpisać już zapisaną wartość.
-    Dotyczy WYŁĄCZNIE odświeżania istniejącej pozycji w kolekcji — przy
-    pierwszym szacowaniu (dodanie do kolekcji) current_pln=None, więc druga
-    bramka jest pomijana, ale pierwsza nadal obowiązuje.
+def should_update_market_value(
+    stored_price: Optional[float],
+    stored_confidence: Optional[str],
+    new_price: Optional[float],
+    new_confidence: str,
+    new_matched_count: int,
+) -> bool:
+    """Decyzja o nadpisaniu zapisanej wyceny — zależy od JAKOŚCI nowej próbki
+    (confidence), NIE od samego odchylenia ceny. Silna próbka nadpisuje
+    bezwarunkowo (także starą błędną wartość); słaba próbka nigdy nie nadpisuje
+    wartości o wyższej pewności. Spec 2026-09-03 §7.
 
-    Znaleziono na case'ie Barcelona/Cubarsí (2026-09-03, sezon 2026/2027):
-    odświeżenie trafiło na moment gdy eBay znalazł tylko 1 (podejrzanie tanią)
-    ofertę, a Gemini przejściowo nie zwróciło nic — wynik: zapisana wycena
-    spadła z realistycznych ~470 zł do 168 zł na podstawie jednej, niepewnej
-    oferty. Dwie bramki:
-    1. Za mało realnych ofert (< _MIN_SAMPLE_TO_UPDATE) → nie aktualizuj,
-       zostaw jak jest — pojedyncza oferta to zbyt duży szum.
-    2. Nowa mediana odbiega drastycznie (> _MAX_PRICE_DEVIATION_RATIO) od
-       obecnie zapisanej → nie aktualizuj automatycznie. Chwilowy szum danych
-       nie powinien nadpisywać ugruntowanej wartości; realna, trwała zmiana
-       ceny przejdzie tę bramkę przy kolejnym odświeżeniu, gdy nowa wartość
-       przestanie znacząco odbiegać od poprzedniej."""
-    new_pln = result.get("median_pln")
-    sample_size = result.get("sample_size", 0)
-    if not new_pln or sample_size < _MIN_SAMPLE_TO_UPDATE:
+    Reguły (new_confidence decyduje o gałęzi):
+    - brak dopasowanych ofert → nie aktualizuj.
+    - high → aktualizuj bezwarunkowo, nawet przy dużym odchyleniu od stored
+      (to jedyny sposób, żeby silna próbka mogła skorygować starą błędną
+      wartość — Ribéry 185→365, Cubarsí 168→608).
+    - medium → aktualizuj jeśli odchylenie ≤ _DEV_TOL, albo jeśli stored jest
+      co najwyżej tak samo pewne (medium/low/brak).
+    - low → aktualizuj tylko jeśli stored jest puste albo też 'low' (nic
+      lepszego nie ma) — nigdy nie nadpisuje medium/high (chroni przed skokiem
+      z 1 losowej oferty). stored_confidence=None (cena jest, ale confidence
+      jeszcze nieznane) traktowane jako 'medium', NIE 'low' — patrz
+      _UNKNOWN_STORED_CONF_RANK."""
+    if not new_matched_count or new_price is None:
         return False
-    if current_pln:
-        deviation = abs(new_pln - current_pln) / current_pln
-        if deviation > _MAX_PRICE_DEVIATION_RATIO:
-            return False
-    return True
+    if new_confidence == "high":
+        return True
+    if stored_price is None:
+        return True
+    deviation = abs(new_price - stored_price) / stored_price if stored_price else 1.0
+    if new_confidence == "medium":
+        if deviation <= _DEV_TOL:
+            return True
+        return _CONF_RANK.get(stored_confidence, _UNKNOWN_STORED_CONF_RANK) <= _CONF_RANK["medium"]
+    # new_confidence == "low"
+    return _CONF_RANK.get(stored_confidence, _UNKNOWN_STORED_CONF_RANK) == 0
 
 
 async def refresh_stale_market_values(max_items: int = 50) -> int:
@@ -698,18 +849,22 @@ async def refresh_stale_market_values(max_items: int = 50) -> int:
     zużywałby niepotrzebnie darmowy limit Gemini Search Grounding).
     """
     from datetime import timedelta
-    from app.services.database import SessionLocal, CollectionItem
+    from app.services.database import SessionLocal, CollectionItem, log_market_value_history
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     db = SessionLocal()
     refreshed = 0
     try:
+        # Staleness liczona po market_value_last_attempt_at, NIE po
+        # market_value_updated_at — inaczej pozycja z trwale słabym rynkiem
+        # (matched_count=0/low za każdym razem) kwalifikowałaby się do
+        # odświeżenia codziennie zamiast raz na 7 dni.
         items = (
             db.query(CollectionItem)
             .filter(
                 CollectionItem.verdict_category != "podrobka",
-                (CollectionItem.market_value_updated_at == None) |  # noqa: E711
-                (CollectionItem.market_value_updated_at < cutoff),
+                (CollectionItem.market_value_last_attempt_at == None) |  # noqa: E711
+                (CollectionItem.market_value_last_attempt_at < cutoff),
             )
             .limit(max_items)
             .all()
@@ -728,21 +883,24 @@ async def refresh_stale_market_values(max_items: int = 50) -> int:
                     "verdict": {"verdict_category": item.verdict_category},
                 }
                 result = await estimate_market_value(report_data)
-                if should_update_market_value(item.market_value_pln, result):
-                    item.market_value_pln = result.get("median_pln")
-                    item.market_value_range_min = result.get("range_min_pln")
-                    item.market_value_range_max = result.get("range_max_pln")
-                    item.market_value_sample_size = result.get("sample_size")
-                    item.market_value_source = result.get("source", "gemini")
+                applied = should_update_market_value(
+                    item.market_value_pln, item.market_value_confidence,
+                    result.get("price"), result.get("confidence", "low"), result.get("matched_count", 0),
+                )
+                log_market_value_history(
+                    db, item.id, result.get("price"), result.get("low"), result.get("high"),
+                    result.get("confidence"), result.get("matched_count", 0), applied,
+                )
+                if applied:
+                    item.market_value_pln = result.get("price")
+                    item.market_value_range_min = result.get("low")
+                    item.market_value_range_max = result.get("high")
+                    item.market_value_sample_size = result.get("matched_count")
+                    item.market_value_confidence = result.get("confidence")
+                    item.market_value_source = result.get("source") or "gemini"
+                    item.market_value_updated_at = datetime.now(timezone.utc)
                     refreshed += 1
-                # market_value_updated_at bumpowane ZAWSZE po próbie (nie tylko po
-                # udanej aktualizacji) — inaczej pozycja z trwale wąskim rynkiem
-                # (sample_size<2 za każdym razem) kwalifikowałaby się do odświeżenia
-                # codziennie zamiast raz na 7 dni jak zakłada docstring, zużywając
-                # niepotrzebnie limit Gemini/eBay i zajmując miejsce w dziennej
-                # paczce max_items kosztem innych pozycji faktycznie gotowych do
-                # odświeżenia (znalezione podczas code review 2026-09-04).
-                item.market_value_updated_at = datetime.now(timezone.utc)
+                item.market_value_last_attempt_at = datetime.now(timezone.utc)
             except Exception:
                 logger.exception("Daily refresh failed for item %s", item.id)
         db.commit()
@@ -752,79 +910,62 @@ async def refresh_stale_market_values(max_items: int = 50) -> int:
     return refreshed
 
 
-_MIN_RELIABLE_SAMPLE_SIZE = 3  # 1-2 oferty to za mało, żeby mediana miała sens statystyczny
-
-
 async def estimate_market_value(report_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Główna funkcja — priorytet dla eBay (realne, zweryfikowane dane API) nad
-    Gemini (samoraportowane wyniki wyszukiwania, bez możliwości weryfikacji).
-    Obie listy są filtrowane po kategorii (patrz _filter_listings_by_category)
-    — oferty z tytułem wskazującym na inny tier cenowy niż werdykt (np.
-    "replica" dla koszulki meczowej) są odrzucane — oraz po sezonie/wariancie
-    (patrz _filter_listings_by_relevance) — oferty z innym sezonem lub innym
-    wariantem (domowa/wyjazdowa/trzecia) niż deklarowany są odrzucane, żeby nie
-    zniekształcały mediany.
+    Główna funkcja. Kolejność (celowo NIE równoległa): najpierw eBay. Każda
+    oferta (eBay i Gemini) musi przejść twarde bramki kategorii/sezonu/wariantu
+    (_filter_listings_by_category, _filter_listings_by_relevance) I mieć
+    match_score >= _MATCH_MIN (patrz _match_score), żeby wejść do finalnej
+    estymaty (_estimate_from_matched: mediana + 25/75 percentyl + confidence).
 
-    Kolejność (celowo NIE równoległa): najpierw eBay. Jeśli po filtrze ma
-    wystarczająco dużo ofert (_MIN_RELIABLE_SAMPLE_SIZE), Gemini w ogóle nie
-    jest wołane — oszczędza to płatny/limitowany Google Search Grounding i
-    skraca czas odpowiedzi (Gemini z retry jest wolniejsze niż samo eBay).
-    Gemini jest dociągane tylko gdy eBay nie wystarczył (za mało/zero ofert
-    po filtrze) — wtedy oba źródła są łączone (source="ebay+gemini" albo
-    samo "gemini" gdy eBay był całkiem pusty), żeby pojedyncza, samotna
-    oferta eBay nie przyćmiła bogatszych danych z Gemini.
+    Jeśli dopasowane oferty eBay dają confidence="high" samodzielnie, Gemini
+    w ogóle nie jest wołane — oszczędza to płatny/limitowany Google Search
+    Grounding i skraca czas odpowiedzi. W przeciwnym razie Gemini jest
+    dociągane i oba źródła są łączone przed finalnym wyliczeniem.
 
-    Finalna cena to mediana _TOP_OFFERS_COUNT najdrożej wycenionych ofert z
-    odfiltrowanej próbki (patrz _top_offers_stats) — nie mediana z całości.
+    Zwraca dict z kluczami: price, low, high, matched_count, confidence,
+    listings, source, query_used (i error/None gdy nic się nie znalazło).
     Nadpisanie już zapisanej wyceny w kolekcji (nie dotyczy tej funkcji wprost,
     ale wywołujących ją endpointów) idzie przez should_update_market_value().
+    Spec 2026-09-03.
     """
     verdict_category = ((report_data.get("verdict") or {}).get("verdict_category") or "").strip()
     subject = report_data.get("subject") or {}
     query = build_search_query(report_data)
     ebay_query = build_ebay_search_query(report_data)
 
-    ebay_listings_raw = await estimate_via_ebay_browse(ebay_query)
-    ebay_listings = _filter_listings_by_category(ebay_listings_raw, verdict_category)
-    ebay_listings = _filter_listings_by_relevance(ebay_listings, subject)
+    ebay_raw = await estimate_via_ebay_browse(ebay_query)
+    ebay_gated = _filter_listings_by_category(ebay_raw, verdict_category)
+    ebay_gated = _filter_listings_by_relevance(ebay_gated, subject)
+    ebay_matched = [l for l in ebay_gated if _match_score(l, subject) >= _MATCH_MIN]
 
-    if len(ebay_listings) >= _MIN_RELIABLE_SAMPLE_SIZE:
-        stats = _top_offers_stats(ebay_listings)
-        # Drugie sprawdzenie progu: _top_offers_stats() dodatkowo odrzuca
-        # listingi bez poprawnej ceny (price_pln), więc liczba ofert PO
-        # filtrze kategorii (sprawdzona wyżej) może być większa niż liczba
-        # ofert faktycznie użytych w statystyce.
-        if stats.get("sample_size", 0) >= _MIN_RELIABLE_SAMPLE_SIZE:
-            stats["source"] = "ebay"
-            stats["query_used"] = ebay_query
-            stats["low_confidence"] = False
-            return stats
+    estimate = _estimate_from_matched(ebay_matched)
+    if estimate["confidence"] == "high":
+        estimate["source"] = "ebay"
+        estimate["query_used"] = ebay_query
+        return estimate
 
-    # eBay nie wystarczył samodzielnie (za mało/zero ofert po filtrze) —
-    # dociągamy Gemini i łączymy oba źródła zamiast tracić dobre dane z eBay.
+    # eBay nie dał samodzielnie wysokiej pewności — dociągamy Gemini i łączymy
+    # oba źródła zamiast tracić dobre dane z eBay.
     gemini_result = await estimate_via_gemini(report_data)
-    gemini_listings = _filter_listings_by_category(gemini_result.get("listings") or [], verdict_category)
-    gemini_listings = _filter_listings_by_relevance(gemini_listings, subject)
+    gemini_gated = _filter_listings_by_category(gemini_result.get("listings") or [], verdict_category)
+    gemini_gated = _filter_listings_by_relevance(gemini_gated, subject)
+    gemini_matched = [l for l in gemini_gated if _match_score(l, subject) >= _MATCH_MIN]
 
-    combined = ebay_listings + gemini_listings
-    if combined:
-        stats = _top_offers_stats(combined)
-        if stats.get("sample_size", 0) > 0:
-            # Nawet po połączeniu obu źródeł może zostać poniżej progu (np.
-            # eBay=1 + Gemini=0) — flagujemy to jawnie zamiast cicho zwracać
-            # pojedynczą, przypadkową cenę jako pełnoprawną "wycenę rynkową".
-            stats["low_confidence"] = stats["sample_size"] < _MIN_RELIABLE_SAMPLE_SIZE
-            gemini_query_used = gemini_result.get("query_used", query)
-            if ebay_listings and gemini_listings:
-                stats["source"] = "ebay+gemini"
-                stats["query_used"] = f"eBay: {ebay_query} | Gemini: {gemini_query_used}"
-            elif ebay_listings:
-                stats["source"] = "ebay"
-                stats["query_used"] = ebay_query
-            else:
-                stats["source"] = "gemini"
-                stats["query_used"] = gemini_query_used
-            return stats
-
-    return {"error": gemini_result.get("error") or "Brak wyników po odfiltrowaniu kategorii.", "sample_size": 0, "listings": []}
+    combined = ebay_matched + gemini_matched
+    estimate = _estimate_from_matched(combined)
+    gemini_query_used = gemini_result.get("query_used", query)
+    if ebay_matched and gemini_matched:
+        estimate["source"] = "ebay+gemini"
+        estimate["query_used"] = f"eBay: {ebay_query} | Gemini: {gemini_query_used}"
+    elif ebay_matched:
+        estimate["source"] = "ebay"
+        estimate["query_used"] = ebay_query
+    elif gemini_matched:
+        estimate["source"] = "gemini"
+        estimate["query_used"] = gemini_query_used
+    else:
+        estimate["source"] = None
+        estimate["query_used"] = None
+        estimate["error"] = gemini_result.get("error") or "Brak wyników po odfiltrowaniu dopasowania."
+    return estimate

@@ -132,8 +132,9 @@ class TestDailyRefreshSkipsPodrobka:
     def test_stale_items_query_excludes_podrobka(self):
         """Weryfikuje bezpośrednio zapytanie SQL użyte w refresh_stale_market_values
         (bez odpalania całej async orkiestracji/Gemini) — podróbka z pustym
-        market_value_updated_at nie kwalifikuje się do codziennego odświeżenia,
-        zwykła koszulka w tym samym stanie — tak."""
+        market_value_last_attempt_at nie kwalifikuje się do codziennego
+        odświeżenia, zwykła koszulka w tym samym stanie — tak. Filtr celowo po
+        last_attempt_at, nie updated_at — patrz TestDailyRefreshLastAttemptVsUpdatedAt."""
         user = _make_user()
         db = SessionLocal()
         try:
@@ -145,7 +146,7 @@ class TestDailyRefreshSkipsPodrobka:
                 season="2023/24",
                 verdict_category="podrobka",
                 is_manual=True,
-                market_value_updated_at=None,
+                market_value_last_attempt_at=None,
             )
             real_item = CollectionItem(
                 id=str(uuid.uuid4()),
@@ -155,7 +156,7 @@ class TestDailyRefreshSkipsPodrobka:
                 season="2023/24",
                 verdict_category="oryginalna_sklepowa",
                 is_manual=True,
-                market_value_updated_at=None,
+                market_value_last_attempt_at=None,
             )
             db.add_all([fake_item, real_item])
             db.commit()
@@ -167,8 +168,8 @@ class TestDailyRefreshSkipsPodrobka:
                 for row in db.query(CollectionItem)
                 .filter(
                     CollectionItem.verdict_category != "podrobka",
-                    (CollectionItem.market_value_updated_at == None) |  # noqa: E711
-                    (CollectionItem.market_value_updated_at < cutoff),
+                    (CollectionItem.market_value_last_attempt_at == None) |  # noqa: E711
+                    (CollectionItem.market_value_last_attempt_at < cutoff),
                 )
                 .filter(CollectionItem.id.in_(item_ids))
                 .all()
@@ -179,19 +180,22 @@ class TestDailyRefreshSkipsPodrobka:
             _cleanup(user.id)
 
 
-class TestDailyRefreshBumpsTimestampEvenWhenSkipped:
-    """Regresja złapana przez code review (2026-09-04): gdy should_update_market_value
-    blokuje zapis (próbka za mała), market_value_updated_at musi mimo to zostać
-    zaktualizowane — inaczej pozycja z trwale wąskim rynkiem kwalifikowałaby się
-    do odświeżenia CODZIENNIE zamiast raz na 7 dni (docstring refresh_stale_market_values),
-    zużywając niepotrzebnie limit Gemini/eBay i zajmując miejsce w dziennej paczce
-    kosztem innych pozycji faktycznie gotowych do odświeżenia."""
+class TestDailyRefreshLastAttemptVsUpdatedAt:
+    """Spec 2026-09-03 §7: market_value_last_attempt_at bumpuje się po KAŻDEJ
+    próbie odświeżenia (żeby pozycja z trwale słabym rynkiem nie kwalifikowała
+    się do odświeżenia codziennie zamiast raz na 7 dni — patrz stale-query w
+    refresh_stale_market_values, filtruje po last_attempt_at, nie updated_at).
+    market_value_updated_at zmienia się TYLKO gdy zapisana wartość faktycznie
+    się zmienia (should_update_market_value zwraca True) — to pole ma dawać
+    userowi uczciwe "zaktualizowano X dni temu", nie mylić cichej próby z
+    realną zmianą ceny."""
 
-    def test_thin_sample_bumps_timestamp_without_changing_value(self):
+    def test_low_confidence_thin_sample_bumps_attempt_not_updated_at(self):
         user = _make_user()
         db = SessionLocal()
         try:
             old_updated_at = datetime.now(timezone.utc) - timedelta(days=10)
+            old_attempt_at = datetime.now(timezone.utc) - timedelta(days=10)
             item = CollectionItem(
                 id=str(uuid.uuid4()),
                 user_id=user.id,
@@ -201,7 +205,9 @@ class TestDailyRefreshBumpsTimestampEvenWhenSkipped:
                 verdict_category="oryginalna_sklepowa",
                 is_manual=True,
                 market_value_pln=470.0,
+                market_value_confidence="high",
                 market_value_updated_at=old_updated_at,
+                market_value_last_attempt_at=old_attempt_at,
             )
             db.add(item)
             db.commit()
@@ -210,21 +216,73 @@ class TestDailyRefreshBumpsTimestampEvenWhenSkipped:
             db.close()
 
         try:
-            # sample_size=1 < _MIN_SAMPLE_TO_UPDATE=2 -> should_update_market_value
-            # zwraca False, wartość NIE powinna się zmienić, ale timestamp TAK.
-            thin_result = AsyncMock(return_value={"median_pln": 168, "sample_size": 1, "source": "ebay"})
+            # confidence='low' + stored='high' -> should_update_market_value
+            # zwraca False (patrz tests/test_market_value_agent.py::TestShouldUpdateMarketValue).
+            # Wartość NIE powinna się zmienić, market_value_updated_at NIE powinno
+            # się zmienić, ale market_value_last_attempt_at TAK.
+            thin_result = AsyncMock(return_value={
+                "price": 168, "low": 168, "high": 168,
+                "matched_count": 1, "confidence": "low", "source": "ebay",
+            })
             with patch("app.services.market_value_agent.estimate_market_value", new=thin_result):
                 asyncio.run(refresh_stale_market_values(max_items=50))
 
             db = SessionLocal()
             try:
                 refreshed_item = db.query(CollectionItem).filter(CollectionItem.id == item_id).first()
-                assert refreshed_item.market_value_pln == 470.0, "wartość nie powinna się zmienić przy zbyt małej próbce"
+                assert refreshed_item.market_value_pln == 470.0, "wartość nie powinna się zmienić przy słabej próbce"
                 # SQLite zwraca DateTime jako naive — porównaj na tej samej podstawie.
-                assert refreshed_item.market_value_updated_at > old_updated_at.replace(tzinfo=None), (
-                    "timestamp musi się zaktualizować mimo pominięcia zapisu wartości, "
+                assert refreshed_item.market_value_updated_at == old_updated_at.replace(tzinfo=None), (
+                    "updated_at NIE powinno się zmienić — wartość nie została nadpisana"
+                )
+                assert refreshed_item.market_value_last_attempt_at > old_attempt_at.replace(tzinfo=None), (
+                    "last_attempt_at musi się zaktualizować mimo pominięcia zapisu wartości, "
                     "inaczej pozycja odświeżałaby się codziennie zamiast raz na 7 dni"
                 )
+            finally:
+                db.close()
+        finally:
+            _cleanup(user.id)
+
+    def test_high_confidence_bumps_both_timestamps(self):
+        user = _make_user()
+        db = SessionLocal()
+        try:
+            old_ts = datetime.now(timezone.utc) - timedelta(days=10)
+            item = CollectionItem(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                case_id=f"manual_{uuid.uuid4().hex[:12]}",
+                club="Bayern Monachium",
+                season="2015/2016",
+                verdict_category="oryginalna_sklepowa",
+                is_manual=True,
+                market_value_pln=185.0,
+                market_value_confidence="low",
+                market_value_updated_at=old_ts,
+                market_value_last_attempt_at=old_ts,
+            )
+            db.add(item)
+            db.commit()
+            item_id = item.id
+        finally:
+            db.close()
+
+        try:
+            strong_result = AsyncMock(return_value={
+                "price": 365, "low": 300, "high": 400,
+                "matched_count": 3, "confidence": "high", "source": "ebay",
+            })
+            with patch("app.services.market_value_agent.estimate_market_value", new=strong_result):
+                asyncio.run(refresh_stale_market_values(max_items=50))
+
+            db = SessionLocal()
+            try:
+                refreshed_item = db.query(CollectionItem).filter(CollectionItem.id == item_id).first()
+                assert refreshed_item.market_value_pln == 365
+                assert refreshed_item.market_value_confidence == "high"
+                assert refreshed_item.market_value_updated_at > old_ts.replace(tzinfo=None)
+                assert refreshed_item.market_value_last_attempt_at > old_ts.replace(tzinfo=None)
             finally:
                 db.close()
         finally:

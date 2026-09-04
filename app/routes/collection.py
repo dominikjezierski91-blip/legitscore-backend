@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.services.database import get_db, CollectionItem, SessionLocal
+from app.services.database import get_db, CollectionItem, SessionLocal, log_market_value_history
 from app.routes.auth import get_current_user
 from app.services.database import User
 from app.services.market_value_agent import estimate_market_value, should_update_market_value
@@ -92,14 +92,24 @@ async def _auto_estimate_market_value(item_id: str) -> None:
             "verdict": {"verdict_category": item.verdict_category},
         }
         result = await estimate_market_value(report_data)
-        if should_update_market_value(item.market_value_pln, result):
-            item.market_value_pln = result.get("median_pln")
-            item.market_value_range_min = result.get("range_min_pln")
-            item.market_value_range_max = result.get("range_max_pln")
-            item.market_value_sample_size = result.get("sample_size")
-            item.market_value_source = result.get("source", "gemini")
+        applied = should_update_market_value(
+            item.market_value_pln, item.market_value_confidence,
+            result.get("price"), result.get("confidence", "low"), result.get("matched_count", 0),
+        )
+        log_market_value_history(
+            db, item.id, result.get("price"), result.get("low"), result.get("high"),
+            result.get("confidence"), result.get("matched_count", 0), applied,
+        )
+        if applied:
+            item.market_value_pln = result.get("price")
+            item.market_value_range_min = result.get("low")
+            item.market_value_range_max = result.get("high")
+            item.market_value_sample_size = result.get("matched_count")
+            item.market_value_confidence = result.get("confidence")
+            item.market_value_source = result.get("source") or "gemini"
             item.market_value_updated_at = datetime.now(timezone.utc)
-            db.commit()
+        item.market_value_last_attempt_at = datetime.now(timezone.utc)
+        db.commit()
     except Exception:
         import logging
         logging.getLogger(__name__).exception("Auto market value failed for item %s", item_id)
@@ -364,15 +374,25 @@ async def refresh_market_value(
 
     result = await estimate_market_value(report_data)
 
-    if should_update_market_value(item.market_value_pln, result):
-        item.market_value_pln = result.get("median_pln")
-        item.market_value_range_min = result.get("range_min_pln")
-        item.market_value_range_max = result.get("range_max_pln")
-        item.market_value_sample_size = result.get("sample_size")
-        item.market_value_source = result.get("source", "gemini")
+    applied = should_update_market_value(
+        item.market_value_pln, item.market_value_confidence,
+        result.get("price"), result.get("confidence", "low"), result.get("matched_count", 0),
+    )
+    log_market_value_history(
+        db, item.id, result.get("price"), result.get("low"), result.get("high"),
+        result.get("confidence"), result.get("matched_count", 0), applied,
+    )
+    if applied:
+        item.market_value_pln = result.get("price")
+        item.market_value_range_min = result.get("low")
+        item.market_value_range_max = result.get("high")
+        item.market_value_sample_size = result.get("matched_count")
+        item.market_value_confidence = result.get("confidence")
+        item.market_value_source = result.get("source") or "gemini"
         item.market_value_updated_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(item)
+    item.market_value_last_attempt_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(item)
 
     return {**_serialize(item), "market_value_result": result}
 
@@ -423,4 +443,5 @@ def _serialize(item: CollectionItem) -> dict:
         "market_value_sample_size": item.market_value_sample_size,
         "market_value_source": item.market_value_source,
         "market_value_updated_at": item.market_value_updated_at.isoformat() if item.market_value_updated_at else None,
+        "market_value_confidence": item.market_value_confidence,
     }

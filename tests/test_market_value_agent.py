@@ -359,121 +359,293 @@ class TestFilterListingsByRelevance:
         assert result == listings
 
 
-class TestTopOffersStats:
+class TestSourceScore:
+    def test_ebay_scores_08(self):
+        assert mva._source_score({"source": "ebay"}) == mva._SOURCE_SCORE_EBAY
+
+    def test_vinted_scores_06(self):
+        assert mva._source_score({"source": "Vinted.pl oferta"}) == mva._SOURCE_SCORE_VINTED_ALLEGRO
+
+    def test_allegro_scores_06(self):
+        assert mva._source_score({"source": "Allegro"}) == mva._SOURCE_SCORE_VINTED_ALLEGRO
+
+    def test_generic_gemini_scores_05(self):
+        assert mva._source_score({"source": "gemini"}) == mva._SOURCE_SCORE_GEMINI_GENERIC
+        assert mva._source_score({"source": "Autoryzowani sprzedawcy Nike"}) == mva._SOURCE_SCORE_GEMINI_GENERIC
+
+    def test_missing_source_defaults_to_generic(self):
+        assert mva._source_score({}) == mva._SOURCE_SCORE_GEMINI_GENERIC
+
+
+class TestTitleComponents:
+    def test_club_found_scores_full(self):
+        assert mva._title_club_component("bayern munich home shirt", {"club": "Bayern Monachium"}) == 1.0
+
+    def test_club_missing_from_title_scores_low(self):
+        """0.2, nie 0.5 (code review 2026-09-04) — brak klubu w tytule w ogóle
+        to mocny sygnał złego dopasowania, nie powinien ledwo obniżać wyniku."""
+        assert mva._title_club_component("home shirt size m", {"club": "Bayern Monachium"}) == 0.2
+
+    def test_no_declared_club_scores_full(self):
+        assert mva._title_club_component("some shirt", {}) == 1.0
+        assert mva._title_club_component("some shirt", {"club": "nieustalone"}) == 1.0
+
+    def test_club_with_diacritics_matches_ascii_title(self):
+        """Realny przypadek: subject ma spolszczoną/z diakrytykami nazwę,
+        tytuł oferty (angielski) jej nie ma."""
+        assert mva._title_club_component("cubarsi barcelona jersey", {"club": "FC Barcelona"}) == 1.0
+
+    def test_polish_l_with_stroke_normalized(self):
+        """Regresja z code review 2026-09-04: 'ł'/'Ł' to samodzielna litera w
+        Unicode bez dekompozycji NFKD (w przeciwieństwie do ą/ć/ę/ń/ó/ś/ź/ż) —
+        _strip_diacritics musi ją jawnie mapować, inaczej "Łukasz"/"Michałowski"
+        nie dopasowałyby się do angielskiego tytułu bez ogonka."""
+        assert mva._strip_diacritics("łukasz") == "lukasz"
+        assert mva._strip_diacritics("michałowski") == "michalowski"
+        assert mva._title_player_component("borussia michalowski jersey", {"player_name": "Michałowski"}) == 1.0
+
+    def test_player_name_found_scores_full(self):
+        assert mva._title_player_component("psg messi #30 jersey", {"player_name": "Messi"}) == 1.0
+
+    def test_player_name_with_diacritics_matches_ascii_title(self):
+        """Ribéry (subject, z akcentem) vs 'RIBERY' (tytuł, bez akcentu) —
+        realny przypadek z case'u Bayern/Ribéry. Bez normalizacji diakrytyków
+        to dopasowanie zawodziłoby mimo że to oczywiście ta sama osoba."""
+        assert mva._title_player_component("bayern munich ribery jersey", {"player_name": "Ribéry"}) == 1.0
+        # Caller (_match_score) zawsze przekazuje już zlowercase'owany tytuł.
+        assert mva._title_player_component("bayern ribery 7".lower(), {"player_name": "Ribéry"}) == 1.0
+
+    def test_player_number_found_scores_full(self):
+        assert mva._title_player_component("psg jersey #30", {"player_name": "Messi", "player_number": "30"}) == 1.0
+
+    def test_player_number_variants_no_dot_and_nr(self):
+        assert mva._title_player_component("psg jersey no.30", {"player_name": "Messi", "player_number": "30"}) == 1.0
+        assert mva._title_player_component("psg jersey no 30", {"player_name": "Messi", "player_number": "30"}) == 1.0
+        assert mva._title_player_component("psg jersey nr 30", {"player_name": "Messi", "player_number": "30"}) == 1.0
+
+    def test_player_number_does_not_false_match_unrelated_digits(self):
+        """Rozmiar/cena zawierające tę samą cyfrę bez #/no./nr nie powinny
+        fałszywie liczyć się jako dopasowanie numeru zawodnika."""
+        assert mva._title_player_component("psg jersey size 30 EUR", {"player_name": "Messi", "player_number": "30"}) == 0.7
+
+    def test_player_number_does_not_match_as_substring_of_longer_word(self):
+        """Regresja z code review 2026-09-04: brak lewej granicy przed prefiksem
+        '#'/'no'/'nr' pozwalał dopasować "no.7" jako podciąg dłuższego słowa,
+        np. "piano.7" ("pia" + "no.7"). Wymaga jawnie znanego numeru, żeby test
+        w ogóle dotarł do gałęzi sprawdzającej numer (player_name musi NIE
+        występować w tytule, inaczej component=1.0 wcześniej)."""
+        subject = {"player_name": "Mbappe", "player_number": "7"}
+        assert mva._title_player_component("psg piano.7 jersey", subject) == 0.7
+
+    def test_player_number_does_not_match_as_substring_of_longer_number(self):
+        """#17 nie powinno fałszywie dopasować player_number='7' (chroni \\b po
+        liczbie — 17 to jeden token cyfrowy, nie '1' + granica + '7')."""
+        subject = {"player_name": "Mbappe", "player_number": "7"}
+        assert mva._title_player_component("psg jersey #17", subject) == 0.7
+        assert mva._title_player_component("psg jersey #7", subject) == 1.0
+
+    def test_player_not_found_scores_penalty(self):
+        assert mva._title_player_component("psg home jersey size m", {"player_name": "Messi"}) == 0.7
+
+    def test_no_declared_player_scores_full(self):
+        assert mva._title_player_component("some shirt", {}) == 1.0
+
+
+class TestMatchScore:
     """Regresja na powtarzający się wzorzec (Bayern/Ribéry, PSG/Messi,
-    Barcelona/Cubarsí): tanie oferty w próbce to prawie zawsze złe dopasowania
-    lub podróbki, więc licz medianę z _TOP_OFFERS_COUNT najdrożej wycenionych
-    dopasowanych ofert, nie z całej próbki."""
+    Barcelona/Cubarsí) — patrz _filter_listings_by_category/_filter_listings_by_relevance
+    (wołane PRZED _match_score w estimate_market_value, nie testowane tu ponownie).
+    match_score sam w sobie to blend dopasowania tytułu i wiarygodności źródła,
+    dla ofert które JUŻ przeszły twarde bramki."""
 
-    def test_empty_listings_returns_zero_sample_with_listings_key(self):
-        assert mva._top_offers_stats([]) == {"sample_size": 0, "listings": []}
+    def test_ebay_full_match_passes_threshold_comfortably(self):
+        score = mva._match_score(
+            {"source": "ebay", "title": "Bayern Munich Ribery jersey"},
+            {"club": "Bayern Monachium", "player_name": "Ribery"},
+        )
+        assert score >= mva._MATCH_MIN
+        assert score == 0.92  # 0.6*1.0 (title) + 0.4*0.8 (ebay)
 
-    def test_listings_without_price_returns_zero_sample(self):
-        stats = mva._top_offers_stats([{"title": "no price"}])
-        assert stats == {"sample_size": 0, "listings": []}
+    def test_gemini_full_title_match_passes_threshold(self):
+        score = mva._match_score(
+            {"source": "gemini", "title": "Bayern Munich Ribery jersey"},
+            {"club": "Bayern Monachium", "player_name": "Ribery"},
+        )
+        assert score >= mva._MATCH_MIN
+        assert score == 0.8  # 0.6*1.0 + 0.4*0.5
 
-    def test_takes_top_3_highest_not_full_median(self):
-        """5 ofert, w tym 3 bardzo tanie (złe dopasowania) i 2 drogie (dobre) —
-        mediana z całości wyszłaby nisko; mediana z top-3 (dwie drogie +
-        trzecia najwyższa z tanich) ma wyjść wysoko."""
-        listings = [
-            {"price_pln": 100, "title": "zle dopasowanie 1"},
-            {"price_pln": 120, "title": "zle dopasowanie 2"},
-            {"price_pln": 140, "title": "zle dopasowanie 3"},
-            {"price_pln": 700, "title": "dobre dopasowanie 1"},
-            {"price_pln": 800, "title": "dobre dopasowanie 2"},
-        ]
-        stats = mva._top_offers_stats(listings)
-        assert stats["sample_size"] == 3
-        assert {l["title"] for l in stats["listings"]} == {
-            "dobre dopasowanie 1", "dobre dopasowanie 2", "zle dopasowanie 3",
+    def test_ebay_completely_unrelated_title_fails_threshold(self):
+        """Regresja na HIGH z code review 2026-09-04: przy wagach 50/50 i karze
+        0.5 za brak klubu, match_score dla eBay przechodził próg ZAWSZE,
+        niezależnie od treści tytułu (matematyczna bezwładność) — sam
+        match_score nic nie filtrował dla dominującego źródła. Kompletnie
+        niedopasowany tytuł (brak klubu I zawodnika) musi teraz odpaść nawet
+        dla eBay."""
+        score = mva._match_score(
+            {"source": "ebay", "title": "random unrelated football shirt size L"},
+            {"club": "Bayern Monachium", "player_name": "Ribery"},
+        )
+        assert score < mva._MATCH_MIN
+
+    def test_ebay_club_present_personalization_absent_still_passes(self):
+        """Legalny, częsty przypadek (personalizacja pominięta w tytule) nadal
+        ma komfortowo przechodzić, mimo zaostrzenia progu wyżej."""
+        score = mva._match_score(
+            {"source": "ebay", "title": "Bayern Munich home shirt 2015/16 size M"},
+            {"club": "Bayern Monachium", "player_name": "Ribery"},
+        )
+        assert score >= mva._MATCH_MIN
+
+    def test_gemini_weak_title_match_fails_threshold(self):
+        """Gemini to źródło pomocnicze — słabe dopasowanie tytułu (brak klubu
+        i zawodnika w tytule) nie powinno przejść progu, w przeciwieństwie do eBay."""
+        score = mva._match_score(
+            {"source": "gemini", "title": "football shirt size M"},
+            {"club": "Bayern Monachium", "player_name": "Ribery"},
+        )
+        assert score < mva._MATCH_MIN
+
+    def test_no_subject_constraints_always_passes(self):
+        score = mva._match_score({"source": "ebay", "title": "anything"}, {})
+        assert score >= mva._MATCH_MIN
+
+
+class TestComputeConfidence:
+    def test_high_needs_3_plus_and_tight_spread(self):
+        assert mva._compute_confidence(3, 0.35) == "high"
+        assert mva._compute_confidence(5, 0.1) == "high"
+
+    def test_wide_spread_with_3_plus_is_medium(self):
+        assert mva._compute_confidence(3, 0.5) == "medium"
+        assert mva._compute_confidence(3, 0.36) == "medium"
+
+    def test_exactly_2_is_medium_regardless_of_spread(self):
+        assert mva._compute_confidence(2, 0.9) == "medium"
+        assert mva._compute_confidence(2, 0.0) == "medium"
+
+    def test_very_wide_spread_with_3_plus_is_low(self):
+        assert mva._compute_confidence(3, 0.61) == "low"
+
+    def test_0_or_1_is_always_low(self):
+        assert mva._compute_confidence(0, 0.0) == "low"
+        assert mva._compute_confidence(1, 0.0) == "low"
+
+
+class TestEstimateFromMatched:
+    def test_empty_returns_zero_matched(self):
+        assert mva._estimate_from_matched([]) == {
+            "price": None, "low": None, "high": None,
+            "matched_count": 0, "confidence": "low", "listings": [],
         }
-        assert stats["median_pln"] == 700
 
-    def test_single_joke_listing_does_not_dominate_top_3(self):
-        """Mediana (nie średnia) z top-3 chroni przed jedną żartobliwą/
-        oszukańczą ultra-wysoką ofertą — środkowa wartość, nie najwyższa."""
-        listings = [
-            {"price_pln": 500, "title": "normalna"},
-            {"price_pln": 550, "title": "normalna 2"},
-            {"price_pln": 99999, "title": "żart/oszustwo"},
-        ]
-        stats = mva._top_offers_stats(listings)
-        assert stats["median_pln"] == 550
+    def test_listings_without_price_treated_as_empty(self):
+        result = mva._estimate_from_matched([{"title": "no price"}])
+        assert result["matched_count"] == 0
+        assert result["confidence"] == "low"
 
-    def test_fewer_than_n_listings_uses_all_of_them(self):
-        listings = [{"price_pln": 300, "title": "a"}, {"price_pln": 400, "title": "b"}]
-        stats = mva._top_offers_stats(listings)
-        assert stats["sample_size"] == 2
-        assert stats["median_pln"] == 350
+    def test_single_listing_low_confidence_price_equals_range(self):
+        result = mva._estimate_from_matched([{"price_pln": 250, "title": "jedyna"}])
+        assert result == {
+            "price": 250, "low": 250, "high": 250,
+            "matched_count": 1, "confidence": "low",
+            "listings": [{"price_pln": 250, "title": "jedyna"}],
+        }
 
-    def test_single_listing_returns_its_own_price(self):
-        stats = mva._top_offers_stats([{"price_pln": 250, "title": "jedyna"}])
-        assert stats["sample_size"] == 1
-        assert stats["median_pln"] == 250
+    def test_tight_cluster_of_3_is_high_confidence(self):
+        listings = [{"price_pln": p, "title": str(p)} for p in [460, 470, 480]]
+        result = mva._estimate_from_matched(listings)
+        assert result["matched_count"] == 3
+        assert result["confidence"] == "high"
+        assert result["price"] == 470
 
-    def test_custom_n_parameter(self):
+    def test_wide_spread_cluster_is_medium_or_low_not_high(self):
+        listings = [{"price_pln": p, "title": str(p)} for p in [100, 500, 900]]
+        result = mva._estimate_from_matched(listings)
+        assert result["confidence"] != "high"
+
+    def test_listings_key_reflects_all_matched_not_a_subset(self):
+        """Inaczej niż stara _top_offers_stats (tylko top-3) — teraz WSZYSTKIE
+        dopasowane oferty wchodzą do estymaty, jakość jest wymuszona wcześniej
+        przez match_score, nie przez branie kilku najdrożej wycenionych."""
         listings = [{"price_pln": p, "title": str(p)} for p in [100, 200, 300, 400, 500]]
-        stats = mva._top_offers_stats(listings, n=2)
-        assert stats["sample_size"] == 2
-        assert stats["median_pln"] == 450  # (400+500)/2
+        result = mva._estimate_from_matched(listings)
+        assert result["matched_count"] == 5
+        assert len(result["listings"]) == 5
 
 
 class TestShouldUpdateMarketValue:
-    """Regresja na case Barcelona/Cubarsí (2026-09-03, sezon 2026/2027):
-    odświeżenie trafiło na moment gdy znaleziono tylko 1 (podejrzanie tanią)
-    ofertę i Gemini przejściowo nic nie zwróciło — zapisana wycena spadła z
-    ~470 zł do 168 zł na podstawie jednej, niepewnej oferty."""
+    """Regresja na case Barcelona/Cubarsí i Bayern/Ribéry (2026-09-03/04):
+    stara reguła ('nie aktualizuj gdy odchylenie > próg') blokowała też
+    KOREKTĘ starej błędnej wartości silną, nową próbką — nie było jak
+    odróżnić 'nowa wartość to szum' od 'stara wartość była błędem'. Nowa
+    reguła: decyzja zależy od JAKOŚCI nowej próbki (confidence), nie samego
+    odchylenia. Spec 2026-09-03 §7."""
 
-    def test_blocks_update_with_too_few_samples(self):
-        result = {"median_pln": 168, "sample_size": 1}
-        assert mva.should_update_market_value(None, result) is False
-        assert mva.should_update_market_value(470, result) is False
+    def test_blocks_when_no_matched_listings(self):
+        assert mva.should_update_market_value(470, "high", None, "low", 0) is False
 
-    def test_allows_update_with_enough_samples_and_no_prior_value(self):
-        """Pierwsze szacowanie (dodanie do kolekcji) — current_pln=None, brak
-        punktu odniesienia do porównania odchylenia."""
-        result = {"median_pln": 470, "sample_size": 2}
-        assert mva.should_update_market_value(None, result) is True
+    def test_high_confidence_updates_unconditionally_even_with_huge_deviation(self):
+        """Ribéry: stored 185 (stare, błędne); nowe 365 z solidnej (high) próbki
+        — MUSI się zaktualizować mimo ~97% odchylenia."""
+        assert mva.should_update_market_value(185, "low", 365, "high", 3) is True
 
-    def test_blocks_update_when_deviation_too_large(self):
-        """168 zł vs obecne 470 zł to odchylenie ~64%, ponad próg 50%."""
-        result = {"median_pln": 168, "sample_size": 3}
-        assert mva.should_update_market_value(470, result) is False
+    def test_high_confidence_corrects_bad_stored_value(self):
+        """Cubarsí: stored 168 (low, błędne); nowe 608 (high) — aktualizacja."""
+        assert mva.should_update_market_value(168, "low", 608, "high", 3) is True
 
-    def test_allows_update_when_deviation_within_threshold(self):
-        result = {"median_pln": 420, "sample_size": 3}
-        assert mva.should_update_market_value(470, result) is True
+    def test_high_confidence_updates_with_no_prior_value(self):
+        assert mva.should_update_market_value(None, None, 470, "high", 3) is True
 
-    def test_allows_large_upward_deviation_within_threshold(self):
-        result = {"median_pln": 690, "sample_size": 3}  # +47% vs 470
-        assert mva.should_update_market_value(470, result) is True
+    def test_medium_confidence_updates_within_deviation_tolerance(self):
+        assert mva.should_update_market_value(470, "high", 420, "medium", 3) is True
 
-    def test_blocks_when_median_pln_missing(self):
-        assert mva.should_update_market_value(470, {"sample_size": 5}) is False
+    def test_medium_confidence_blocked_by_large_deviation_from_stronger_stored(self):
+        assert mva.should_update_market_value(470, "high", 168, "medium", 2) is False
 
-    def test_blocks_when_median_pln_is_zero(self):
-        assert mva.should_update_market_value(470, {"median_pln": 0, "sample_size": 5}) is False
+    def test_medium_confidence_updates_large_deviation_when_stored_not_stronger(self):
+        assert mva.should_update_market_value(470, "medium", 168, "medium", 2) is True
+        assert mva.should_update_market_value(470, "low", 168, "medium", 2) is True
+        assert mva.should_update_market_value(None, None, 168, "medium", 2) is True
+
+    def test_low_confidence_single_offer_does_not_override_stronger_stored(self):
+        """Skok z 1 losowej oferty przy solidnej stored (high/medium) — NIE nadpisuje."""
+        assert mva.should_update_market_value(470, "high", 100, "low", 1) is False
+        assert mva.should_update_market_value(470, "medium", 100, "low", 1) is False
+
+    def test_low_confidence_updates_when_stored_also_low_or_empty(self):
+        assert mva.should_update_market_value(168, "low", 200, "low", 1) is True
+        assert mva.should_update_market_value(None, None, 200, "low", 1) is True
+
+    def test_unknown_stored_confidence_with_existing_price_not_treated_as_low(self):
+        """Regresja na HIGH z code review 2026-09-04: zaraz po migracji
+        (market_value_confidence dopiero dodane) WSZYSTKIE istniejące pozycje
+        mają stored_price ustawione ale stored_confidence=None — domyślne
+        traktowanie None jako 'low' pozwalało pojedynczej słabej ofercie
+        nadpisać realną, wcześniej ustaloną cenę (dokładnie wzorzec Cubarsí,
+        odtworzony przez lukę w kolejności wdrożenia zamiast przez dane).
+        None ma być traktowane jak 'medium' — low NIE powinno nadpisać."""
+        assert mva.should_update_market_value(470, None, 120, "low", 1) is False
+
+    def test_unknown_stored_confidence_still_updatable_by_medium_within_tolerance(self):
+        assert mva.should_update_market_value(470, None, 450, "medium", 2) is True
+
+    def test_blocks_when_new_price_is_none(self):
+        assert mva.should_update_market_value(470, "low", None, "low", 3) is False
 
 
 class TestEstimateMarketValueBlending:
-    def test_prefers_ebay_over_gemini_when_both_have_data(self):
-        """eBay to realne, zweryfikowane dane API — ma priorytet nad Gemini,
-        który tylko samoraportuje wyniki własnego wyszukiwania. Gdy eBay ma
-        cokolwiek, wynik liczy się WYŁĄCZNIE z eBay, Gemini jest ignorowany."""
+    def test_prefers_ebay_over_gemini_when_ebay_alone_reaches_high_confidence(self):
+        """eBay to realne, zweryfikowane dane API — jeśli sama daje confidence
+        'high' (n>=3, wąski rozrzut), Gemini w ogóle nie jest wołane i nie
+        wpływa na wynik."""
         async def fake_gemini(report_data):
-            return {
-                "listings": [{"source": "gemini", "price_pln": 100, "title": "koszulka"}],
-                "sample_size": 1,
-                "median_pln": 100,
-                "source": "gemini",
-            }
+            return {"listings": [{"source": "gemini", "price_pln": 100, "title": "koszulka"}]}
 
         async def fake_ebay(query):
             return [
-                {"source": "ebay", "price_pln": 200, "title": "jersey"},
-                {"source": "ebay", "price_pln": 250, "title": "jersey"},
-                {"source": "ebay", "price_pln": 300, "title": "jersey"},
+                {"source": "ebay", "price_pln": 460, "title": "jersey"},
+                {"source": "ebay", "price_pln": 470, "title": "jersey"},
+                {"source": "ebay", "price_pln": 480, "title": "jersey"},
             ]
 
         with patch.object(mva, "estimate_via_gemini", fake_gemini), \
@@ -481,18 +653,13 @@ class TestEstimateMarketValueBlending:
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
 
         assert result["source"] == "ebay"
-        assert result["sample_size"] == 3
-        assert len(result["listings"]) == 3
+        assert result["confidence"] == "high"
+        assert result["matched_count"] == 3
         assert all(l["source"] == "ebay" for l in result["listings"])
 
     def test_falls_back_to_gemini_only_when_ebay_empty(self):
         async def fake_gemini(report_data):
-            return {
-                "listings": [{"source": "gemini", "price_pln": 100, "title": "koszulka"}],
-                "sample_size": 1,
-                "median_pln": 100,
-                "source": "gemini",
-            }
+            return {"listings": [{"source": "gemini", "price_pln": 100, "title": "koszulka"}]}
 
         async def fake_ebay(query):
             return []
@@ -502,19 +669,14 @@ class TestEstimateMarketValueBlending:
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
 
         assert result["source"] == "gemini"
-        assert result["sample_size"] == 1
+        assert result["matched_count"] == 1
 
     def test_falls_back_to_gemini_when_all_ebay_listings_filtered_out_by_category(self):
         """eBay zwraca wyniki, ale wszystkie odfiltrowane jako zły tier
-        (np. replica przy koszulce meczowej) — musi spaść na Gemini, nie
-        zwrócić pustego wyniku mimo że Gemini ma dobre dane."""
+        (replica przy koszulce meczowej) — musi spaść na Gemini, nie zwrócić
+        pustego wyniku mimo że Gemini ma dobre dane."""
         async def fake_gemini(report_data):
-            return {
-                "listings": [{"source": "gemini", "price_pln": 500, "title": "match worn jersey"}],
-                "sample_size": 1,
-                "median_pln": 500,
-                "source": "gemini",
-            }
+            return {"listings": [{"source": "gemini", "price_pln": 500, "title": "match worn jersey"}]}
 
         async def fake_ebay(query):
             return [{"source": "ebay", "price_pln": 100, "title": "official replica jersey"}]
@@ -524,13 +686,13 @@ class TestEstimateMarketValueBlending:
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {"verdict_category": "meczowa"}}))
 
         assert result["source"] == "gemini"
-        assert result["sample_size"] == 1
+        assert result["matched_count"] == 1
 
     def test_category_filter_excludes_wrong_tier_from_ebay_but_keeps_matching(self):
         """Mieszanka pasujących i niepasujących ofert eBay dla koszulki meczowej —
         replica musi odpaść, match-worn zostać."""
         async def fake_gemini(report_data):
-            return {"listings": [], "sample_size": 0}
+            return {"listings": []}
 
         async def fake_ebay(query):
             return [
@@ -543,24 +705,24 @@ class TestEstimateMarketValueBlending:
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {"verdict_category": "meczowa"}}))
 
         assert result["source"] == "ebay"
-        assert result["sample_size"] == 1
+        assert result["matched_count"] == 1
         assert result["listings"][0]["price_pln"] == 800
 
-    def test_gemini_not_called_when_ebay_alone_meets_reliability_threshold(self):
+    def test_gemini_not_called_when_ebay_alone_reaches_high_confidence(self):
         """Gemini Search Grounding kosztuje/ma limit — nie wołamy go wcale, jeśli
-        eBay samodzielnie ma wystarczająco dużo ofert (>= _MIN_RELIABLE_SAMPLE_SIZE)."""
+        eBay samodzielnie daje confidence='high'."""
         gemini_call_count = 0
 
         async def fake_gemini(report_data):
             nonlocal gemini_call_count
             gemini_call_count += 1
-            return {"listings": [], "sample_size": 0}
+            return {"listings": []}
 
         async def fake_ebay(query):
             return [
-                {"source": "ebay", "price_pln": 200, "title": "jersey"},
-                {"source": "ebay", "price_pln": 250, "title": "jersey"},
-                {"source": "ebay", "price_pln": 300, "title": "jersey"},
+                {"source": "ebay", "price_pln": 460, "title": "jersey"},
+                {"source": "ebay", "price_pln": 470, "title": "jersey"},
+                {"source": "ebay", "price_pln": 480, "title": "jersey"},
             ]
 
         with patch.object(mva, "estimate_via_gemini", fake_gemini), \
@@ -569,13 +731,11 @@ class TestEstimateMarketValueBlending:
 
         assert gemini_call_count == 0, "Gemini nie powinno być wołane gdy eBay wystarczył samodzielnie"
         assert result["source"] == "ebay"
-        assert result["low_confidence"] is False
+        assert result["confidence"] == "high"
 
-    def test_lone_ebay_listing_below_threshold_combines_with_gemini_instead_of_being_used_alone(self):
-        """Regresja: jedna samotna oferta eBay (poniżej progu) nie może całkowicie
-        przyćmić bogatszych danych z Gemini — muszą się połączyć. Finalna
-        próbka to top-3 z połączonych 4 ofert (patrz _top_offers_stats) —
-        najtańsza (400) odpada, zostaje mediana z [420, 450, 500] = 450."""
+    def test_lone_ebay_listing_below_high_confidence_combines_with_gemini(self):
+        """Pojedyncza oferta eBay (matched_count=1, więc na pewno nie 'high')
+        łączy się z danymi z Gemini zamiast być użyta samodzielnie."""
         async def fake_gemini(report_data):
             return {
                 "listings": [
@@ -583,8 +743,6 @@ class TestEstimateMarketValueBlending:
                     {"source": "gemini", "price_pln": 450, "title": "koszulka"},
                     {"source": "gemini", "price_pln": 420, "title": "koszulka"},
                 ],
-                "sample_size": 3,
-                "median_pln": 420,
             }
 
         async def fake_ebay(query):
@@ -595,19 +753,16 @@ class TestEstimateMarketValueBlending:
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
 
         assert result["source"] == "ebay+gemini"
-        assert result["sample_size"] == 3
-        assert len(result["listings"]) == 3
-        assert result["median_pln"] == 450
-        assert result["low_confidence"] is False
+        assert result["matched_count"] == 4
+        assert len(result["listings"]) == 4
 
-    def test_lone_ebay_listing_with_no_gemini_data_is_flagged_low_confidence(self):
-        """Kluczowa regresja: eBay ma tylko 1 ofertę (poniżej progu), Gemini nie
-        dorzuca nic (błąd/brak wyników/wszystko odfiltrowane) — combined ma wciąż
-        tylko 1 element. Wynik musi zostać zwrócony (nie ukrywamy jedynej ceny),
-        ale MUSI być jawnie oznaczony jako low_confidence, żeby nie wyglądał
-        identycznie jak wycena z solidną próbką."""
+    def test_lone_ebay_listing_with_no_gemini_data_is_low_confidence(self):
+        """eBay ma tylko 1 ofertę, Gemini nie dorzuca nic (błąd/brak wyników/
+        wszystko odfiltrowane) — combined ma wciąż tylko 1 element. Wynik musi
+        zostać zwrócony (nie ukrywamy jedynej ceny), ale confidence MUSI być
+        'low', żeby nie wyglądał identycznie jak wycena z solidną próbką."""
         async def fake_gemini(report_data):
-            return {"listings": [], "sample_size": 0}
+            return {"listings": []}
 
         async def fake_ebay(query):
             return [{"source": "ebay", "price_pln": 500, "title": "jersey"}]
@@ -617,8 +772,8 @@ class TestEstimateMarketValueBlending:
             result = run(mva.estimate_market_value({"subject": {}, "verdict": {}}))
 
         assert result["source"] == "ebay"
-        assert result["sample_size"] == 1
-        assert result["low_confidence"] is True
+        assert result["matched_count"] == 1
+        assert result["confidence"] == "low"
 
     def test_ebay_called_with_short_query_not_full_gemini_query(self):
         """Regresja złapana przez review: rdzeń fixu #238a181d jest w tym, że do
@@ -633,9 +788,9 @@ class TestEstimateMarketValueBlending:
         async def fake_ebay(query):
             captured_query["value"] = query
             return [
-                {"source": "ebay", "price_pln": 200, "title": "jersey"},
-                {"source": "ebay", "price_pln": 210, "title": "jersey"},
-                {"source": "ebay", "price_pln": 220, "title": "jersey"},
+                {"source": "ebay", "price_pln": 200, "title": "Paris Saint-Germain Messi #30 jersey"},
+                {"source": "ebay", "price_pln": 210, "title": "Paris Saint-Germain Messi #30 jersey"},
+                {"source": "ebay", "price_pln": 220, "title": "Paris Saint-Germain Messi #30 jersey"},
             ]
 
         report_data = {
@@ -663,13 +818,13 @@ class TestEstimateMarketValueBlending:
         buga (#238a181d), więc jego niespójność myliłaby przy przyszłym debugu."""
         async def fake_gemini(report_data):
             return {
-                "listings": [{"source": "gemini", "price_pln": 400, "title": "koszulka"}],
+                "listings": [{"source": "gemini", "price_pln": 400, "title": "Bayern koszulka"}],
                 "sample_size": 1,
                 "query_used": "pelne zapytanie gemini",
             }
 
         async def fake_ebay(query):
-            return [{"source": "ebay", "price_pln": 500, "title": "jersey"}]
+            return [{"source": "ebay", "price_pln": 500, "title": "Bayern jersey"}]
 
         report_data = {"subject": {"club": "Bayern"}, "verdict": {}}
         with patch.object(mva, "estimate_via_gemini", fake_gemini), \
