@@ -924,12 +924,21 @@ def _compute_confidence_ceiling(
                 return "medium", "Słaba jakość wykonania mimo potwierdzonego SKU"
             return "medium", "Słaba jakość wykonania blokuje high confidence meczowej"
         elif mfg_quality == "mixed":
-            if sku_effect == "supports_authentic":
-                # SKU potwierdzony + mixed mfg → high ceiling
-                # Mixed mfg przy autentycznej meczowej jest normalne
-                return "high", ""
-            elif sku_effect == "ceiling_reduced":
+            # SKU potwierdzony NIE odblokowuje tu już unrestricted high (do
+            # 2026-09-04: "supports_authentic" → "high", bez capu — traktowało
+            # mixed identycznie jak good, mimo że SKU to sam tekst/kod
+            # kreskowy, który da się przepisać z prawdziwego ogłoszenia; nie
+            # powinien samodzielnie "ratować" niejednoznacznej jakości
+            # fizycznej do pełnej pewności. Realny przypadek: case b545a7d4
+            # (PSG/Dembélé) — seams/panel/finish "mixed", a mimo to
+            # confidence_percent=95 wyłącznie dzięki potwierdzonemu SKU.
+            # "mixed" teraz zawsze capuje na medium, tak jak "poor" —
+            # spójna hierarchia: poor ≤ mixed ≤ good, nie "mixed == good
+            # gdy SKU pasuje".
+            if sku_effect == "ceiling_reduced":
                 return "low", "Mieszana jakość wykonania + brak potwierdzonego SKU — ceiling niski"
+            elif sku_effect == "supports_authentic":
+                return "medium", "Mieszana jakość wykonania — potwierdzone SKU nie zastępuje niejednoznacznej jakości fizycznej"
             else:
                 return "medium", "Mieszana jakość wykonania ogranicza ceiling meczowej"
         elif mfg_quality == "fallback":
@@ -968,15 +977,12 @@ def _compute_classification(
                 return "likely_match_issue"
             return "mixed_signals"
         if mfg_quality == "mixed":
-            # Mixed mfg + SKU confirmed/authorized
-            # → likely_match_issue (SKU wygrywa)
-            sku_status_cls = sku_verification.get("status", "uncertain")
-            if sku_status_cls in (
-                "confirmed",
-                "found_official",
-                "found_authorized",
-            ):
-                return "likely_match_issue"
+            # Do 2026-09-04 potwierdzone/autoryzowane SKU dawało tu
+            # "likely_match_issue" mimo mixed mfg — spójne z tym samym fixem
+            # co w _compute_confidence_ceiling (SKU to sam tekst/kod, można
+            # go przepisać z prawdziwego ogłoszenia; nie powinien sam
+            # zamieniać niejednoznacznej jakości fizycznej w "prawdopodobnie
+            # meczowa" na etykiecie widocznej w UI). Zawsze mixed_signals.
             return "mixed_signals"
         # fallback: legacy D-status logic
         fallback_concern = mfg_quality == "fallback" and (d_not_clean or construction_flagged)

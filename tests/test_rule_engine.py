@@ -6,6 +6,7 @@ Uruchom: pytest tests/test_rule_engine.py -v
 import pytest
 from app.services.agent_a_gemini import (
     _clean_contradictory_data_after_override,
+    _compute_classification,
     _compute_confidence_ceiling,
     _compute_manufacturing_quality,
     _meczowa_label,
@@ -219,13 +220,20 @@ class TestComputeConfidenceCeiling:
         level, _ = self._call(verdict_category="meczowa", mfg_quality="good")
         assert level == "high"
 
-    def test_meczowa_mixed_mfg_with_sku_support_returns_high(self):
+    def test_meczowa_mixed_mfg_with_sku_support_returns_medium(self):
+        """Regresja 2026-09-04 (case b545a7d4, PSG/Dembélé): potwierdzone SKU
+        nie odblokowuje już unrestricted high dla mixed mfg — SKU to sam
+        tekst/kod, można go przepisać z prawdziwego ogłoszenia, więc nie
+        powinien samodzielnie ratować niejednoznacznej jakości fizycznej do
+        pełnej pewności (95%). Przed fixem: mixed traktowane identycznie jak
+        good, gdy SKU pasuje. Teraz: mixed zawsze capuje na medium, tak jak
+        poor — spójna hierarchia poor ≤ mixed ≤ good."""
         level, _ = self._call(
             verdict_category="meczowa",
             mfg_quality="mixed",
             sku_effect="supports_authentic",
         )
-        assert level == "high"
+        assert level == "medium"
 
     def test_meczowa_mixed_mfg_ceiling_reduced_returns_medium(self):
         # ceiling_reduced trafia w ogólną regułę is_authentic_like przed blokiem meczowej
@@ -239,6 +247,130 @@ class TestComputeConfidenceCeiling:
     def test_default_authentic_good_returns_high(self):
         level, _ = self._call()
         assert level == "high"
+
+
+# ---------------------------------------------------------------------------
+# _compute_classification
+# ---------------------------------------------------------------------------
+
+class TestComputeClassification:
+    """Regresja 2026-09-04 (case b545a7d4, PSG/Dembélé): mixed manufacturing +
+    SKU potwierdzone/autoryzowane dawało 'likely_match_issue' zamiast
+    'mixed_signals' — ta sama poprawka co w _compute_confidence_ceiling
+    (SKU sam w sobie to tekst/kod, można go przepisać z prawdziwego
+    ogłoszenia, więc nie powinien samodzielnie zamieniać niejednoznacznej
+    jakości fizycznej w etykietę widoczną w UI jako 'prawdopodobnie meczowa').
+    `classification` steruje badge'em "mixed signals" we frontendzie
+    (case-report-view.tsx: isMixedSignals)."""
+
+    def _call(self, verdict_category="meczowa", dm_statuses=None, pcc=None,
+               sku_verification=None, construction_flagged=False, mfg_quality="fallback"):
+        return _compute_classification(
+            verdict_category=verdict_category,
+            dm_statuses=dm_statuses or {"C": "GREEN", "D": "GREEN", "E": "GREEN"},
+            pcc=pcc or {},
+            sku_verification=sku_verification or {},
+            construction_flagged=construction_flagged,
+            mfg_quality=mfg_quality,
+        )
+
+    def test_meczowa_mixed_mfg_with_found_authorized_sku_returns_mixed_signals(self):
+        result = self._call(
+            mfg_quality="mixed",
+            sku_verification={"status": "found_authorized"},
+        )
+        assert result == "mixed_signals"
+
+    def test_meczowa_mixed_mfg_with_found_official_sku_returns_mixed_signals(self):
+        result = self._call(
+            mfg_quality="mixed",
+            sku_verification={"status": "found_official"},
+        )
+        assert result == "mixed_signals"
+
+    def test_meczowa_mixed_mfg_without_sku_returns_mixed_signals(self):
+        result = self._call(
+            mfg_quality="mixed",
+            sku_verification={"status": "not_found"},
+        )
+        assert result == "mixed_signals"
+
+    def test_meczowa_good_mfg_with_no_conflicts_returns_likely_match_issue(self):
+        """Regresja pilnująca, że fix nie zepsuł dobrej ścieżki — good mfg
+        nadal daje pewny wynik, tylko mixed został zawężony."""
+        result = self._call(mfg_quality="good", sku_verification={"status": "found_authorized"})
+        assert result == "likely_match_issue"
+
+    def test_fake_verdict_always_likely_fake_regardless_of_mfg(self):
+        result = self._call(verdict_category="podrobka", mfg_quality="good")
+        assert result == "likely_fake"
+
+    def test_meczowa_poor_mfg_with_confirmed_sku_returns_likely_match_issue(self):
+        """Gałąź 'poor' NIE była zmieniana tym fixem — pilnuje, że pozostała
+        nietknięta (osobna, celowo węższa lista statusów SKU niż 'mixed')."""
+        result = self._call(
+            mfg_quality="poor",
+            sku_verification={"status": "confirmed"},
+        )
+        assert result == "likely_match_issue"
+
+    def test_meczowa_poor_mfg_with_found_authorized_sku_returns_mixed_signals(self):
+        """'poor' celowo NIE traktuje found_authorized jak confirmed/found_official
+        (inaczej niż 'mixed') — pre-existing, poza zakresem tego fixu, ale
+        warte zapisania jako świadomej regresji."""
+        result = self._call(
+            mfg_quality="poor",
+            sku_verification={"status": "found_authorized"},
+        )
+        assert result == "mixed_signals"
+
+    def test_meczowa_poor_mfg_without_sku_returns_mixed_signals(self):
+        result = self._call(
+            mfg_quality="poor",
+            sku_verification={"status": "not_found"},
+        )
+        assert result == "mixed_signals"
+
+    def test_meczowa_fallback_with_visual_conflict_returns_mixed_signals(self):
+        result = self._call(
+            mfg_quality="fallback",
+            dm_statuses={"C": "GREEN", "D": "RED", "E": "GREEN"},
+        )
+        assert result == "mixed_signals"
+
+    def test_meczowa_fallback_clean_returns_likely_match_issue(self):
+        result = self._call(mfg_quality="fallback")
+        assert result == "likely_match_issue"
+
+    def test_oryginalna_sklepowa_clean_returns_likely_authentic_retail(self):
+        result = self._call(verdict_category="oryginalna_sklepowa", mfg_quality="mixed")
+        assert result == "likely_authentic_retail"
+
+    def test_oryginalna_sklepowa_with_visual_conflict_returns_mixed_signals(self):
+        result = self._call(
+            verdict_category="oryginalna_sklepowa",
+            dm_statuses={"C": "RED", "D": "GREEN", "E": "GREEN"},
+        )
+        assert result == "mixed_signals"
+
+    def test_oryginalna_sklepowa_pcc_inconsistent_returns_later_modifications(self):
+        result = self._call(
+            verdict_category="oryginalna_sklepowa",
+            dm_statuses={"C": "GREEN", "D": "GREEN", "E": "YELLOW"},
+            pcc={"status": "inconsistent"},
+        )
+        assert result == "likely_authentic_base_with_later_modifications"
+
+    def test_catch_all_verdict_clean_returns_inconclusive(self):
+        result = self._call(verdict_category="oficjalna_replika")
+        assert result == "inconclusive"
+
+    def test_catch_all_verdict_with_visual_conflict_returns_mixed_signals(self):
+        result = self._call(
+            verdict_category="treningowa_custom",
+            dm_statuses={"C": "GREEN", "D": "RED", "E": "GREEN"},
+        )
+        assert result == "mixed_signals"
 
 
 # ---------------------------------------------------------------------------
@@ -595,6 +727,54 @@ class TestRunRuleEngineMeczowaPoorMfgOverride:
         summary = report["verdict"]["summary"].lower()
         assert "egzemplarz meczowy" not in summary
         assert "podróbk" in summary
+
+
+class TestRunRuleEngineMixedMfgConfidenceCap:
+    """Regresja end-to-end 2026-09-04 (case b545a7d4, PSG/Dembélé): mixed mfg
+    + SKU found_authorized nie może już dawać 95% pewności dla meczowej —
+    replay dokładnego kształtu tego realnego przypadku przez cały
+    run_rule_engine(), nie tylko przez pure functions (_compute_confidence_ceiling
+    zwraca właściwy ceiling, ale to run_rule_engine faktycznie zapisuje
+    final confidence_percent do report_data, przez _CEILING_MAP + _round_to_10
+    + resync prawdopodobieństw — to właśnie ten pełny łańcuch tu weryfikujemy)."""
+
+    def _report_dembele_shaped(self):
+        report = _minimal_report(verdict_category="meczowa", confidence=95)
+        report["verdict"]["confidence_level"] = "bardzo_wysoki"
+        report["sku_verification"] = {"status": "found_authorized"}
+        report["manufacturing_signals"] = {
+            "seams_quality": "mixed", "construction_quality": "good",
+            "panel_join_quality": "mixed", "finish_quality": "mixed",
+            "material_quality": "good", "neck_tag_quality": "good",
+            "print_application_quality": "good",
+        }
+        report["probabilities"] = {
+            "meczowa": 95, "oryginalna_sklepowa": 3, "oficjalna_replika": 1,
+            "edycja_limitowana": 1, "treningowa_custom": 0, "podrobka": 0,
+        }
+        return report
+
+    def test_confidence_percent_capped_at_60(self):
+        report = self._report_dembele_shaped()
+        run_rule_engine(report)
+        assert report["verdict"]["confidence_percent"] == 60
+
+    def test_confidence_level_downgraded_to_sredni(self):
+        report = self._report_dembele_shaped()
+        run_rule_engine(report)
+        assert report["verdict"]["confidence_level"] == "sredni"
+
+    def test_verdict_category_stays_meczowa_not_flipped(self):
+        """Cap na confidence NIE jest tym samym co override werdyktu — to
+        wciąż 'meczowa', tylko z niższą pewnością, nie 'podrobka'."""
+        report = self._report_dembele_shaped()
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "meczowa"
+
+    def test_classification_is_mixed_signals(self):
+        report = self._report_dembele_shaped()
+        result = run_rule_engine(report)
+        assert result["classification"] == "mixed_signals"
 
 
 class TestRunRuleEngineNeckTagPoorOverride:
