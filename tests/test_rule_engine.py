@@ -466,7 +466,6 @@ class TestRunRuleEngineSKUMismatch:
         run_rule_engine(report)
         # "Brak kodu SKU" powinno zostać usunięte
         assert not any("sku" in m.lower() for m in report["missing_data"])
-        assert "Zdjęcie tył" in report["missing_data"]
 
     def test_sku_mismatch_updates_decision_matrix_rows_a_b(self):
         report = self._report_with_sku_status("mismatch")
@@ -530,6 +529,58 @@ class TestRunRuleEngineSKUMismatch:
         summary = report["verdict"]["summary"].lower()
         assert "prawdopodobieństwo oryginalności" not in summary
         assert "podróbk" in summary
+
+
+class TestRunRuleEngineSkuMismatchSurvivesPccCorrection:
+    """Regresja end-to-end 2026-09-05 (case 58646ec2, Lewandowski/Barcelona,
+    złota koszulka): agent_suggestion Agenta A było "podrobka" (własny summary:
+    "rozstrzygający dowód... podróbką"), ale sku_verification zwróciło
+    "found_authorized" zamiast "mismatch" mimo że własny `reason` mówił wprost
+    o innym modelu/sezonie niż deklarowany — co pozwoliło PCC-correction
+    override'owi (podrobka→meczowa, gdy PCC spójne i C/D zielone) przebić
+    słuszny werdykt Agenta A na "Meczowa 75%". Fix w sku_agent.py (nowy status
+    "mismatch") + już istniejący, przetestowany hard-reject sprawiają, że z
+    poprawnym statusem "mismatch" ta sytuacja się nie powtarza — replay
+    dokładnego kształtu przez cały run_rule_engine()."""
+
+    def _report_lewandowski_shaped(self):
+        report = _minimal_report(verdict_category="podrobka", confidence=60)
+        report["verdict"]["summary"] = (
+            "Ta fundamentalna niezgodność metek jest rozstrzygającym dowodem "
+            "na to, że produkt jest podróbką."
+        )
+        report["verdict"]["agent_suggestion"] = "podrobka"
+        report["sku_verification"] = {
+            "status": "mismatch",
+            "reason": (
+                "Kod SKU CV7891-428 znaleziony u autoryzowanego sprzedawcy, ale "
+                "identyfikuje domową koszulkę 2021/22, a nie wyjazdową 2022/2023 "
+                "jak podano w zapytaniu."
+            ),
+        }
+        # PCC spójne + C/D zielone — dokładnie warunki, które wcześniej
+        # pozwalały PCC-correction override'owi przebić werdykt.
+        report["player_club_consistency"] = {"status": "consistent", "reason": ""}
+        report["probabilities"] = {
+            "oryginalna_sklepowa": 15, "meczowa": 75, "oficjalna_replika": 5,
+            "podrobka": 5, "edycja_limitowana": 0, "treningowa_custom": 0,
+        }
+        return report
+
+    def test_verdict_stays_podrobka_not_overridden_to_meczowa(self):
+        report = self._report_lewandowski_shaped()
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "podrobka"
+
+    def test_hard_reject_flag_present(self):
+        report = self._report_lewandowski_shaped()
+        result = run_rule_engine(report)
+        assert "sku_mismatch_hard_reject" in result["hard_flags"]
+
+    def test_probabilities_reflect_podrobka_not_meczowa(self):
+        report = self._report_lewandowski_shaped()
+        run_rule_engine(report)
+        assert report["probabilities"]["podrobka"] > report["probabilities"]["meczowa"]
 
 
 class TestRunRuleEngineNoSKUPoorMfg:

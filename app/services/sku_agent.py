@@ -56,6 +56,37 @@ Report what you find using these exact status values:
      "commonly found on fakes"
    NOTE: Being on eBay/Amazon does NOT automatically mean found_unofficial.
 
+"mismatch" — the code IS genuinely real and found on an official/authorized source
+   (same sources that would otherwise qualify as found_official/found_authorized),
+   BUT the product it identifies is clearly a DIFFERENT item than the one described
+   by the Club/Season/Brand/Model given to you above — e.g. a different season
+   (2021/22 vs the given 2022/23), a different kit type (home vs away vs third), a
+   different club entirely, or a different model/version within the SAME club/
+   season/kit-type (e.g. the code identifies a fan/replica/stadium version when
+   Model says player/match/authentic version, or vice versa — this version-tier
+   mismatch is just as real a contradiction as a season or kit-type mismatch, and
+   is one of the most common real "right code, wrong item" cases in practice).
+   A code being 100% real somewhere is NOT the same as it being right for THIS
+   item — a real code from a donor/different garment is a stronger red flag than
+   a code nobody can find at all, since it suggests a tag/label swap rather than
+   an honest gap in your search coverage.
+   Do NOT use mismatch for trivial variation that doesn't contradict what you were
+   given — a different colorway of the SAME season/kit-type/model-tier, or a
+   product page that simply omits the season/club/model (nothing to contradict),
+   is still found_official/found_authorized, not mismatch. Only use it when the
+   found product's own season, kit type, club, or model/version tier plainly
+   contradicts what was given to you.
+   TIE-BREAKER (mismatch triggers the same 90%-confidence hard-reject to
+   counterfeit as format_invalid — treat it with the same caution): base mismatch
+   on the product's canonical identity (the manufacturer/retailer's own naming for
+   that exact code, corroborated if possible across more than one source), not on
+   one listing's possibly sloppy or imprecise title/description. A single reseller
+   mislabeling old stock, or a marketplace title that's simply vague about season,
+   is a WEAKER signal than the code's own canonical designation — if your sources
+   disagree with each other, or your only signal is one ambiguous listing's title
+   rather than the code's documented identity, prefer found_official/
+   found_authorized over mismatch.
+
 "not_found" — SKU not found anywhere in search results. This is the DEFAULT outcome
    when a search turns up nothing and the code's only "problem" is that it doesn't
    match a currently-listed retail pattern — see the tie-breaker below.
@@ -87,7 +118,15 @@ CRITICAL RULES:
 - KICKS CREW, StockX, GOAT → always found_authorized, NEVER found_unofficial.
   These platforms authenticate products before sale.
 - eBay listing showing authentic jersey with matching description → found_authorized.
+  If the description does NOT match (wrong season/kit type/club) → mismatch, not
+  found_authorized — a real code on an authorized site is not "found_authorized" if
+  it identifies a different garment than the one you were given.
 - Only mark found_unofficial when the source is CLEARLY a fake/replica site.
+- A code that is real and verifiable but for the wrong garment (mismatch) is a
+  MORE serious signal than a code you simply couldn't find (not_found) — never
+  soften mismatch into found_authorized just because the source itself is
+  legitimate. The legitimacy of the source and the correctness of the match for
+  THIS item are two separate questions.
 - When in doubt between not_found and format_invalid, choose not_found — it has much
   softer downstream consequences and is the safer default.
 - ALWAYS search first, for every SKU, no matter how the format looks — never conclude
@@ -100,7 +139,7 @@ CRITICAL RULES:
 Return JSON only. No markdown. No extra text:
 
 {
-  "status": "found_official | found_authorized | found_unofficial | not_found | format_invalid",
+  "status": "found_official | found_authorized | found_unofficial | mismatch | not_found | format_invalid",
   "confidence": "low | medium | high",
   "found_product_name": "exact product name from source or empty string",
   "reason": "co dokładnie znaleziono i gdzie",

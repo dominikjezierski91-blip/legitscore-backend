@@ -804,7 +804,11 @@ def _compute_sku_effect(
     elif sku_status == "format_invalid":
         return "hard_conflict"
 
-    # Stare statusy (legacy / fallback)
+    # "confirmed"/"invalid" to prawdziwie legacy statusy, których obecny
+    # sku_agent.py już nie produkuje. "mismatch" NIE jest legacy od 2026-09-05 —
+    # to aktywny, produkowany status (patrz SKU_VERIFICATION_PROMPT w
+    # sku_agent.py) dla realnego kodu znalezionego u autoryzowanego źródła, ale
+    # dla innego modelu/sezonu/wersji niż zadeklarowany.
     if sku_status == "confirmed":
         return "supports_authentic"
     elif sku_status in ("mismatch", "invalid"):
@@ -1517,14 +1521,14 @@ def _sku_hard_reject_reason(sku_verification: Dict[str, Any]) -> str:
     format jest niepoprawny.
 
     Branże statusów pokrywa się celowo z _build_override_key_evidence() (ta sama
-    lista _sku_hard_statuses), włącznie z fallbackiem: "mismatch"/"invalid" nie
-    występują już w aktualnym schemacie sku_agent.py (found_official |
-    found_authorized | found_unofficial | not_found | format_invalid) — to
-    legacy/defensywna gałąź, nigdy nie produkowana przez obecny SKU agent —
-    ale zostawiona tu na wypadek starszych zapisanych raportów, więc fallback
-    czyta realny `reason` (jak w _build_override_key_evidence), zamiast
-    hardkodowanego tekstu, żeby nie wprowadzić tej samej klasy niespójności
-    dla tej rzadkiej ścieżki."""
+    lista _sku_hard_statuses). "invalid" to prawdziwie legacy status (nie
+    występuje w obecnym schemacie sku_agent.py) zostawiony na wypadek starszych
+    zapisanych raportów. "mismatch" NIE jest legacy od 2026-09-05 — to aktywny,
+    produkowany status (kod real+zarejestrowany, ale dla innego modelu/sezonu/
+    wersji niż zadeklarowany — patrz SKU_VERIFICATION_PROMPT w sku_agent.py).
+    Oba trafiają w ten sam fallback poniżej (brak found_product_name → czytaj
+    realny `reason`, jak w _build_override_key_evidence), zamiast hardkodowanego
+    tekstu, żeby nie wprowadzić tej samej klasy niespójności."""
     status = sku_verification.get("status", "")
     found_product = (sku_verification.get("found_product_name") or "").strip()
     if status == "found_unofficial":
