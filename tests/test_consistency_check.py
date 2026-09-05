@@ -11,7 +11,11 @@ zawodnikiem jako wejściem, zamiast poprawnie zwrócić not_applicable/uncertain
 import asyncio
 from unittest.mock import AsyncMock, patch
 
-from app.services.consistency_check import run_player_club_consistency_check, _real_value
+from app.services.consistency_check import (
+    _real_value,
+    _uncertain_insufficient,
+    run_player_club_consistency_check,
+)
 
 
 def run(coro):
@@ -96,3 +100,47 @@ class TestConsistencyCheckSkipsPlaceholderValues:
         with patch(self._CALL_GEMINI_TARGET, new=AsyncMock(return_value=fake_result)) as mock_call:
             run(run_player_club_consistency_check(report_data))
         mock_call.assert_called_once_with("Lewandowski", "FC Barcelona", "2023/24", None)
+
+
+class TestUncertainInsufficientReasonText:
+    """SPEC evidence-merge sekcja 8 (2026-09-05, case 15364d60, złota koszulka
+    Lewandowskiego): generyczny tekst "brak klubu lub sezonu" mylił, gdy klub
+    (FC Barcelona) był w rzeczywistości znany i widoczny w tabeli identyfikacji
+    produktu dwa akapity wyżej w tym samym raporcie — brakowało tylko sezonu.
+    Ten sam tekst zasila zarówno sekcję "Zgodność personalizacji" jak i wiersz F
+    (squad check) w decision_matrix (oba czytają player_club_consistency.reason
+    bezpośrednio — patrz app/routes/cases.py linia ~1013)."""
+
+    def test_missing_only_season_names_known_club(self):
+        result = _uncertain_insufficient(club_name="FC Barcelona", missing_club=False, missing_season=True)
+        assert result["reason"] == "Niewystarczające dane do sprawdzenia zgodności — brak sezonu (klub: FC Barcelona)."
+
+    def test_missing_only_club(self):
+        result = _uncertain_insufficient(club_name="", missing_club=True, missing_season=False)
+        assert "brak klubu" in result["reason"]
+        assert "sezonu" not in result["reason"]
+
+    def test_missing_both(self):
+        result = _uncertain_insufficient(club_name="", missing_club=True, missing_season=True)
+        assert "brak klubu i sezonu" in result["reason"]
+
+    def test_missing_season_without_known_club_falls_back_generically(self):
+        """Skrajny przypadek: brakuje sezonu, a klub też jest pusty (np. wywołane
+        bezpośrednio z club_name="") — nie ma czego wstawić w nawias."""
+        result = _uncertain_insufficient(club_name="", missing_club=False, missing_season=True)
+        assert result["reason"] == "Niewystarczające dane do sprawdzenia zgodności — brak sezonu."
+
+    def test_end_to_end_real_case_shape_known_club_missing_season(self):
+        """Replay dokładnego kształtu case 15364d60: club='FC Barcelona' znany,
+        season='nieustalone' (znormalizowane do pustego stringa przez _real_value)."""
+        report_data = {
+            "subject": {"player_name": "LEWANDOWSKI", "club": "FC Barcelona", "season": "nieustalone"},
+            "personalization_assessment": {"status": "zweryfikowana"},
+        }
+        with patch("app.services.consistency_check._call_gemini", new=AsyncMock()) as mock_call:
+            result = run(run_player_club_consistency_check(report_data))
+        assert result["status"] == "uncertain"
+        assert "FC Barcelona" in result["reason"]
+        assert "brak sezonu" in result["reason"]
+        assert "brak klubu" not in result["reason"]
+        mock_call.assert_not_called()

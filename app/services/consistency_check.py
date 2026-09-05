@@ -84,11 +84,24 @@ def _not_applicable() -> Dict[str, Any]:
     return {"status": "not_applicable", "confidence": "low", "reason": "", "notes": []}
 
 
-def _uncertain_insufficient() -> Dict[str, Any]:
+def _uncertain_insufficient(club_name: str = "", missing_club: bool = True, missing_season: bool = True) -> Dict[str, Any]:
+    """SPEC evidence-merge sekcja 8 (2026-09-05, case 15364d60): generyczny
+    "brak klubu lub sezonu" mylił, gdy klub był w rzeczywistości znany (np.
+    "FC Barcelona" widoczne wyżej w raporcie) i brakowało tylko sezonu —
+    czytelnik zakładał, że oba pola są nieznane. Teraz komunikat wskazuje
+    dokładnie, czego brakuje, i podaje znany klub, jeśli jest dostępny."""
+    if missing_club and missing_season:
+        detail = "brak klubu i sezonu"
+    elif missing_club:
+        detail = "brak klubu"
+    elif club_name:
+        detail = f"brak sezonu (klub: {club_name})"
+    else:
+        detail = "brak sezonu"
     return {
         "status": "uncertain",
         "confidence": "low",
-        "reason": "Niewystarczające dane do sprawdzenia zgodności (brak klubu lub sezonu).",
+        "reason": f"Niewystarczające dane do sprawdzenia zgodności — {detail}.",
         "notes": [],
     }
 
@@ -131,7 +144,9 @@ async def _run(report_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # uncertain: mamy zawodnika, ale za mało danych do oceny
     if not club_name or not season:
-        return _uncertain_insufficient()
+        return _uncertain_insufficient(
+            club_name=club_name, missing_club=not club_name, missing_season=not season,
+        )
 
     return await _call_gemini(player_name, club_name, season, player_number)
 

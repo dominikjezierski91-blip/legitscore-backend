@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from app.models.decision import Decision
 from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, combined_coverage_quality_check, red_flag_check, run_rule_engine, run_manufacturing_quality_check
 from app.services.consistency_check import run_player_club_consistency_check
+from app.services.decision_matrix_merge import merge_sku_rows_into_decision_matrix
 from app.services.kit_context_search import run_kit_context_search
 from app.services.sku_agent import run_sku_verification
 from app.services.storage import (
@@ -1046,42 +1047,19 @@ async def run_decision(
                             case_id, _sku_result.get("status"), _sku_result.get("confidence"),
                         )
 
-                    # Synchronizuj decision_matrix wiersze A i B z wynikiem SKU verification
+                    # Scal decision_matrix wiersze A i B z wynikiem SKU verification —
+                    # deterministyczne evidence-merge (SPEC 2026-09-05, case 15364d60),
+                    # NIE bezwarunkowe nadpisanie. sku_verification nie widzi zdjęć (brak
+                    # koloru, czasem brak sezonu/modelu) i ma strukturalnie mniej informacji
+                    # niż Agent A — jego wynik może wiersz POGORSZYĆ, ale nie może "wyzerować"
+                    # tego, co Agent A sam ustalił patrząc na zdjęcia. Patrz
+                    # app/services/decision_matrix_merge.py dla pełnej logiki i testów.
                     _sku_status = report_data["sku_verification"].get("status", "uncertain")
-                    _sku_reason = report_data["sku_verification"].get("reason", "")
-                    _sku_dm_map = {
-                        "found_official": (
-                            ("GREEN", "Kod SKU potwierdzony w oficjalnym źródle producenta."),
-                            ("GREEN", "Kod SKU zgodny z deklarowanym modelem i sezonem."),
-                        ),
-                        "found_authorized": (
-                            ("GREEN", "Kod SKU potwierdzony u autoryzowanego sprzedawcy."),
-                            ("YELLOW", "Kod SKU potwierdzony u autoryzowanego sprzedawcy — zgodność z modelem bardzo prawdopodobna."),
-                        ),
-                        "found_unofficial": (
-                            ("RED", "Kod SKU powiązany z nieautoryzowanymi produktami."),
-                            ("RED", "Kod SKU niezgodny z autentycznym produktem."),
-                        ),
-                        "not_found": (
-                            ("YELLOW", "Kod SKU nie został znaleziony w dostępnych źródłach."),
-                            None,  # wiersz B bez zmian
-                        ),
-                        "format_invalid": (
-                            ("RED", "Kod SKU ma nieprawidłowy format."),
-                            ("RED", "Kod SKU niezgodny z wzorcami producenta."),
-                        ),
-                    }
-                    if _sku_status in _sku_dm_map:
-                        _a_update, _b_update = _sku_dm_map[_sku_status]
-                        for _row in (report_data.get("decision_matrix") or []):
-                            if not isinstance(_row, dict):
-                                continue
-                            if _row.get("code") == "A" and _a_update:
-                                _row["status"] = _a_update[0]
-                                _row["observation"] = _a_update[1]
-                            elif _row.get("code") == "B" and _b_update:
-                                _row["status"] = _b_update[0]
-                                _row["observation"] = _b_update[1]
+                    merge_sku_rows_into_decision_matrix(
+                        report_data.get("decision_matrix") or [],
+                        report_data["sku_verification"],
+                        report_data.get("subject"),
+                    )
 
                     # Sprzątanie key_evidence sprzecznego z faktycznym wynikiem
                     # weryfikacji SKU (patrz _clean_stale_sku_key_evidence i

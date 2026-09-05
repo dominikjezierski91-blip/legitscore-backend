@@ -713,6 +713,20 @@ class TestRunRuleEngineNoSKUPoorMfg:
         assert report["verdict"]["confidence_percent"] == 80
         assert "no_sku_plus_poor_manufacturing" in result["hard_flags"]
 
+    def test_no_sku_poor_mfg_does_not_leave_row_b_green(self):
+        """QA blocker (2026-09-05): ta ścieżka nadpisuje tylko wiersz A ('Brak
+        kodu SKU przy słabej jakości...'), nigdy nie dotykała wiersza B —
+        _minimal_report()'s default ma B=GREEN, więc bez apply_global_invariant
+        na TEJ ścieżce (osobny wczesny return, nie ten na końcu funkcji) raport
+        kończył z "Podróbka" obok zielonego wiersza B — dokładnie ta sama klasa
+        buga co case 15364d60, tylko przez inną ścieżkę override'u. Repro 1:1
+        ze zgłoszenia QA."""
+        report = self._report_poor_mfg_no_sku()
+        assert report["decision_matrix"][1]["status"] == "GREEN"  # sanity: B startuje zielone
+        run_rule_engine(report)
+        row_b = next(r for r in report["decision_matrix"] if r["code"] == "B")
+        assert row_b["status"] != "GREEN"
+
     def test_no_sku_poor_mfg_regenerates_contradictory_summary(self):
         report = self._report_poor_mfg_no_sku()
         report["verdict"]["summary"] = "Wysokie prawdopodobieństwo oryginalności."
@@ -1047,6 +1061,65 @@ class TestRunRuleEnginePrintApplicationPoorOverride:
         summary = report["verdict"]["summary"].lower()
         assert "prawdopodobieństwo oryginalności" not in summary
         assert "podróbk" in summary
+
+
+class TestRunRuleEngineGlobalInvariantEndToEnd:
+    """Regresja end-to-end 2026-09-05 (case 15364d60, złota koszulka
+    Lewandowskiego): Agent A's OWN werdykt było już "podrobka" (nie przez
+    żaden hard-override w run_rule_engine — sku_verification.status=
+    "found_authorized" nie wyzwala SKU hard-reject), więc żadna z istniejących
+    ścieżek override'u w run_rule_engine nie dotykała wierszy A/B. Bez
+    globalnego niezmiennika (apply_global_invariant, wołanego na samym końcu
+    run_rule_engine) wiersz A/B mógłby zostać zielony obok werdyktu "Podróbka",
+    dokładnie jak w prawdziwym raporcie."""
+
+    def _report_verdict_already_podrobka_green_sku_rows(self):
+        report = _minimal_report(verdict_category="podrobka", confidence=95)
+        report["verdict"]["agent_suggestion"] = "podrobka"
+        # Symuluje sytuację, w której wcześniejszy etap (merge w cases.py) z
+        # jakiegoś powodu nie odpalił / nie dotknął wierszy A/B — pozostają
+        # zielone, tak jak w realnym case 15364d60 przed fixem.
+        report["decision_matrix"][0]["status"] = "GREEN"  # A
+        report["decision_matrix"][1]["status"] = "GREEN"  # B
+        # D=RED, tak jak w prawdziwym case 15364d60 ("produkt 'fantasy'") — to
+        # WAŻNE dla tego testu: musi blokować niepowiązany PCC-correction
+        # override (podrobka→meczowa, wymaga D=GREEN), żeby test faktycznie
+        # sprawdzał NOWY globalny niezmiennik, a nie przypadkiem trafiał w
+        # zupełnie inną, już istniejącą ścieżkę.
+        report["decision_matrix"][3]["status"] = "RED"  # D
+        report["sku_verification"] = {"status": "found_authorized", "reason": ""}
+        return report
+
+    def test_green_row_a_downgraded_when_final_verdict_is_podrobka(self):
+        report = self._report_verdict_already_podrobka_green_sku_rows()
+        run_rule_engine(report)
+        row_a = next(r for r in report["decision_matrix"] if r["code"] == "A")
+        assert row_a["status"] != "GREEN"
+
+    def test_green_row_b_downgraded_when_final_verdict_is_podrobka(self):
+        report = self._report_verdict_already_podrobka_green_sku_rows()
+        run_rule_engine(report)
+        row_b = next(r for r in report["decision_matrix"] if r["code"] == "B")
+        assert row_b["status"] != "GREEN"
+
+    def test_verdict_category_itself_unaffected_by_invariant(self):
+        """Niezmiennik dotyka tylko wierszy macierzy, nigdy werdyktu."""
+        report = self._report_verdict_already_podrobka_green_sku_rows()
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "podrobka"
+
+    def test_authentic_verdict_keeps_green_sku_rows(self):
+        """Kontrola negatywna: dla poprawnie autentycznego werdyktu zielone
+        wiersze A/B zostają zielone — niezmiennik nie jest nadgorliwy."""
+        report = _minimal_report(verdict_category="oryginalna_sklepowa", confidence=90)
+        report["decision_matrix"][0]["status"] = "GREEN"
+        report["decision_matrix"][1]["status"] = "GREEN"
+        report["sku_verification"] = {"status": "found_authorized", "reason": ""}
+        run_rule_engine(report)
+        row_a = next(r for r in report["decision_matrix"] if r["code"] == "A")
+        row_b = next(r for r in report["decision_matrix"] if r["code"] == "B")
+        assert row_a["status"] == "GREEN"
+        assert row_b["status"] == "GREEN"
 
 
 # ---------------------------------------------------------------------------

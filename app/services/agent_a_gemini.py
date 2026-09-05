@@ -12,6 +12,7 @@ from google import genai
 from google.genai import types
 
 from app.models.decision import Decision, Reason, Trace, Recommendation
+from app.services.decision_matrix_merge import apply_global_invariant
 
 logger = logging.getLogger(__name__)
 
@@ -1908,6 +1909,13 @@ def run_rule_engine(
         _update_decision_matrix_row(dm, "A", "RED", f"{_sku_reason} — jednoznaczny sygnał podróbki.")
         _update_decision_matrix_row(dm, "B", "RED", "Kod SKU niezgodny z tym modelem i sezonem.")
         _clean_contradictory_data_after_override(report_data)
+        # QA (2026-09-05): run_rule_engine ma TRZY wyjścia (dwa wczesne return +
+        # jeden na końcu funkcji), a apply_global_invariant był wołany tylko przed
+        # ostatnim — te dwa wczesne wracały BEZ niego. Ta konkretna ścieżka i tak
+        # ustawia A i B na RED linijkę wyżej (samospełniający się niezmiennik), ale
+        # wołamy jawnie dla spójności/defense-in-depth, żeby przyszła zmiana w tym
+        # bloku nie odtworzyła luki po cichu.
+        apply_global_invariant(dm, "podrobka")
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -2018,6 +2026,13 @@ def run_rule_engine(
         report_data["key_evidence"] = _new_evidence
         _update_decision_matrix_row(dm, "A", "RED", "Brak kodu SKU przy słabej jakości fizycznej wykonania.")
         _clean_contradictory_data_after_override(report_data)
+        # QA (2026-09-05, blocker znaleziony w tym dokładnym miejscu): ta ścieżka
+        # dotyka tylko wiersza A — wiersz B mógł zostać GREEN (np. Agent A
+        # potwierdził wizualnie zgodność personalizacji, niezależnie od problemu z
+        # SKU/jakością), a ta funkcja wraca TUTAJ, więc apply_global_invariant
+        # przed finalnym return na końcu funkcji nigdy by nie zadziałał — dokładnie
+        # ten sam bug co case 15364d60, tylko przez inną ścieżkę override'u.
+        apply_global_invariant(dm, "podrobka")
         return {
             "engine_version": "1.0",
             "classification": "likely_fake",
@@ -2487,6 +2502,12 @@ def run_rule_engine(
 
     # Problem 1: znormalizowany tekst obserwacji SKU
     sku_note = _build_sku_observation_text(subject, sku_verification)
+
+    # SPEC evidence-merge (2026-09-05, case 15364d60): globalny niezmiennik —
+    # macierz nigdy nie może przeczyć finalnemu werdyktowi. Wołane na samym
+    # końcu, PO wszystkich hard-override ścieżkach powyżej, gdy
+    # verdict_category jest już ostateczne — patrz decision_matrix_merge.py.
+    apply_global_invariant(dm, verdict_category)
 
     return {
         "engine_version": "1.0",
