@@ -806,13 +806,18 @@ def _compute_sku_effect(
         return "hard_conflict"
 
     # "confirmed"/"invalid" to prawdziwie legacy statusy, których obecny
-    # sku_agent.py już nie produkuje. "mismatch" NIE jest legacy od 2026-09-05 —
+    # sku_agent.py już nie produkuje. "product_mismatch" NIE jest legacy —
     # to aktywny, produkowany status (patrz SKU_VERIFICATION_PROMPT w
     # sku_agent.py) dla realnego kodu znalezionego u autoryzowanego źródła, ale
-    # dla innego modelu/sezonu/wersji niż zadeklarowany.
+    # dla innego produktu (model/kolor/typ kompletu/klub) niż zadeklarowany.
+    # "season_only_mismatch" (dodane 2026-09-06) jest celowo POZA tym setem —
+    # app/routes/cases.py rozstrzyga je PRZED wywołaniem run_rule_engine
+    # (koryguje sezon → found_authorized, albo eskaluje do product_mismatch
+    # gdy season_confidence Agenta A było "high" — patrz SPEC "autorytatywny
+    # SKU koryguje sezon").
     if sku_status == "confirmed":
         return "supports_authentic"
-    elif sku_status in ("mismatch", "invalid"):
+    elif sku_status in ("product_mismatch", "invalid"):
         return "hard_conflict"
     elif sku_status in ("not_found", "uncertain") and verdict_category in _AUTHENTIC_LIKE:
         return "ceiling_reduced"
@@ -967,7 +972,7 @@ def _compute_classification(
     d_red = dm_statuses.get("D") == "RED"
     d_not_clean = dm_statuses.get("D") in ("RED", "YELLOW")
     has_visual_conflict = c_red or d_red
-    sku_mismatch = sku_verification.get("status") == "mismatch"
+    sku_mismatch = sku_verification.get("status") == "product_mismatch"
     pcc_inconsistent = pcc.get("status") == "inconsistent"
     e_status = dm_statuses.get("E", "UNKNOWN")
 
@@ -1193,14 +1198,15 @@ def _build_sku_observation_text(
         return "Kod SKU nie jest widoczny na dostarczonych zdjęciach."
     sku_status = (sku_verification.get("status") or "uncertain")
     # Wartości faktycznie zwracane przez sku_agent.py (patrz run_sku_verification):
-    # found_official / found_authorized / found_unofficial / not_found / format_invalid
-    # (+ fallbacki uncertain/not_applicable). "confirmed"/"mismatch" to nazwy z
-    # nieaktualnej wersji — nigdy nie są dziś zwracane, więc ta gałąź zawsze
-    # trafiała w else i pokazywała "nie został potwierdzony" nawet dla
-    # found_official, w sprzeczności z resztą raportu (external_checks_effect).
+    # found_official / found_authorized / found_unofficial / product_mismatch /
+    # season_only_mismatch / not_found / format_invalid (+ fallbacki
+    # uncertain/not_applicable). "confirmed" to nazwa z nieaktualnej wersji —
+    # nigdy nie jest dziś zwracana, więc ta gałąź zawsze trafiała w else i
+    # pokazywała "nie został potwierdzony" nawet dla found_official, w
+    # sprzeczności z resztą raportu (external_checks_effect).
     if sku_status in ("confirmed", "found_official", "found_authorized"):
         return "Kod SKU jest zgodny z tym modelem koszulki."
-    elif sku_status in ("mismatch", "found_unofficial"):
+    elif sku_status in ("product_mismatch", "found_unofficial"):
         return f"Kod SKU ({raw_sku}) nie odpowiada opisowi tej koszulki."
     elif sku_status == "format_invalid":
         return f"Kod SKU ({raw_sku}) ma nieprawidłowy format."
@@ -1524,9 +1530,14 @@ def _sku_hard_reject_reason(sku_verification: Dict[str, Any]) -> str:
     Branże statusów pokrywa się celowo z _build_override_key_evidence() (ta sama
     lista _sku_hard_statuses). "invalid" to prawdziwie legacy status (nie
     występuje w obecnym schemacie sku_agent.py) zostawiony na wypadek starszych
-    zapisanych raportów. "mismatch" NIE jest legacy od 2026-09-05 — to aktywny,
-    produkowany status (kod real+zarejestrowany, ale dla innego modelu/sezonu/
-    wersji niż zadeklarowany — patrz SKU_VERIFICATION_PROMPT w sku_agent.py).
+    zapisanych raportów. "product_mismatch" (od 2026-09-05, przemianowane z
+    "mismatch" 2026-09-06) to aktywny, produkowany status (kod real+
+    zarejestrowany, ale dla innego produktu — model/kolor/typ kompletu/klub —
+    niż zadeklarowany; patrz SKU_VERIFICATION_PROMPT w sku_agent.py).
+    "season_only_mismatch" (dodane 2026-09-06, SPEC "autorytatywny SKU
+    koryguje sezon") NIE trafia tutaj wcale w normalnym przebiegu —
+    app/routes/cases.py rozstrzyga je (koryguje sezon → found_authorized, albo
+    eskaluje do product_mismatch) zanim run_rule_engine w ogóle się odpali.
     Oba trafiają w ten sam fallback poniżej (brak found_product_name → czytaj
     realny `reason`, jak w _build_override_key_evidence), zamiast hardkodowanego
     tekstu, żeby nie wprowadzić tej samej klasy niespójności."""
@@ -1866,7 +1877,7 @@ def run_rule_engine(
 
     # HARD REJECT: SKU mismatch / found_unofficial / format_invalid → natychmiastowy override
     # Jeśli SKU istnieje ale należy do innej koszulki lub jest nieautoryzowany — eliminuje autentyczność
-    _sku_hard_statuses = {"mismatch", "found_unofficial", "format_invalid", "invalid"}
+    _sku_hard_statuses = {"product_mismatch", "found_unofficial", "format_invalid", "invalid"}
     if sku_verification.get("status") in _sku_hard_statuses:
         raw_sku = (report_data.get("subject") or {}).get("sku", "")
         _sku_reason = _sku_hard_reject_reason(sku_verification)
@@ -2083,7 +2094,7 @@ def run_rule_engine(
     if verdict_category in _FAKE:
         _c = dm_statuses.get("C", "UNKNOWN")
         _d = dm_statuses.get("D", "UNKNOWN")
-        _sku_mismatch = sku_verification.get("status") == "mismatch"
+        _sku_mismatch = sku_verification.get("status") == "product_mismatch"
 
         strong_fake_signal = (
             (_c == "RED" and _d == "RED")
@@ -2143,7 +2154,7 @@ def run_rule_engine(
         and dm_statuses.get("C") == "GREEN"
         and dm_statuses.get("D") == "GREEN"
         and "sku_mismatch" not in hard_flags
-        and _sku_status_for_override not in ("mismatch", "found_unofficial", "format_invalid")
+        and _sku_status_for_override not in ("product_mismatch", "found_unofficial", "format_invalid")
     ):
         verdict_category = "meczowa"
         if isinstance(report_data.get("verdict"), dict):
@@ -2183,7 +2194,7 @@ def run_rule_engine(
         and dm_statuses.get("C") == "GREEN"
         and dm_statuses.get("D") == "GREEN"
         and not hard_flags
-        and _sku_status_for_override not in ("mismatch", "found_unofficial", "format_invalid")
+        and _sku_status_for_override not in ("product_mismatch", "found_unofficial", "format_invalid")
     ):
         verdict_category = "meczowa"
         if isinstance(report_data.get("verdict"), dict):

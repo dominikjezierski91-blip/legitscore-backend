@@ -41,6 +41,7 @@ Druga grupa testów (2026-09-05) — dwa kolejne realne incydenty tego samego dn
    PCC-override guardów), po prostu obecny prompt nigdy go nie produkował.
 """
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 from app.services import sku_agent
 from app.services.sku_agent import SKU_VERIFICATION_PROMPT, _not_applicable, _fallback
@@ -80,10 +81,13 @@ class TestSkuVerificationPromptRequiresSearchFirst:
         punktem odniesienia, nie twardym warunkiem."""
         assert "reference only" in SKU_VERIFICATION_PROMPT.lower()
 
-    def test_json_schema_still_lists_all_six_statuses(self):
+    def test_json_schema_still_lists_all_seven_statuses(self):
         """Tani strażnik przed przypadkowym usunięciem wartości ze schematu
         przy przyszłych edycjach promptu."""
-        for status in ["found_official", "found_authorized", "found_unofficial", "mismatch", "not_found", "format_invalid"]:
+        for status in [
+            "found_official", "found_authorized", "found_unofficial",
+            "product_mismatch", "season_only_mismatch", "not_found", "format_invalid",
+        ]:
             assert status in SKU_VERIFICATION_PROMPT
 
     def test_prefers_not_found_over_format_invalid_when_only_format_is_unusual(self):
@@ -102,32 +106,41 @@ class TestSkuVerificationPromptRequiresSearchFirst:
 class TestSkuVerificationMismatchStatus:
     """Regresja na incydent 2026-09-05 (Lewandowski, case 58646ec2) — patrz
     docstring modułu. Prompt musi instruować agenta, że kod real+registrowany
-    ALE dla innego modelu/sezonu niż podany to 'mismatch', nie 'found_authorized'."""
+    ALE dla innego produktu niż podany to 'product_mismatch', nie
+    'found_authorized'.
 
-    def test_mismatch_status_documented_in_prompt(self):
+    UWAGA (2026-09-06, SPEC "autorytatywny SKU koryguje sezon", case eb90a5cc
+    vs feee21e0): status "mismatch" rozdzielono na "product_mismatch"
+    (inny produkt — model/kolor/typ kompletu/klub) i "season_only_mismatch"
+    (ten sam produkt, tylko inny sezon — bo sezon bywa niepewnym zgadnięciem
+    Agenta A, nie twardym faktem). Testy poniżej zaktualizowane pod nową
+    nazwę/podział; klasa TestSkuVerificationSeasonOnlyMismatch pokrywa nowy
+    status i plumbing season_confidence."""
+
+    def test_product_mismatch_status_documented_in_prompt(self):
         prompt = SKU_VERIFICATION_PROMPT.lower()
-        assert '"mismatch"' in prompt
+        assert '"product_mismatch"' in prompt
 
-    def test_mismatch_distinguished_from_found_authorized_by_matching_claimed_item(self):
+    def test_product_mismatch_distinguished_from_found_authorized_by_matching_claimed_item(self):
         prompt = SKU_VERIFICATION_PROMPT.lower()
-        assert "clearly a" in prompt and "different item" in prompt
+        assert "different product" in prompt and "than the one described" in prompt
 
-    def test_mismatch_not_softened_by_legitimate_source(self):
+    def test_product_mismatch_not_softened_by_legitimate_source(self):
         """Sedno bugu: sam fakt, że źródło jest autoryzowane, nie może
         automatycznie dawać found_authorized, jeśli produkt nie pasuje do
         tego konkretnego przedmiotu."""
         prompt = " ".join(SKU_VERIFICATION_PROMPT.lower().split())
-        assert "never soften mismatch into found_authorized" in prompt
+        assert "never soften product_mismatch into found_authorized" in prompt
 
-    def test_mismatch_treated_as_stronger_signal_than_not_found(self):
+    def test_product_mismatch_treated_as_stronger_signal_than_not_found(self):
         prompt = SKU_VERIFICATION_PROMPT.lower()
         assert "stronger red flag" in prompt or "more serious signal" in prompt
 
-    def test_trivial_variation_not_mismatch(self):
-        """Nie każda różnica to mismatch — inny kolor tego samego
-        sezonu/modelu to wciąż found_authorized, nie mismatch."""
+    def test_trivial_variation_not_product_mismatch(self):
+        """Nie każda różnica to product_mismatch — inny kolor tego samego
+        modelu to wciąż found_authorized, nie product_mismatch."""
         prompt = SKU_VERIFICATION_PROMPT.lower()
-        assert "do not use mismatch for trivial variation" in prompt
+        assert "do not use product_mismatch for trivial variation" in prompt
 
     def test_model_version_tier_mismatch_covered(self):
         """Code review (2026-09-05): definicja mismatch pierwotnie wymieniała
@@ -139,7 +152,7 @@ class TestSkuVerificationMismatchStatus:
         assert "different model/version" in prompt
         assert "fan/replica" in prompt or "player/match" in prompt
 
-    def test_mismatch_has_ambiguous_listing_tie_breaker(self):
+    def test_product_mismatch_has_ambiguous_listing_tie_breaker(self):
         """QA (2026-09-05): mismatch wyzwala ten sam bezwzględny 90% hard-reject
         co format_invalid, więc zasługuje na ten sam rodzaj tie-breakera —
         wolimy found_authorized, gdy sprzeczność opiera się na jednym
@@ -147,6 +160,89 @@ class TestSkuVerificationMismatchStatus:
         prompt = " ".join(SKU_VERIFICATION_PROMPT.lower().split())
         assert "tie-breaker" in prompt and "mismatch" in prompt.split("tie-breaker")[1][:200]
         assert "canonical" in prompt
+
+
+class TestSkuVerificationSeasonOnlyMismatch:
+    """SPEC "autorytatywny SKU koryguje sezon" (2026-09-06, case eb90a5cc vs
+    feee21e0, Lewandowski/FC Barcelona): ten sam, w pełni autoryzowany kod
+    SKU (FN8792-010) dał "mismatch"→Podróbka 95% w jednym przebiegu i
+    "found_authorized"→Meczowa 80% w drugim — jedyna różnica to własne,
+    niepewne zgadnięcie sezonu Agenta A (season_confidence=medium).
+    sku_agent.py nigdy nie czytał season_confidence, więc rozbieżność
+    sezonu ze zgadniętym, niepewnym wejściem dawała ten sam bezwzględny
+    90%-hard-reject co realna niezgodność produktu."""
+
+    def test_season_only_mismatch_documented_in_prompt(self):
+        prompt = SKU_VERIFICATION_PROMPT.lower()
+        assert '"season_only_mismatch"' in prompt
+
+    def test_season_only_mismatch_is_separate_softer_status_from_product_mismatch(self):
+        prompt = SKU_VERIFICATION_PROMPT.lower()
+        assert "separate" in prompt and "softer" in prompt
+
+    def test_season_only_mismatch_requires_found_season_field(self):
+        prompt = SKU_VERIFICATION_PROMPT
+        assert "found_season" in prompt
+        assert "REQUIRED when status is season_only_mismatch" in prompt
+
+    def test_found_season_field_in_json_schema(self):
+        assert '"found_season"' in SKU_VERIFICATION_PROMPT
+
+    def test_season_confidence_instructs_not_to_escalate_to_product_mismatch(self):
+        """Sedno regresji: sam fakt niezgodności sezonu, gdy sezon był
+        niepewnym zgadnięciem, nie może eskalować do product_mismatch."""
+        prompt = " ".join(SKU_VERIFICATION_PROMPT.lower().split())
+        assert "never escalate a season-only discrepancy to product_mismatch" in prompt
+
+    def test_season_only_mismatch_not_used_when_other_fields_also_conflict(self):
+        prompt = " ".join(SKU_VERIFICATION_PROMPT.lower().split())
+        assert "that combination is product_mismatch" in prompt
+
+
+class TestSkuVerificationSeasonConfidencePlumbing:
+    """Plumbing season_confidence do promptu — bez tego był karmiony
+    niepewnym zgadnięciem Agenta A jak twardym faktem."""
+
+    def test_run_reads_season_confidence_from_subject(self):
+        report_data = {
+            "subject": {
+                "sku": "FN8792-010", "club": "FC Barcelona", "season": "2023-2024",
+                "brand": "Nike", "model": "wyjazdowa", "season_confidence": "medium",
+            },
+        }
+        fake_result = {"status": "found_authorized", "confidence": "high"}
+        with patch("app.services.sku_agent._call_gemini", new=AsyncMock(return_value=fake_result)) as mock_call:
+            asyncio.run(sku_agent._run(report_data))
+        mock_call.assert_called_once_with(
+            "FN8792-010", "FC Barcelona", "2023-2024", "Nike", "wyjazdowa", "medium",
+        )
+
+    def test_call_gemini_marks_season_as_uncertain_guess_when_confidence_not_high(self):
+        prompt_input = sku_agent._build_input_lines(
+            "FN8792-010", "FC Barcelona", "2023-2024", "Nike", "wyjazdowa", "medium",
+        )
+        joined = "\n".join(prompt_input)
+        assert "uncertain guess" in joined
+        assert "2023-2024" in joined
+
+    def test_call_gemini_does_not_mark_season_uncertain_when_confidence_high(self):
+        prompt_input = sku_agent._build_input_lines(
+            "FN8792-010", "FC Barcelona", "2023-2024", "Nike", "wyjazdowa", "high",
+        )
+        joined = "\n".join(prompt_input)
+        assert "uncertain guess" not in joined
+        assert "Season: 2023-2024" in joined
+
+    def test_call_gemini_does_not_mark_season_uncertain_when_confidence_missing(self):
+        """Brak season_confidence (starsze raporty sprzed tego pola) — nie
+        blokuje ani nie oznacza niepewności domyślnie; zachowuje się jak
+        przed tym fixem."""
+        prompt_input = sku_agent._build_input_lines(
+            "FN8792-010", "FC Barcelona", "2023-2024", "Nike", "wyjazdowa", None,
+        )
+        joined = "\n".join(prompt_input)
+        assert "uncertain guess" not in joined
+        assert "Season: 2023-2024" in joined
 
 
 class TestSkuVerificationHelpers:

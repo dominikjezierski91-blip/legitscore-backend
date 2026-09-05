@@ -23,6 +23,7 @@ from app.services.decision_matrix_merge import (
     merge_row,
     merge_sku_rows_into_decision_matrix,
     reclassify_quality_only_impact,
+    resolve_season_only_sku_mismatch,
 )
 
 
@@ -150,16 +151,31 @@ class TestMergeRowMonotonicity:
 # ---------------------------------------------------------------------------
 
 class TestBuildSkuContributionsMismatch:
-    """SPEC kryterium 5: mismatch dokłada problem."""
+    """SPEC kryterium 5: product_mismatch dokłada problem. Status "mismatch"
+    przemianowano na "product_mismatch"/"season_only_mismatch" 2026-09-06
+    (SPEC "autorytatywny SKU koryguje sezon", case eb90a5cc vs feee21e0)."""
 
-    def test_mismatch_produces_problem_on_both_rows(self):
+    def test_product_mismatch_produces_problem_on_both_rows(self):
         contribs = build_sku_contributions(
-            {"status": "mismatch", "reason": "Kod z innego modelu."},
+            {"status": "product_mismatch", "reason": "Kod z innego modelu."},
             {"club": "FC Barcelona", "season": "2023/24", "model": "domowa"},
         )
         by_row = {c.row: c for c in contribs}
         assert by_row["A"].status == "problem"
         assert by_row["B"].status == "problem"
+        assert by_row["B"].claim_scope == "sku_mismatch"
+
+    def test_season_only_mismatch_produces_soft_uwaga_not_problem(self):
+        """Residualny przypadek (korekta niemożliwa, brak found_season) —
+        celowo miękkie zastrzeżenie, nie twardy "problem", bo nie wiadomo,
+        czy to prawdziwa niezgodność, czy tylko złe zgadnięcie sezonu."""
+        contribs = build_sku_contributions(
+            {"status": "season_only_mismatch", "reason": "Inny sezon, brak found_season."},
+            {"club": "FC Barcelona", "season": "2023/24", "model": "domowa"},
+        )
+        by_row = {c.row: c for c in contribs}
+        assert by_row["A"].status == "uwaga"
+        assert by_row["B"].status == "uwaga"
         assert by_row["B"].claim_scope == "sku_mismatch"
 
 
@@ -275,14 +291,14 @@ class TestMergeSkuRowsIntoDecisionMatrixEndToEnd:
         assert row_a["status"] == "YELLOW"
         assert "nie zweryfikowano zgodności" in row_a["observation"]
 
-    def test_mismatch_upgrades_previously_green_row_b_to_problem(self):
-        """SPEC kryterium 'mismatch dokłada problem': sku_verification(mismatch)
-        + agent_a_visual(B, ok) → B staje się problem."""
+    def test_product_mismatch_upgrades_previously_green_row_b_to_problem(self):
+        """SPEC kryterium 'mismatch dokłada problem': sku_verification
+        (product_mismatch) + agent_a_visual(B, ok) → B staje się problem."""
         dm = [
             {"code": "A", "status": "GREEN", "observation": "OK.", "weight": 3, "impact": "obniza"},
             {"code": "B", "status": "GREEN", "observation": "Wygląda zgodnie.", "weight": 2, "impact": "obniza"},
         ]
-        sku_verification = {"status": "mismatch", "reason": "Zupełnie inny model."}
+        sku_verification = {"status": "product_mismatch", "reason": "Zupełnie inny model."}
         subject = {"club": "FC Barcelona", "season": "2023/24", "model": "domowa"}
         merge_sku_rows_into_decision_matrix(dm, sku_verification, subject)
         row_b = next(r for r in dm if r["code"] == "B")
@@ -296,7 +312,7 @@ class TestMergeSkuRowsIntoDecisionMatrixEndToEnd:
 
     def test_missing_rows_a_b_does_not_crash(self):
         dm = [{"code": "C", "status": "GREEN", "observation": "", "weight": 5}]
-        merge_sku_rows_into_decision_matrix(dm, {"status": "mismatch"}, {})  # no exception
+        merge_sku_rows_into_decision_matrix(dm, {"status": "product_mismatch"}, {})  # no exception
         assert dm[0]["code"] == "C"  # untouched
 
     def test_unknown_status_preserved_when_no_contribution_applies(self):
@@ -718,3 +734,150 @@ class TestComputeSeasonDisplay:
         patrz test_prompt_a_season_confidence.py) jest konieczna OBOK tej
         funkcji, nie zamiast niej."""
         assert compute_season_display("2026-2027", "high") == "2026-2027"
+
+
+class TestResolveSeasonOnlySkuMismatch:
+    """SPEC "autorytatywny SKU koryguje sezon" (2026-09-06, case eb90a5cc vs
+    feee21e0, Lewandowski/FC Barcelona). Replay realnego regresu: ten sam,
+    w pełni autoryzowany kod SKU FN8792-010 dał w jednym przebiegu
+    "mismatch"→Podróbka 95%, a w drugim "found_authorized"→Meczowa 80% —
+    jedyna różnica to własne, niepewne zgadnięcie sezonu Agenta A
+    (season_confidence="medium" w obu przypadkach)."""
+
+    def _sku_verification(self, found_season=""):
+        return {
+            "status": "season_only_mismatch",
+            "confidence": "high",
+            "found_product_name": "Nike FC Barcelona Stadium Away Jsy 24/25",
+            "found_season": found_season,
+            "reason": "Kod SKU FN8792-010 znaleziony, ale identyfikuje sezon 24/25, nie 23/24.",
+            "source_url": "https://example.com",
+        }
+
+    def test_not_applicable_when_status_is_not_season_only_mismatch(self):
+        sku = {"status": "found_authorized"}
+        subject = {"season": "2023-2024", "season_confidence": "medium"}
+        result = resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert result == "not_applicable"
+        assert sku["status"] == "found_authorized"  # nietknięte
+
+    def test_high_confidence_escalates_to_product_mismatch(self):
+        """Kryterium akceptacji: season_only_mismatch + high ⇒ hard-reject
+        (Agent A był pewny sezonu, a mimo to kod jest z innego — realny sygnał)."""
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {"season": "2023-2024", "season_confidence": "high"}
+        result = resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert result == "escalated"
+        assert sku["status"] == "product_mismatch"
+        assert subject["season"] == "2023-2024"  # NIE korygowane przy high
+
+    def test_medium_confidence_with_found_season_corrects_and_repairs_status(self):
+        """Kryterium akceptacji: autoryzowany SKU + season_only_mismatch przy
+        medium ⇒ korekta, normalna ścieżka (jak w feee21e0), NIE hard-reject."""
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {"season": "2023-2024", "season_confidence": "medium"}
+        result = resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert result == "corrected"
+        assert sku["status"] == "found_authorized"
+        assert subject["season"] == "2024/25"
+
+    def test_low_confidence_with_found_season_also_corrects(self):
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {"season": "2023-2024", "season_confidence": "low"}
+        result = resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert result == "corrected"
+        assert sku["status"] == "found_authorized"
+
+    def test_missing_confidence_treated_as_not_high_and_corrects(self):
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {"season": "2023-2024"}  # brak season_confidence
+        result = resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert result == "corrected"
+
+    def test_correction_forces_season_confidence_low_per_h1(self):
+        """Zasada H1 (poprzedni SPEC): automatyczna korekta pola unieważnia
+        pewność tego pola — nawet po korekcie sezon nie jest pewny."""
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {"season": "2023-2024", "season_confidence": "medium"}
+        resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert subject["season_confidence"] == "low"
+
+    def test_correction_re_gates_season_dependent_decision_matrix_rows(self):
+        """apply_season_correction re-bramkuje decision_matrix — sprawdzone
+        pośrednio przez efekt na wierszu D o mocnym impact zależnym od sezonu."""
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {"season": "2023-2024", "season_confidence": "medium"}
+        dm = [{"code": "D", "status": "RED", "observation": "Sprzeczność technologii dla sezonu 23/24.", "impact": "obniza"}]
+        resolve_season_only_sku_mismatch(sku, subject, dm, [])
+        assert dm[0]["impact"] == "ogranicza_pewnosc"
+
+    def test_medium_confidence_without_found_season_stays_unresolved(self):
+        """Kryterium akceptacji: brak found_season ⇒ nie ma na co skorygować
+        — status zostaje season_only_mismatch (miękkie zastrzeżenie), NIE
+        eskalacja do product_mismatch i NIE fałszywa korekta."""
+        sku = self._sku_verification(found_season="")
+        subject = {"season": "2023-2024", "season_confidence": "medium"}
+        result = resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert result == "unresolved"
+        assert sku["status"] == "season_only_mismatch"
+        assert subject["season"] == "2023-2024"  # nietknięte
+        assert subject["season_confidence"] == "medium"  # nietknięte
+
+    def test_non_string_found_season_does_not_crash(self):
+        """QA (2026-09-06): brak str() coercji rzucał AttributeError, gdyby
+        Gemini kiedyś zwrócił found_season jako liczbę zamiast stringa —
+        zamieniało to miękką korektę w CAŁKOWICIE nieudaną analizę zamiast
+        bezpiecznego spadku do "unresolved"."""
+        sku = self._sku_verification(found_season=2024)
+        subject = {"season": "2023-2024", "season_confidence": "medium"}
+        result = resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert result == "corrected"
+        assert subject["season"] == "2024"
+
+    def test_reason_text_documents_the_correction(self):
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {"season": "2023-2024", "season_confidence": "medium"}
+        resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert "skorygowany" in sku["reason"].lower()
+
+    def test_case_insensitive_high_confidence_check(self):
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {"season": "2023-2024", "season_confidence": " High "}
+        result = resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert result == "escalated"
+
+    def test_does_not_touch_verdict_fields(self):
+        sku = self._sku_verification(found_season="2024/25")
+        subject = {
+            "season": "2023-2024", "season_confidence": "medium",
+            "verdict_category": "meczowa", "confidence_percent": 80,
+        }
+        resolve_season_only_sku_mismatch(sku, subject, [], [])
+        assert subject["verdict_category"] == "meczowa"
+        assert subject["confidence_percent"] == 80
+
+    def test_replay_eb90a5cc_full_convergence_with_feee21e0(self):
+        """Kryterium akceptacji: konwergencja niezależnie od zgadnięcia sezonu
+        — replay obu realnych przebiegów (eb90a5cc: zgadł 23/24, medium;
+        feee21e0: zgadł 24/25, trafił). Po fixie obie ścieżki kończą tym
+        samym statusem sku_verification (found_authorized), więc żadna nie
+        dostaje 90%-hard-rejectu z powodu samego zgadnięcia sezonu."""
+        # eb90a5cc: Agent A zgadł źle (23/24), SKU realnie to 24/25.
+        sku_wrong_guess = {
+            "status": "season_only_mismatch", "confidence": "high",
+            "found_product_name": "Nike FC Barcelona Stadium Away Jsy 24/25",
+            "found_season": "2024/25",
+            "reason": "Kod SKU FN8792-010 identyfikuje sezon 2024/25, nie 2023/24.",
+        }
+        subject_wrong_guess = {"season": "2023-2024", "season_confidence": "medium"}
+        result_wrong = resolve_season_only_sku_mismatch(sku_wrong_guess, subject_wrong_guess, [], [])
+
+        # feee21e0: Agent A zgadł dobrze (24/25) — sku_agent od razu zwraca
+        # found_authorized, ta funkcja się nie odpala (not_applicable).
+        sku_right_guess = {"status": "found_authorized", "confidence": "high"}
+        subject_right_guess = {"season": "2024/2025", "season_confidence": "medium"}
+        result_right = resolve_season_only_sku_mismatch(sku_right_guess, subject_right_guess, [], [])
+
+        assert result_wrong == "corrected"
+        assert result_right == "not_applicable"
+        assert sku_wrong_guess["status"] == sku_right_guess["status"] == "found_authorized"

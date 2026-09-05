@@ -56,36 +56,61 @@ Report what you find using these exact status values:
      "commonly found on fakes"
    NOTE: Being on eBay/Amazon does NOT automatically mean found_unofficial.
 
-"mismatch" — the code IS genuinely real and found on an official/authorized source
-   (same sources that would otherwise qualify as found_official/found_authorized),
-   BUT the product it identifies is clearly a DIFFERENT item than the one described
-   by the Club/Season/Brand/Model given to you above — e.g. a different season
-   (2021/22 vs the given 2022/23), a different kit type (home vs away vs third), a
-   different club entirely, or a different model/version within the SAME club/
-   season/kit-type (e.g. the code identifies a fan/replica/stadium version when
-   Model says player/match/authentic version, or vice versa — this version-tier
-   mismatch is just as real a contradiction as a season or kit-type mismatch, and
-   is one of the most common real "right code, wrong item" cases in practice).
+"product_mismatch" — the code IS genuinely real and found on an official/authorized
+   source (same sources that would otherwise qualify as found_official/found_authorized),
+   BUT the product it identifies is a DIFFERENT PRODUCT than the one described by the
+   Club/Brand/Model given to you above — e.g. a different kit type (home vs away vs
+   third), a different club entirely, or a different model/version within the SAME
+   club/kit-type (e.g. the code identifies a fan/replica/stadium version when Model says
+   player/match/authentic version, or vice versa — this version-tier mismatch is just as
+   real a contradiction as a kit-type mismatch, and is one of the most common real
+   "right code, wrong item" cases in practice).
+   Do NOT use product_mismatch for a discrepancy that is ONLY about season — see
+   "season_only_mismatch" below. That is a deliberately separate, much softer status,
+   because the given season is very often just an uncertain visual guess, not a hard
+   fact — see "Season confidence" below.
    A code being 100% real somewhere is NOT the same as it being right for THIS
    item — a real code from a donor/different garment is a stronger red flag than
    a code nobody can find at all, since it suggests a tag/label swap rather than
    an honest gap in your search coverage.
-   Do NOT use mismatch for trivial variation that doesn't contradict what you were
-   given — a different colorway of the SAME season/kit-type/model-tier, or a
-   product page that simply omits the season/club/model (nothing to contradict),
-   is still found_official/found_authorized, not mismatch. Only use it when the
-   found product's own season, kit type, club, or model/version tier plainly
-   contradicts what was given to you.
-   TIE-BREAKER (mismatch triggers the same 90%-confidence hard-reject to
-   counterfeit as format_invalid — treat it with the same caution): base mismatch
+   Do NOT use product_mismatch for trivial variation that doesn't contradict what you
+   were given — a different colorway of the SAME kit-type/model-tier, or a product page
+   that simply omits the club/model (nothing to contradict), is still found_official/
+   found_authorized, not product_mismatch. Only use it when the found product's own kit
+   type, club, or model/version tier plainly contradicts what was given to you.
+   TIE-BREAKER (product_mismatch triggers the same 90%-confidence hard-reject to
+   counterfeit as format_invalid — treat it with the same caution): base product_mismatch
    on the product's canonical identity (the manufacturer/retailer's own naming for
    that exact code, corroborated if possible across more than one source), not on
    one listing's possibly sloppy or imprecise title/description. A single reseller
-   mislabeling old stock, or a marketplace title that's simply vague about season,
+   mislabeling old stock, or a marketplace title that's simply vague about the product,
    is a WEAKER signal than the code's own canonical designation — if your sources
    disagree with each other, or your only signal is one ambiguous listing's title
    rather than the code's documented identity, prefer found_official/
-   found_authorized over mismatch.
+   found_authorized over product_mismatch.
+
+"season_only_mismatch" — the code IS genuinely real, found on an official/authorized
+   source, and identifies the SAME product (same club, same kit type, same model/version
+   tier) as what was given to you — but for a DIFFERENT SEASON than the given "Season"
+   (e.g. the code identifies the 2024/25 away kit, but you were given Season: 2023/24).
+   This is deliberately a SEPARATE, softer status from product_mismatch — see "Season
+   confidence" below for why.
+   You MUST fill "found_season" with the season the code actually identifies (whatever
+   format the source itself uses, e.g. "2024/25" or "2024-2025") whenever you use this
+   status — it is used to correct the season in the report, so leaving it empty defeats
+   the purpose of this status.
+   Do NOT use season_only_mismatch if anything ELSE about the product also contradicts
+   what was given (a different club/kit-type/model-tier too) — that combination is
+   product_mismatch, a stronger signal.
+
+Season confidence — the input may include a "Season" line marked as an uncertain guess
+(low/medium confidence, or explicitly called a hypothesis). When that is the case, a
+season-only discrepancy is expected and unsurprising — it does NOT indicate a fake or a
+swapped tag, it just means the guess was wrong. NEVER escalate a season-only discrepancy
+to product_mismatch just because the given season doesn't match, no matter how the
+confidence was marked — season_only_mismatch exists specifically for this case. A season
+discrepancy only ever becomes product_mismatch when combined with a genuine, separate
+club/kit-type/model-tier contradiction.
 
 "not_found" — SKU not found anywhere in search results. This is the DEFAULT outcome
    when a search turns up nothing and the code's only "problem" is that it doesn't
@@ -118,13 +143,14 @@ CRITICAL RULES:
 - KICKS CREW, StockX, GOAT → always found_authorized, NEVER found_unofficial.
   These platforms authenticate products before sale.
 - eBay listing showing authentic jersey with matching description → found_authorized.
-  If the description does NOT match (wrong season/kit type/club) → mismatch, not
+  If the description does NOT match on kit type/club/model-tier → product_mismatch, not
   found_authorized — a real code on an authorized site is not "found_authorized" if
-  it identifies a different garment than the one you were given.
+  it identifies a different garment than the one you were given. If the ONLY mismatch
+  is season → season_only_mismatch (softer, see above).
 - Only mark found_unofficial when the source is CLEARLY a fake/replica site.
-- A code that is real and verifiable but for the wrong garment (mismatch) is a
+- A code that is real and verifiable but for the wrong garment (product_mismatch) is a
   MORE serious signal than a code you simply couldn't find (not_found) — never
-  soften mismatch into found_authorized just because the source itself is
+  soften product_mismatch into found_authorized just because the source itself is
   legitimate. The legitimacy of the source and the correctness of the match for
   THIS item are two separate questions.
 - When in doubt between not_found and format_invalid, choose not_found — it has much
@@ -139,9 +165,10 @@ CRITICAL RULES:
 Return JSON only. No markdown. No extra text:
 
 {
-  "status": "found_official | found_authorized | found_unofficial | mismatch | not_found | format_invalid",
+  "status": "found_official | found_authorized | found_unofficial | product_mismatch | season_only_mismatch | not_found | format_invalid",
   "confidence": "low | medium | high",
   "found_product_name": "exact product name from source or empty string",
+  "found_season": "season the code actually identifies, e.g. '2024/25' — REQUIRED when status is season_only_mismatch, empty string otherwise",
   "reason": "co dokładnie znaleziono i gdzie",
   "source_url": "URL źródła lub pusty string"
 }"""
@@ -187,8 +214,52 @@ async def _run(report_data: Dict[str, Any]) -> Dict[str, Any]:
     season = (subject.get("season") or "").strip()
     brand = (subject.get("brand") or "").strip()
     model = (subject.get("model") or "").strip()
+    # SPEC "autorytatywny SKU koryguje sezon" (2026-09-06, case eb90a5cc vs
+    # feee21e0): bez tego pole Season poniżej było wysyłane do promptu jako
+    # twardy fakt, mimo że subject.season bywa niepewnym zgadnięciem Agenta A
+    # (season_confidence medium/low) — rozbieżność sezonu ze zgadniętym,
+    # niepewnym wejściem prowadziła do tego samego 90%-hard-rejectu co
+    # rzeczywista niezgodność produktu.
+    season_confidence = subject.get("season_confidence")
 
-    return await _call_gemini(sku, club, season, brand, model)
+    return await _call_gemini(sku, club, season, brand, model, season_confidence)
+
+
+def _build_input_lines(
+    sku: str,
+    club: str,
+    season: str,
+    brand: str,
+    model: str,
+    season_confidence: Optional[str] = None,
+) -> list:
+    """Buduje linie wejścia dla promptu weryfikacji SKU. Wydzielone z
+    _call_gemini żeby dało się przetestować jednostkowo (patrz
+    test_sku_agent.py) bez mockowania całego klienta Gemini.
+
+    SPEC "autorytatywny SKU koryguje sezon" (2026-09-06): gdy season_confidence
+    != "high", sezon jest jawnie oznaczony jako niepewne zgadnięcie, nie
+    twardy fakt — bez tego prompt traktował subject.season identycznie
+    niezależnie od tego, jak bardzo Agent A sam był go pewien."""
+    input_lines = [f"SKU: {sku}"]
+    if club:
+        input_lines.append(f"Club: {club}")
+    if season:
+        _conf_normalized = (
+            season_confidence.strip().lower()
+            if isinstance(season_confidence, str) else None
+        )
+        if _conf_normalized and _conf_normalized != "high":
+            input_lines.append(
+                f"Season (uncertain guess, confidence={season_confidence}): {season}"
+            )
+        else:
+            input_lines.append(f"Season: {season}")
+    if brand:
+        input_lines.append(f"Brand: {brand}")
+    if model:
+        input_lines.append(f"Model: {model}")
+    return input_lines
 
 
 async def _call_gemini(
@@ -197,6 +268,7 @@ async def _call_gemini(
     season: str,
     brand: str,
     model: str,
+    season_confidence: Optional[str] = None,
 ) -> Dict[str, Any]:
     try:
         from google import genai
@@ -211,15 +283,7 @@ async def _call_gemini(
 
     gemini_model = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash")
 
-    input_lines = [f"SKU: {sku}"]
-    if club:
-        input_lines.append(f"Club: {club}")
-    if season:
-        input_lines.append(f"Season: {season}")
-    if brand:
-        input_lines.append(f"Brand: {brand}")
-    if model:
-        input_lines.append(f"Model: {model}")
+    input_lines = _build_input_lines(sku, club, season, brand, model, season_confidence)
 
     try:
         client = genai.Client(api_key=api_key)

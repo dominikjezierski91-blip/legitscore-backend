@@ -22,6 +22,7 @@ from app.services.decision_matrix_merge import (
     gate_season_dependent_evidence,
     merge_sku_rows_into_decision_matrix,
     reclassify_quality_only_impact,
+    resolve_season_only_sku_mismatch,
 )
 from app.services.kit_context_search import run_kit_context_search
 from app.services.sku_agent import run_sku_verification
@@ -1073,6 +1074,32 @@ async def run_decision(
                         logger.info(
                             "[SKU_VERIFICATION] case_id=%s status=%s confidence=%s",
                             case_id, _sku_result.get("status"), _sku_result.get("confidence"),
+                        )
+
+                    # SPEC "autorytatywny SKU koryguje sezon" (2026-09-06, case
+                    # eb90a5cc vs feee21e0): season_only_mismatch (kod realny,
+                    # autoryzowany, TEN SAM produkt — różni się TYLKO sezon
+                    # względem niepewnego zgadnięcia Agenta A) rozstrzygamy wg
+                    # season_confidence Agenta A, ZANIM merge/run_rule_engine w
+                    # ogóle zobaczą ten status — patrz
+                    # resolve_season_only_sku_mismatch dla pełnej logiki i
+                    # testów (3 ścieżki: eskalacja/korekta/nierozstrzygnięte).
+                    _sku_verification = report_data["sku_verification"]
+                    _subject_for_sku = report_data.get("subject") or {}
+                    _sku_resolution = resolve_season_only_sku_mismatch(
+                        _sku_verification,
+                        _subject_for_sku,
+                        report_data.get("decision_matrix") or [],
+                        report_data.get("key_evidence"),
+                    )
+                    if _sku_resolution != "not_applicable":
+                        report_data["subject"] = _subject_for_sku
+                        logger.info(
+                            "[SKU_SEASON_MISMATCH] case_id=%s resolution=%s "
+                            "season_confidence=%s found_season=%s",
+                            case_id, _sku_resolution,
+                            _subject_for_sku.get("season_confidence"),
+                            _sku_verification.get("found_season"),
                         )
 
                     # Scal decision_matrix wiersze A i B z wynikiem SKU verification —

@@ -548,7 +548,7 @@ class TestRunRuleEngineSKUMismatch:
         assert report["verdict"]["verdict_category"] == "podrobka"
 
     def test_mismatch_triggers_override(self):
-        report = self._report_with_sku_status("mismatch")
+        report = self._report_with_sku_status("product_mismatch")
         result = run_rule_engine(report)
         assert report["verdict"]["verdict_category"] == "podrobka"
         assert report["probabilities"]["podrobka"] == 90
@@ -565,6 +565,18 @@ class TestRunRuleEngineSKUMismatch:
         run_rule_engine(report)
         assert report["verdict"]["verdict_category"] == "oryginalna_sklepowa"
 
+    def test_season_only_mismatch_does_not_trigger_override(self):
+        """SPEC "autorytatywny SKU koryguje sezon" (2026-09-06): season_only_
+        mismatch NIGDY nie trafia do run_rule_engine w tym stanie w normalnym
+        przebiegu — app/routes/cases.py rozstrzyga je wcześniej
+        (resolve_season_only_sku_mismatch: koryguje→found_authorized, albo
+        eskaluje→product_mismatch). Ten test to defense-in-depth na wypadek,
+        gdyby ta rezolucja kiedyś nie zadziałała: run_rule_engine SAM z siebie
+        nie może traktować season_only_mismatch jak twardy sygnał podróbki."""
+        report = self._report_with_sku_status("season_only_mismatch")
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "oryginalna_sklepowa"
+
     def test_sku_mismatch_cleans_contradictory_missing_data(self):
         report = self._report_with_sku_status("found_unofficial")
         report["missing_data"] = ["Brak kodu SKU", "Zdjęcie tył"]
@@ -573,7 +585,7 @@ class TestRunRuleEngineSKUMismatch:
         assert not any("sku" in m.lower() for m in report["missing_data"])
 
     def test_sku_mismatch_updates_decision_matrix_rows_a_b(self):
-        report = self._report_with_sku_status("mismatch")
+        report = self._report_with_sku_status("product_mismatch")
         run_rule_engine(report)
         dm = {row["code"]: row for row in report["decision_matrix"]}
         assert dm["A"]["status"] == "RED"
@@ -598,7 +610,7 @@ class TestRunRuleEngineSKUMismatch:
         realny sku_verification.reason, nie hardkodowany generyczny tekst,
         żeby nie wprowadzić tej samej klasy niespójności confidence_explanation
         vs key_evidence dla tej ścieżki."""
-        report = self._report_with_sku_status("mismatch")
+        report = self._report_with_sku_status("product_mismatch")
         run_rule_engine(report)
         explanation = report["verdict"]["confidence_explanation"].lower()
         # _report_with_sku_status ustawia reason="SKU test reason."
@@ -609,7 +621,7 @@ class TestRunRuleEngineSKUMismatch:
         (key_evidence[0], budowane przez _build_override_key_evidence) muszą
         opisywać ten sam powód override'u — to dokładnie ta klasa buga, która
         wywołała ten fix (dwie sekcje tego samego raportu mówiące co innego)."""
-        for status in ["found_unofficial", "format_invalid", "mismatch"]:
+        for status in ["found_unofficial", "format_invalid", "product_mismatch"]:
             report = self._report_with_sku_status(status)
             run_rule_engine(report)
             explanation = report["verdict"]["confidence_explanation"].lower()
@@ -656,7 +668,7 @@ class TestRunRuleEngineSkuMismatchSurvivesPccCorrection:
         )
         report["verdict"]["agent_suggestion"] = "podrobka"
         report["sku_verification"] = {
-            "status": "mismatch",
+            "status": "product_mismatch",
             "reason": (
                 "Kod SKU CV7891-428 znaleziony u autoryzowanego sprzedawcy, ale "
                 "identyfikuje domową koszulkę 2021/22, a nie wyjazdową 2022/2023 "
@@ -844,7 +856,7 @@ class TestRunRuleEngineProbabilitiesSync:
 
     def test_sku_mismatch_zeroes_non_podrobka_probs(self):
         report = _minimal_report()
-        report["sku_verification"] = {"status": "mismatch", "reason": "test"}
+        report["sku_verification"] = {"status": "product_mismatch", "reason": "test"}
         run_rule_engine(report)
         assert report["probabilities"]["meczowa"] == 0
         assert report["probabilities"]["oryginalna_sklepowa"] == 4

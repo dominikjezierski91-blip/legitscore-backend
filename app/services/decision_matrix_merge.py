@@ -197,7 +197,7 @@ def build_sku_contributions(
             ))
         # Wiersz B: celowo brak wkładu w tej gałęzi — pozytywne "istnieje" nie
         # jest dozwolonym claim_scope dla B (patrz capability contract).
-    elif status == "mismatch":
+    elif status == "product_mismatch":
         contributions.append(Contribution(
             source="sku_verification", row="A", claim_scope="sku_exists",
             status="problem", info_level="high",
@@ -206,7 +206,28 @@ def build_sku_contributions(
         contributions.append(Contribution(
             source="sku_verification", row="B", claim_scope="sku_mismatch",
             status="problem", info_level="high",
-            text="Kod SKU niezgodny z tym modelem i sezonem.",
+            text="Kod SKU niezgodny z tym produktem (model/kolor/typ kompletu).",
+        ))
+    elif status == "season_only_mismatch":
+        # SPEC "autorytatywny SKU koryguje sezon" (2026-09-06, case eb90a5cc
+        # vs feee21e0): w normalnym przebiegu ten status jest TRANSIENTNY —
+        # app/routes/cases.py koryguje subject.season i przepisuje status na
+        # found_authorized (season_confidence != high, korekta możliwa) albo
+        # eskaluje do product_mismatch (season_confidence == high, realny
+        # sygnał) ZANIM ta funkcja się odpali. Ta gałąź obsługuje wyłącznie
+        # rzadki przypadek resztkowy — korekta niemożliwa (agent nie podał
+        # found_season) — stąd celowo "uwaga", nie "problem": nie wiemy, czy
+        # to prawdziwa niezgodność, czy tylko złe zgadnięcie sezonu przez
+        # Agenta A, którego po prostu nie dało się skorygować.
+        contributions.append(Contribution(
+            source="sku_verification", row="A", claim_scope="sku_exists",
+            status="uwaga", info_level="medium",
+            text=reason or "Kod SKU zidentyfikowany, ale dla innego sezonu niż podany — nie udało się ustalić dokładnego sezonu do korekty.",
+        ))
+        contributions.append(Contribution(
+            source="sku_verification", row="B", claim_scope="sku_mismatch",
+            status="uwaga", info_level="medium",
+            text="Kod SKU wskazuje na inny sezon niż ustalony — niepotwierdzone, wymaga uwagi.",
         ))
     elif status == "found_unofficial":
         contributions.append(Contribution(
@@ -425,13 +446,16 @@ def apply_season_correction(
     corrected_season: str,
 ) -> None:
     """Uzupełnienie SPEC "pewność sezonu" (2026-09-05, code review, finding
-    H1): wywoływane, gdy PCC (player_club_consistency, temporal_mismatch)
-    koryguje subject.season NIEZALEŻNIE od tego, co Agent A sam o sobie
-    zgłosił jako season_confidence. Bez tego: Agent A mógł zgłosić "high"/
-    "medium", PCC i tak poprawia sezon — a gate_season_dependent_evidence
-    nigdy nie odpala, mimo że sama konieczność korekty dowodzi, że pierwotne
-    ustalenie sezonu było błędne. Dokładnie ta sama klasa błędu co case
-    1b96a6a4, tylko odkryta od strony PCC zamiast samego Agenta A.
+    H1): wywoływane, gdy zewnętrzny check koryguje subject.season NIEZALEŻNIE
+    od tego, co Agent A sam o sobie zgłosił jako season_confidence — pierwotnie
+    PCC (player_club_consistency, temporal_mismatch), a od 2026-09-06 (case
+    eb90a5cc vs feee21e0) też sku_verification (season_only_mismatch, gdy
+    autoryzowany kod wskazuje inny sezon niż niepewne zgadnięcie Agenta A —
+    patrz app/routes/cases.py). Bez tego: Agent A mógł zgłosić "high"/"medium",
+    korekta i tak poprawia sezon — a gate_season_dependent_evidence nigdy nie
+    odpala, mimo że sama konieczność korekty dowodzi, że pierwotne ustalenie
+    sezonu było błędne. Dokładnie ta sama klasa błędu co case 1b96a6a4, tylko
+    odkryta od strony zewnętrznego checku zamiast samego Agenta A.
 
     Zasada ogólna: automatyczna korekta pola unieważnia pewność TEGO pola.
     Więc: ustawiamy subject.season na wartość POPRAWIONĄ (treść ma być
@@ -441,6 +465,68 @@ def apply_season_correction(
     subject["season"] = corrected_season
     subject["season_confidence"] = "low"
     gate_season_dependent_evidence(decision_matrix, key_evidence, "low")
+
+
+def resolve_season_only_sku_mismatch(
+    sku_verification: Dict[str, Any],
+    subject: Dict[str, Any],
+    decision_matrix: List[Dict[str, Any]],
+    key_evidence: Optional[List[Any]],
+) -> str:
+    """SPEC "autorytatywny SKU koryguje sezon" (2026-09-06, case eb90a5cc vs
+    feee21e0, Lewandowski/FC Barcelona): ten sam, w pełni autoryzowany kod
+    SKU (FN8792-010) dał "mismatch"→Podróbka 95% w jednym przebiegu i
+    "found_authorized"→Meczowa 80% w drugim — jedyna różnica to własne,
+    niepewne zgadnięcie sezonu Agenta A (season_confidence="medium" w obu).
+    sku_agent.py nigdy nie czytał season_confidence, więc rozbieżność sezonu
+    ze zgadniętym, niepewnym wejściem dawała ten sam bezwzględny 90%-hard-
+    -reject co realna niezgodność produktu.
+
+    Rozstrzyga sku_verification.status == "season_only_mismatch" ZANIM
+    merge_sku_rows_into_decision_matrix/run_rule_engine w ogóle je zobaczą —
+    mutuje sku_verification i subject W MIEJSCU (in-place, jak
+    apply_season_correction). Zwraca krótki kod wyniku do logowania:
+    - "not_applicable": status nie był season_only_mismatch — nic nie zrobiono.
+    - "escalated": season_confidence Agenta A było "high" — Agent A był pewny
+      sezonu, a mimo to kod wskazuje inny; realny sygnał, ta sama siła co
+      product_mismatch (status eskalowany, idzie tą samą, istniejącą
+      ścieżką hard-reject).
+    - "corrected": season_confidence != "high" i sku_verification miało
+      found_season — subject.season skorygowany na wartość z SKU
+      (apply_season_correction; H1: korekta unieważnia pewność), status
+      "naprawiony" na found_authorized.
+    - "unresolved": season_confidence != "high", ale agent nie podał
+      found_season, więc nie ma na co skorygować sezonu — status zostaje
+      season_only_mismatch (miękkie zastrzeżenie, patrz
+      build_sku_contributions), NIE hard-reject."""
+    if sku_verification.get("status") != "season_only_mismatch":
+        return "not_applicable"
+
+    season_confidence = subject.get("season_confidence")
+    normalized_confidence = (
+        season_confidence.strip().lower() if isinstance(season_confidence, str) else None
+    )
+    if normalized_confidence == "high":
+        sku_verification["status"] = "product_mismatch"
+        return "escalated"
+
+    # QA (2026-09-06): brak str() coercji tutaj rzucał AttributeError, gdyby
+    # Gemini kiedyś zwrócił found_season jako liczbę (np. gołe 2024) zamiast
+    # stringa — nieprzechwycony wyjątek zamieniał miękką korektę sezonu w
+    # CAŁKOWICIE nieudaną analizę (case.status="ERROR", zwrot kredytu), zamiast
+    # bezpiecznie spaść do "unresolved".
+    found_season = str(sku_verification.get("found_season") or "").strip()
+    if not found_season:
+        return "unresolved"
+
+    apply_season_correction(subject, decision_matrix, key_evidence, found_season)
+    sku_verification["status"] = "found_authorized"
+    sku_verification["reason"] = (
+        f"{sku_verification.get('reason', '')} Sezon skorygowany na podstawie "
+        f"autoryzowanego kodu SKU (Agent A wskazał sezon z niepewnością: "
+        f"{season_confidence or 'nieznaną'})."
+    ).strip()
+    return "corrected"
 
 
 # Kryteria, których uzasadnienie jest z natury oparte na estetyce/staranności
