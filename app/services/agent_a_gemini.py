@@ -1720,6 +1720,79 @@ def _update_decision_matrix_row(
             return
 
 
+_D_QUALITY_FIELDS_PL = {
+    "seams_quality": "szwy",
+    "panel_join_quality": "łączenia paneli",
+    "finish_quality": "wykończenie",
+    "material_quality": "materiał",
+    "construction_quality": "ogólna konstrukcja",
+}
+
+
+def _sync_decision_matrix_d_with_manufacturing_quality(
+    dm: list,
+    manufacturing_signals: Dict[str, Any],
+    mfg_quality: str,
+    is_aged_authentic: bool = False,
+) -> None:
+    """Kryterium D (Materiał/technologia/krój) bywa GREEN w decision_matrix mimo
+    że manufacturing_signals — napisane przez Agenta A w TYM SAMYM wywołaniu —
+    pokazuje poor/mixed jakość szwów/łączeń/wykończenia/materiału. Agent A
+    pisze oba pola częściowo niezależnie w jednym dużym JSON-ie i nie zawsze
+    stosuje własną regułę z prompt_a.txt ("D = YELLOW/RED gdy szwy/wykończenie
+    wyglądają tanio, niestarannie" — linia ~435-437) tylko dlatego, że osobno
+    wspomina DRI-FIT ADV/ENGINEERED. Znaleziono na case'ie 50f59024 (Pedri,
+    2026-09-05, zgłoszone przez Dominika): seams_quality=poor, finish_quality=
+    poor, a mimo to D=GREEN z tekstem "jakość szwów... wydaje się wysoka" —
+    bezpośrednia sprzeczność widoczna w tym samym raporcie. Deterministyczna
+    synchronizacja, ten sam wzorzec co _sku_dm_map dla wierszy A/B w cases.py.
+
+    Celowo NIE nadpisuje wiersza, jeśli Agent A już sam poprawnie ustawił
+    YELLOW/RED — tylko koryguje przypadek GREEN-mimo-poor/mixed. Wołane WCZEŚNIE
+    w run_rule_engine, przed jakimikolwiek hard-override ścieżkami — te, które
+    same aktualizują wiersz D dla własnych, bardziej specyficznych powodów
+    (np. meczowa+poor mfg, print_application_poor), i tak nadpiszą to później
+    swoim własnym, precyzyjniejszym tekstem; ta synchronizacja łata tylko
+    ścieżki, które o wierszu D nie wiedzą (np. no_sku_plus_poor_manufacturing,
+    która aktualizuje tylko wiersz A).
+
+    is_aged_authentic (code review): dla realnie starych/vintage koszulek z
+    naturalnym zużyciem materiału Agent A może SŁUSZNIE zostawić D=GREEN mimo
+    jednego "poor" pola (prompt_a.txt każe traktować naturalne starzenie jako
+    normalne, nie jako oznakę podróbki) — bez tej flagi ta synchronizacja
+    odtworzyłaby dokładnie ten sam błąd w drugą stronę: poprawny werdykt
+    autentyczny, ale najcięższy wiersz tabeli (waga 6) i tak pokazujący
+    RED/YELLOW. Ten sam wyjątek już istnieje w sąsiednich hard-override
+    ścieżkach (no_sku_plus_poor_manufacturing i in.) — tu powielony dla
+    spójności."""
+    if is_aged_authentic:
+        return
+    manufacturing_signals = manufacturing_signals or {}
+    d_row = next((r for r in dm if isinstance(r, dict) and r.get("code") == "D"), None)
+    if not d_row or d_row.get("status") != "GREEN":
+        return
+    poor_fields = [
+        _D_QUALITY_FIELDS_PL[f] for f in _D_QUALITY_FIELDS_PL
+        if manufacturing_signals.get(f) == "poor"
+    ]
+    if not poor_fields:
+        return
+    if mfg_quality == "poor":
+        _update_decision_matrix_row(
+            dm, "D", "RED",
+            f"Słaba jakość fizyczna wykonania ({', '.join(poor_fields)}) — "
+            f"niespójne z deklarowaną wersją, niezależnie od oznaczeń "
+            f"technologicznych na metce.",
+        )
+    elif mfg_quality == "mixed":
+        _update_decision_matrix_row(
+            dm, "D", "YELLOW",
+            f"Niejednoznaczna jakość fizyczna wykonania ({', '.join(poor_fields)}) "
+            f"— wymaga zastrzeżeń.",
+            impact="neutralne",
+        )
+
+
 def run_rule_engine(
     report_data: Dict[str, Any],
     coverage_result: Optional[Dict[str, Any]] = None,
@@ -1864,8 +1937,27 @@ def run_rule_engine(
             "match_issue_signal_strength": "weak",
         }
 
-    construction_flagged = _construction_quality_flagged(dm_statuses, dm_observations, reasoning_limits)
     mfg_quality = _compute_manufacturing_quality(manufacturing_signals)
+    _sync_decision_matrix_d_with_manufacturing_quality(
+        dm, manufacturing_signals, mfg_quality, is_aged_authentic=_is_aged_authentic,
+    )
+    # Odśwież OBA słowniki po ewentualnej mutacji wiersza D powyżej — inaczej
+    # construction_flagged (i cokolwiek innego czytające dm_statuses/dm_observations
+    # poniżej) widziałoby sprzed synchronizacji. Code review 2026-09-05: to musi
+    # nastąpić PRZED construction_flagged, nie po (poprzednia kolejność działała
+    # tylko przez przypadkową wzajemną wykluczalność mfg_quality=="fallback" i
+    # "którekolwiek pole D poor" — nieegzekwowany, kruchy niezmiennik).
+    dm_statuses = {
+        row["code"]: row["status"]
+        for row in dm
+        if isinstance(row, dict) and "code" in row and "status" in row
+    }
+    dm_observations = {
+        row["code"]: row.get("observation", "")
+        for row in dm
+        if isinstance(row, dict) and "code" in row
+    }
+    construction_flagged = _construction_quality_flagged(dm_statuses, dm_observations, reasoning_limits)
 
     # HARD REJECT: brak SKU + poor manufacturing → podrobka 80%
     sku_status = sku_verification.get("status", "uncertain")

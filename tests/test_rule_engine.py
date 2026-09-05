@@ -10,6 +10,7 @@ from app.services.agent_a_gemini import (
     _compute_confidence_ceiling,
     _compute_manufacturing_quality,
     _meczowa_label,
+    _sync_decision_matrix_d_with_manufacturing_quality,
     run_rule_engine,
 )
 
@@ -156,6 +157,110 @@ class TestComputeManufacturingQuality:
     def test_mix_good_and_poor_returns_mixed(self):
         ms = self._ms(seams_quality="good", construction_quality="poor")
         assert _compute_manufacturing_quality(ms) == "mixed"
+
+
+# ---------------------------------------------------------------------------
+# _sync_decision_matrix_d_with_manufacturing_quality
+# ---------------------------------------------------------------------------
+
+class TestSyncDecisionMatrixDWithManufacturingQuality:
+    """Regresja na realny incydent 2026-09-05 (case 50f59024, Pedri/FC Barcelona,
+    zgłoszone przez Dominika): manufacturing_signals pokazywał seams_quality=
+    "poor" i finish_quality="poor", a mimo to decision_matrix wiersz D (waga 6,
+    najcięższe kryterium) był GREEN z tekstem "Jakość szwów i konstrukcji na
+    zdjęciach wydaje się wysoka" — bezpośrednia sprzeczność w tym samym
+    raporcie, mimo że prompt_a.txt (linia ~435-437) już wcześniej instruował
+    Agenta A, żeby D nie było GREEN przy tanim/niestarannym wykonaniu. Agent A
+    pisze oba pola (manufacturing_signals i decision_matrix[D].observation)
+    częściowo niezależnie w jednym JSON-ie i nie zawsze stosuje własną regułę
+    — stąd deterministyczna synchronizacja po stronie backendu, ten sam
+    wzorzec co _sku_dm_map dla wierszy A/B."""
+
+    def _dm_with_d_green(self):
+        return [
+            {"code": "A", "status": "GREEN", "observation": ""},
+            {"code": "C", "status": "GREEN", "observation": ""},
+            {"code": "D", "status": "GREEN", "observation": "Jakość szwów wydaje się wysoka."},
+            {"code": "E", "status": "GREEN", "observation": ""},
+        ]
+
+    def test_poor_seams_and_finish_downgrades_green_d_to_red(self):
+        dm = self._dm_with_d_green()
+        ms = {"seams_quality": "poor", "finish_quality": "poor", "construction_quality": "good"}
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, ms, "poor")
+        d = next(r for r in dm if r["code"] == "D")
+        assert d["status"] == "RED"
+        assert "szwy" in d["observation"]
+        assert "wykończenie" in d["observation"]
+
+    def test_mentions_only_the_actually_poor_fields(self):
+        dm = self._dm_with_d_green()
+        ms = {"seams_quality": "poor", "finish_quality": "good", "construction_quality": "good"}
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, ms, "mixed")
+        d = next(r for r in dm if r["code"] == "D")
+        assert "szwy" in d["observation"]
+        assert "wykończenie" not in d["observation"]
+
+    def test_single_poor_field_with_mixed_aggregate_downgrades_to_yellow(self):
+        dm = self._dm_with_d_green()
+        ms = {"seams_quality": "poor", "finish_quality": "good", "construction_quality": "good"}
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, ms, "mixed")
+        d = next(r for r in dm if r["code"] == "D")
+        assert d["status"] == "YELLOW"
+
+    def test_good_manufacturing_quality_leaves_green_d_untouched(self):
+        dm = self._dm_with_d_green()
+        original_observation = dm[2]["observation"]
+        ms = {"seams_quality": "good", "finish_quality": "good", "construction_quality": "good"}
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, ms, "good")
+        d = next(r for r in dm if r["code"] == "D")
+        assert d["status"] == "GREEN"
+        assert d["observation"] == original_observation
+
+    def test_does_not_touch_d_already_correctly_yellow_or_red(self):
+        """Nie nadpisuje, jeśli Agent A już sam poprawnie ustawił YELLOW/RED —
+        synchronizacja łata tylko przypadek GREEN-mimo-poor."""
+        dm = [{"code": "D", "status": "RED", "observation": "Agent's own correct text."}]
+        ms = {"seams_quality": "poor", "finish_quality": "poor"}
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, ms, "poor")
+        assert dm[0]["observation"] == "Agent's own correct text."
+
+    def test_missing_d_row_does_not_crash(self):
+        dm = [{"code": "A", "status": "GREEN", "observation": ""}]
+        ms = {"seams_quality": "poor", "finish_quality": "poor"}
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, ms, "poor")  # no exception
+
+    def test_poor_aggregate_without_any_d_relevant_poor_field_leaves_untouched(self):
+        """mfg_quality może być 'poor' z powodu pól spoza zakresu D (np.
+        neck_tag_quality/print_application_quality) — nie zgaduj wtedy na
+        podstawie samego agregatu, tylko sprawdzaj konkretne pola D."""
+        dm = self._dm_with_d_green()
+        ms = {"neck_tag_quality": "poor", "print_application_quality": "poor",
+              "seams_quality": "good", "finish_quality": "good", "construction_quality": "good"}
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, ms, "poor")
+        d = next(r for r in dm if r["code"] == "D")
+        assert d["status"] == "GREEN"
+
+    def test_none_manufacturing_signals_does_not_crash(self):
+        """Code review: brak defensywnego guard'a wewnątrz funkcji mógłby
+        crashować, gdyby kiedyś wywołana bez wzorca `... or {}` u callera."""
+        dm = self._dm_with_d_green()
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, None, "poor")
+        d = next(r for r in dm if r["code"] == "D")
+        assert d["status"] == "GREEN"  # brak danych = brak podstaw do obniżenia
+
+    def test_aged_authentic_skips_downgrade_even_with_poor_field(self):
+        """Code review (2026-09-05): dla realnie starych/vintage koszulek z
+        naturalnym zużyciem Agent A może słusznie zostawić D=GREEN mimo
+        jednego 'poor' pola — bez wyjątku ta synchronizacja odtworzyłaby
+        dokładnie ten sam błąd w drugą stronę (poprawny werdykt, zła tabela)."""
+        dm = self._dm_with_d_green()
+        original_observation = dm[2]["observation"]
+        ms = {"seams_quality": "poor", "finish_quality": "poor", "construction_quality": "good"}
+        _sync_decision_matrix_d_with_manufacturing_quality(dm, ms, "poor", is_aged_authentic=True)
+        d = next(r for r in dm if r["code"] == "D")
+        assert d["status"] == "GREEN"
+        assert d["observation"] == original_observation
 
 
 # ---------------------------------------------------------------------------
@@ -658,6 +763,66 @@ class TestRunRuleEngineNoSKUPoorMfg:
         # Nie rzuca — verdict_category już "podrobka", nie jest w _AUTHENTIC_LIKE
         run_rule_engine(report)
         assert report["verdict"]["verdict_category"] == "podrobka"
+
+
+class TestRunRuleEnginePedriShapedIllegibleSkuPoorMfg:
+    """Regresja end-to-end 2026-09-05 (case 50f59024, Pedri/FC Barcelona):
+    Dominik zgłosił, że werdykt "Podróbka" jest słuszny (widoczne złe szwy i
+    wykończenie), ale tabela decyzyjna w PDF-ie temu przeczyła — kryterium D
+    było GREEN z tekstem "jakość szwów... wysoka" mimo seams_quality=poor,
+    finish_quality=poor. Ten test replayuje pełny kształt tego przypadku
+    (agent_suggestion="meczowa", subject.sku="nieczytelne" już znormalizowane
+    do sku_verification.status="not_applicable" przez wcześniejszy fix w
+    sku_agent.py) przez cały run_rule_engine() i potwierdza DWIE rzeczy razem:
+    1. werdykt poprawnie ląduje na "podrobka" (przez no_sku_plus_poor_manufacturing,
+       NIE przez błędny format_invalid — ten fix nie zepsuł słusznego werdyktu),
+    2. wiersz D w decision_matrix przestaje przeczyć własnym danym."""
+
+    def _report_pedri_shaped(self):
+        report = _minimal_report(verdict_category="meczowa", confidence=90)
+        report["verdict"]["agent_suggestion"] = "meczowa"
+        report["decision_matrix"] = [
+            {"code": "A", "status": "GREEN", "observation": "", "weight": 3},
+            {"code": "B", "status": "GREEN", "observation": "", "weight": 2},
+            {"code": "C", "status": "GREEN", "observation": "Termotransfer, precyzyjnie wykonane.", "weight": 5},
+            {
+                "code": "D", "status": "GREEN", "weight": 6,
+                "observation": (
+                    "Materiał posiada zaawansowaną strukturę dzianiny i oznaczenia "
+                    "'DRI-FIT ADV'. Jakość szwów i konstrukcji na zdjęciach wydaje "
+                    "się wysoka."
+                ),
+            },
+            {"code": "E", "status": "GREEN", "observation": "", "weight": 4},
+        ]
+        report["sku_verification"] = {"status": "not_applicable"}
+        report["manufacturing_signals"] = {
+            "seams_quality": "poor",
+            "construction_quality": "good",
+            "panel_join_quality": "good",
+            "finish_quality": "poor",
+            "material_quality": "good",
+            "neck_tag_quality": "good",
+            "print_application_quality": "good",
+        }
+        return report
+
+    def test_verdict_correctly_lands_on_podrobka(self):
+        report = self._report_pedri_shaped()
+        run_rule_engine(report)
+        assert report["verdict"]["verdict_category"] == "podrobka"
+
+    def test_via_correct_no_sku_poor_mfg_path_not_sku_format(self):
+        report = self._report_pedri_shaped()
+        result = run_rule_engine(report)
+        assert "no_sku_plus_poor_manufacturing" in result["hard_flags"]
+
+    def test_decision_matrix_d_no_longer_contradicts_manufacturing_signals(self):
+        report = self._report_pedri_shaped()
+        run_rule_engine(report)
+        d = next(r for r in report["decision_matrix"] if r["code"] == "D")
+        assert d["status"] != "GREEN"
+        assert "wysoka" not in d["observation"].lower() or "słab" in d["observation"].lower()
 
 
 class TestRunRuleEngineProbabilitiesSync:
