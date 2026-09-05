@@ -16,7 +16,12 @@ from pydantic import BaseModel
 from app.models.decision import Decision
 from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, combined_coverage_quality_check, red_flag_check, run_rule_engine, run_manufacturing_quality_check
 from app.services.consistency_check import run_player_club_consistency_check
-from app.services.decision_matrix_merge import merge_sku_rows_into_decision_matrix
+from app.services.decision_matrix_merge import (
+    apply_season_correction,
+    gate_season_dependent_evidence,
+    merge_sku_rows_into_decision_matrix,
+    reclassify_quality_only_impact,
+)
 from app.services.kit_context_search import run_kit_context_search
 from app.services.sku_agent import run_sku_verification
 from app.services.storage import (
@@ -930,6 +935,17 @@ async def run_decision(
                     # Minimalna normalizacja techniczna (skala prawdopodobieństw + spójność verdictu).
                     normalize_report_data(report_data)
 
+                    # SPEC "pewność sezonu + reklasyfikacja jakości" (2026-09-05, case
+                    # 1b96a6a4) — deterministyczne, czytają tylko z surowego wyjścia
+                    # Agenta A, więc odpalane wcześnie, przed asynchronicznymi checkami
+                    # zewnętrznymi (żeby dalsza logika już widziała skorygowane wiersze).
+                    reclassify_quality_only_impact(report_data.get("decision_matrix") or [])
+                    gate_season_dependent_evidence(
+                        report_data.get("decision_matrix") or [],
+                        report_data.get("key_evidence"),
+                        (report_data.get("subject") or {}).get("season_confidence"),
+                    )
+
                     # Debug: pokaż REPORT_DATA po normalizacji (ta wersja jest zapisywana i renderowana).
                     try:
                         logger.debug(
@@ -981,7 +997,18 @@ async def run_decision(
                                     "[SEASON_CORRECTION] case_id=%s season %s→%s (PCC temporal_mismatch)",
                                     case_id, subject.get("season"), corrected_season,
                                 )
-                                subject["season"] = corrected_season
+                                # Code review H1 (2026-09-05): korekta sama w sobie
+                                # dowodzi, że pierwotne ustalenie sezonu było niepewne —
+                                # apply_season_correction ustawia treść na POPRAWIONY
+                                # sezon, ale wymusza season_confidence="low" i
+                                # re-bramkuje decision_matrix/key_evidence na tej
+                                # podstawie (patrz docstring w decision_matrix_merge.py).
+                                apply_season_correction(
+                                    subject,
+                                    report_data.get("decision_matrix") or [],
+                                    report_data.get("key_evidence"),
+                                    corrected_season,
+                                )
                                 report_data["subject"] = subject
                                 try:
                                     _pcc_corrected = await run_player_club_consistency_check(report_data)

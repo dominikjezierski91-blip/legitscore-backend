@@ -15,10 +15,13 @@ sekcja 9.
 from app.services.decision_matrix_merge import (
     Contribution,
     apply_global_invariant,
+    apply_season_correction,
     build_sku_contributions,
+    gate_season_dependent_evidence,
     is_contribution_allowed,
     merge_row,
     merge_sku_rows_into_decision_matrix,
+    reclassify_quality_only_impact,
 )
 
 
@@ -379,3 +382,281 @@ class TestApplyGlobalInvariant:
         dm = [{"code": "C", "status": "GREEN", "observation": "", "impact": "neutralne"}]
         apply_global_invariant(dm, "podrobka")  # no exception, row C untouched
         assert dm[0]["status"] == "GREEN"
+
+
+# ---------------------------------------------------------------------------
+# SPEC "pewność sezonu + reklasyfikacja jakości" (2026-09-05, case 1b96a6a4,
+# Pedri/FC Barcelona). Kryteria akceptacji SPEC sekcja 7.
+# ---------------------------------------------------------------------------
+
+class TestReclassifyQualityOnlyImpact:
+    """SPEC Część 3, kryterium akceptacji 2: 'jakość nie podnosi' — przesłanka
+    "wysoka jakość wykonania" → Wpływ = neutralne, NIGDY "podnosi"."""
+
+    def test_row_c_podnosi_reclassified_to_neutralne(self):
+        dm = [{"code": "C", "status": "GREEN", "observation": "Herb i logo starannie wykonane, spójne z wersją meczową.", "impact": "podnosi"}]
+        reclassify_quality_only_impact(dm)
+        assert dm[0]["impact"] == "neutralne"
+
+    def test_row_e_podnosi_reclassified_to_neutralne(self):
+        dm = [{"code": "E", "status": "GREEN", "observation": "Personalizacja wygląda profesjonalnie.", "impact": "podnosi"}]
+        reclassify_quality_only_impact(dm)
+        assert dm[0]["impact"] == "neutralne"
+
+    def test_canonical_nondecisive_text_used(self):
+        dm = [{"code": "C", "status": "GREEN", "observation": "X.", "impact": "podnosi"}]
+        reclassify_quality_only_impact(dm)
+        assert "nierozstrzygające" in dm[0]["observation"]
+
+    def test_status_untouched_only_impact_and_text_change(self):
+        """Status (GREEN) zostaje — to wciąż prawdziwy opis obserwacji, zmienia
+        się tylko jego interpretacyjna waga jako dowodu."""
+        dm = [{"code": "C", "status": "GREEN", "observation": "X.", "impact": "podnosi"}]
+        reclassify_quality_only_impact(dm)
+        assert dm[0]["status"] == "GREEN"
+
+    def test_quality_bad_direction_untouched_obniza_stays(self):
+        """Kierunek 'jakość zła → obniża' NIE jest tym SPEC-em dotknięty —
+        jakość nadal może dyskwalifikować, tylko nie może już ratować."""
+        dm = [{"code": "C", "status": "RED", "observation": "Nierówny haft, tania jakość.", "impact": "obniza"}]
+        reclassify_quality_only_impact(dm)
+        assert dm[0]["impact"] == "obniza"
+        assert dm[0]["observation"] == "Nierówny haft, tania jakość."
+
+    def test_neutral_impact_left_alone(self):
+        dm = [{"code": "C", "status": "YELLOW", "observation": "X.", "impact": "neutralne"}]
+        reclassify_quality_only_impact(dm)
+        assert dm[0]["observation"] == "X."
+
+    def test_other_rows_never_touched(self):
+        """Tylko C i E — kryteria z natury oparte na estetyce/staranności.
+        D (materiał/technologia) może mieć podnosi z innych, twardszych
+        powodów (np. potwierdzona zgodna technologia) i nie jest tu dotykane."""
+        dm = [{"code": "D", "status": "GREEN", "observation": "Technologia potwierdzona.", "impact": "podnosi"}]
+        reclassify_quality_only_impact(dm)
+        assert dm[0]["impact"] == "podnosi"
+
+    def test_missing_rows_does_not_crash(self):
+        dm = [{"code": "A", "status": "GREEN", "observation": "", "impact": "neutralne"}]
+        reclassify_quality_only_impact(dm)  # no exception
+
+
+class TestGateSeasonDependentEvidence:
+    """SPEC Część 2, kryteria akceptacji 1 i 5 (replay case 1b96a6a4)."""
+
+    def _row_d_strong_season_argument(self):
+        return {
+            "code": "D", "status": "RED",
+            "observation": (
+                "Materiał i konstrukcja wizualnie przypominają wersję meczową, ale "
+                "oznaczenie technologii 'DRI-FIT ADV' jest sprzeczne z dostarczonymi "
+                "informacjami, według których wersja meczowa na sezon 2026/27 "
+                "powinna posiadać technologię 'Nike Aero-FIT'."
+            ),
+            "impact": "obniza",
+        }
+
+    def test_low_confidence_downgrades_row_d_impact(self):
+        dm = [self._row_d_strong_season_argument()]
+        gate_season_dependent_evidence(dm, [], "low")
+        assert dm[0]["impact"] == "ogranicza_pewnosc"
+
+    def test_low_confidence_makes_row_d_text_conditional(self):
+        dm = [self._row_d_strong_season_argument()]
+        gate_season_dependent_evidence(dm, [], "low")
+        assert "warunkowa" in dm[0]["observation"] or "niepewnością" in dm[0]["observation"]
+
+    def test_low_confidence_inserts_season_caveat_as_first_key_evidence_item(self):
+        """SPEC: nie listuj przesłanki zależnej od niepewnego sezonu jako #1
+        'silny wskaźnik' bez zastrzeżenia — caveat trafia na start listy,
+        więc jest w 'Najsilniejsze sygnały' (key_evidence[:3])."""
+        key_evidence = [
+            {"type": "negative", "text": "Kluczowa sprzeczność: DRI-FIT ADV vs Aero-FIT."},
+        ]
+        dm = [self._row_d_strong_season_argument()]
+        gate_season_dependent_evidence(dm, key_evidence, "low")
+        assert key_evidence[0]["text"].startswith("⚠")
+        assert "sezon" in key_evidence[0]["text"].lower()
+        assert key_evidence[1]["text"] == "Kluczowa sprzeczność: DRI-FIT ADV vs Aero-FIT."
+
+    def test_caveat_not_duplicated_on_repeated_calls(self):
+        key_evidence = []
+        dm = [self._row_d_strong_season_argument()]
+        gate_season_dependent_evidence(dm, key_evidence, "low")
+        gate_season_dependent_evidence(dm, key_evidence, "low")
+        caveat_count = sum(1 for e in key_evidence if e.get("text", "").startswith("⚠"))
+        assert caveat_count == 1
+
+    def test_medium_confidence_does_not_trigger_backend_gating(self):
+        """SPEC sekcja 4 celowo mówi TYLKO 'low' dla warstwy deterministycznej
+        — 'medium' to hedge Agenta A samego w sobie (Część 1), nie backend."""
+        dm = [self._row_d_strong_season_argument()]
+        original_impact = dm[0]["impact"]
+        gate_season_dependent_evidence(dm, [], "medium")
+        assert dm[0]["impact"] == original_impact
+
+    def test_high_confidence_leaves_matrix_unchanged(self):
+        """SPEC kryterium akceptacji 5: 'Sezon high ⇒ zachowanie jak dziś'."""
+        dm = [self._row_d_strong_season_argument()]
+        original = dict(dm[0])
+        gate_season_dependent_evidence(dm, [], "high")
+        assert dm[0] == original
+
+    def test_none_confidence_leaves_matrix_unchanged(self):
+        dm = [self._row_d_strong_season_argument()]
+        original = dict(dm[0])
+        gate_season_dependent_evidence(dm, [], None)
+        assert dm[0] == original
+
+    def test_uppercase_or_mixed_case_low_still_triggers_gating(self):
+        """QA (2026-09-05): Agent A to LLM, nie gwarantuje literalnej małej
+        litery mimo szablonu w promptcie — bez normalizacji 'Low'/'LOW'
+        cicho pomijało bramkowanie, odtwarzając dokładnie bug z case
+        1b96a6a4 bez żadnego błędu/logu."""
+        for variant in ("LOW", "Low", " low ", "lOw"):
+            dm = [self._row_d_strong_season_argument()]
+            gate_season_dependent_evidence(dm, [], variant)
+            assert dm[0]["impact"] == "ogranicza_pewnosc", f"failed for {variant!r}"
+
+    def test_non_string_confidence_does_not_crash_and_does_not_trigger(self):
+        dm = [self._row_d_strong_season_argument()]
+        original_impact = dm[0]["impact"]
+        gate_season_dependent_evidence(dm, [], True)
+        assert dm[0]["impact"] == original_impact
+
+    def test_row_d_without_strong_impact_not_touched(self):
+        """Jeśli D już ma impact='neutralne'/'ogranicza_pewnosc' (Agent A sam
+        nie uznał tego za mocny dowód) — nie ma czego degradować."""
+        dm = [{"code": "D", "status": "YELLOW", "observation": "X.", "impact": "ogranicza_pewnosc"}]
+        gate_season_dependent_evidence(dm, [], "low")
+        assert dm[0]["observation"] == "X."
+
+    def test_missing_row_d_does_not_crash(self):
+        dm = [{"code": "C", "status": "GREEN", "observation": "", "impact": "podnosi"}]
+        gate_season_dependent_evidence(dm, [], "low")  # no exception
+
+    def test_none_key_evidence_does_not_crash(self):
+        dm = [self._row_d_strong_season_argument()]
+        gate_season_dependent_evidence(dm, None, "low")  # no exception
+        assert dm[0]["impact"] == "ogranicza_pewnosc"  # wiersz D nadal zdegradowany
+
+
+class TestSeasonAndQualityGatingCombinedReplayCase1b96a6a4:
+    """Replay pełnego kształtu case 1b96a6a4 (obie funkcje razem) — dokładna
+    kombinacja pól z prawdziwego raportu."""
+
+    def _real_decision_matrix(self):
+        return [
+            {"criterion": "Metki / SKU / data / fabryka", "code": "A", "weight": 3, "status": "YELLOW",
+             "observation": "Widoczne oznaczenia 'DRI-FIT ADV' i 'ENGINEERED' są spójne z wersją meczową, ale kluczowa metka wewnętrzna z kodem SKU jest nieczytelna.",
+             "impact": "ogranicza_pewnosc"},
+            {"criterion": "Zgodność SKU z modelem / sezonem", "code": "B", "weight": 2, "status": "UNKNOWN",
+             "observation": "Kod SKU nie jest widoczny na dostarczonych zdjęciach.", "impact": "neutralne"},
+            {"criterion": "Haft / logo / herb / patche", "code": "C", "weight": 5, "status": "GREEN",
+             "observation": "Herb, logo Nike oraz naszywka La Liga są aplikowane termicznie, co jest spójne z cechami koszulki w wersji meczowej.",
+             "impact": "podnosi"},
+            {"criterion": "Materiał / technologia / krój", "code": "D", "weight": 6, "status": "RED",
+             "observation": "Materiał i konstrukcja wizualnie przypominają wersję meczową, ale oznaczenie technologii 'DRI-FIT ADV' jest sprzeczne z dostarczonymi informacjami, według których wersja meczowa na sezon 2026/27 powinna posiadać technologię 'Nike Aero-FIT'.",
+             "impact": "obniza"},
+            {"criterion": "Personalizacja", "code": "E", "weight": 4, "status": "GREEN",
+             "observation": "Personalizacja 'PEDRI 8' wygląda na wykonaną profesjonalnie.", "impact": "podnosi"},
+        ]
+
+    def _real_key_evidence(self):
+        return [
+            {"type": "negative", "text": "Kluczowa sprzeczność: koszulka posiada oznaczenie technologii 'DRI-FIT ADV', podczas gdy dostarczone informacje o oficjalnym stroju na sezon 2026/27 wskazują na użycie technologii 'Nike Aero-FIT' w wersji meczowej. To silny wskaźnik nieautentyczności."},
+            {"type": "positive", "text": "Wizualna jakość wykonania, termicznie aplikowane logotypy oraz personalizacja są na wysokim poziomie, naśladując cechy autentycznej koszulki meczowej."},
+        ]
+
+    def test_row_c_and_e_no_longer_favor_authenticity(self):
+        dm = self._real_decision_matrix()
+        reclassify_quality_only_impact(dm)
+        row_c = next(r for r in dm if r["code"] == "C")
+        row_e = next(r for r in dm if r["code"] == "E")
+        assert row_c["impact"] == "neutralne"
+        assert row_e["impact"] == "neutralne"
+
+    def test_row_d_no_longer_presented_as_decisive_when_season_low(self):
+        dm = self._real_decision_matrix()
+        gate_season_dependent_evidence(dm, self._real_key_evidence(), "low")
+        row_d = next(r for r in dm if r["code"] == "D")
+        assert row_d["impact"] == "ogranicza_pewnosc"
+
+    def test_key_evidence_caveat_precedes_original_strong_claim(self):
+        key_evidence = self._real_key_evidence()
+        dm = self._real_decision_matrix()
+        gate_season_dependent_evidence(dm, key_evidence, "low")
+        assert key_evidence[0]["text"].startswith("⚠")
+        assert "silny wskaźnik" in key_evidence[1]["text"]
+
+    def test_verdict_fields_never_referenced_by_either_function(self):
+        """SPEC sekcja 2, POZA zakresem: te funkcje operują wyłącznie na
+        decision_matrix/key_evidence, nigdy na verdict_category/confidence/
+        label/summary — sprawdzone przez brak takich kluczy w sygnaturach i
+        przez to, że test nie przekazuje im nic poza dm/key_evidence."""
+        dm = self._real_decision_matrix()
+        key_evidence = self._real_key_evidence()
+        reclassify_quality_only_impact(dm)
+        gate_season_dependent_evidence(dm, key_evidence, "low")
+        # Brak crasha i brak nowych kluczy typu 'verdict' wstrzykniętych do dm/key_evidence
+        assert all("verdict" not in str(k).lower() for row in dm for k in row.keys())
+
+
+class TestApplySeasonCorrection:
+    """Code review finding H1 (2026-09-05): PCC (temporal_mismatch) koryguje
+    subject.season NIEZALEŻNIE od tego, co Agent A sam zgłosił jako
+    season_confidence. Bez tej funkcji: Agent A mógł zgłosić "high", PCC i
+    tak poprawia sezon, a gate_season_dependent_evidence nigdy nie odpala —
+    dokładnie ta sama luka co case 1b96a6a4, tylko od strony PCC. Zasada:
+    automatyczna korekta pola unieważnia pewność TEGO pola."""
+
+    def _row_d_strong_season_argument(self):
+        return {
+            "code": "D", "status": "RED",
+            "observation": (
+                "Oznaczenie technologii 'DRI-FIT ADV' jest sprzeczne z sezonem "
+                "2026/27, który powinien mieć 'Nike Aero-FIT'."
+            ),
+            "impact": "obniza",
+        }
+
+    def test_sets_corrected_season_as_content(self):
+        subject = {"season": "2026-2027", "season_confidence": "high"}
+        apply_season_correction(subject, [], [], "2025-2026")
+        assert subject["season"] == "2025-2026"
+
+    def test_forces_season_confidence_to_low_even_when_agent_a_said_high(self):
+        subject = {"season": "2026-2027", "season_confidence": "high"}
+        apply_season_correction(subject, [], [], "2025-2026")
+        assert subject["season_confidence"] == "low"
+
+    def test_forces_season_confidence_to_low_even_when_agent_a_said_medium(self):
+        subject = {"season": "2026-2027", "season_confidence": "medium"}
+        apply_season_correction(subject, [], [], "2025-2026")
+        assert subject["season_confidence"] == "low"
+
+    def test_re_gates_row_d_despite_original_high_confidence(self):
+        """To jest sedno H1: bez re-bramkowania, wysokie season_confidence
+        sprzed korekty PCC zostawiłoby wiersz D z mocnym (niezdegradowanym)
+        impact, mimo że sezon leżący u podstaw tego wniosku właśnie okazał
+        się błędny."""
+        subject = {"season": "2026-2027", "season_confidence": "high"}
+        dm = [self._row_d_strong_season_argument()]
+        apply_season_correction(subject, dm, [], "2025-2026")
+        assert dm[0]["impact"] == "ogranicza_pewnosc"
+
+    def test_re_gating_inserts_season_caveat_into_key_evidence(self):
+        subject = {"season": "2026-2027", "season_confidence": "high"}
+        dm = [self._row_d_strong_season_argument()]
+        key_evidence = [{"type": "negative", "text": "DRI-FIT ADV vs Aero-FIT — silny wskaźnik."}]
+        apply_season_correction(subject, dm, key_evidence, "2025-2026")
+        assert key_evidence[0]["text"].startswith("⚠")
+
+    def test_does_not_touch_verdict_fields(self):
+        subject = {
+            "season": "2026-2027", "season_confidence": "high",
+            "verdict_category": "podrobka", "confidence_percent": 95,
+        }
+        apply_season_correction(subject, [self._row_d_strong_season_argument()], [], "2025-2026")
+        assert subject["verdict_category"] == "podrobka"
+        assert subject["confidence_percent"] == 95

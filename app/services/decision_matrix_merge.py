@@ -328,3 +328,150 @@ def apply_global_invariant(decision_matrix: List[Dict[str, Any]], verdict_catego
         observation = (row.get("observation") or "").rstrip(". ")
         if observation:
             row["observation"] = observation + " — do interpretacji w kontekście werdyktu podróbki."
+
+
+# ---------------------------------------------------------------------------
+# SPEC: pewność sezonu + reklasyfikacja "jakości wykonania" (2026-09-05,
+# case 1b96a6a4, koszulka Pedri). Te same zasady evidence-merge (§ powyżej),
+# dwie nowe deterministyczne reguły — wpięte w tę samą warstwę, nie osobny
+# mechanizm. NIE dotykają verdict_category/confidence_percent/label/summary —
+# tylko status/observation/impact wierszy i kolejność/zawartość key_evidence.
+#
+# Uzupełnienie (ten sam dzień, code review H1): season_confidence bramkuje
+# TYLKO to, co Agent A sam o sobie zgłosił. Ale subject.season bywa też
+# korygowany przez PCC (temporal_mismatch, app/routes/cases.py) NIEZALEŻNIE
+# od Agenta A — a ta ścieżka nie zmieniała season_confidence, więc gdy Agent A
+# zgłosił "high"/"medium" a PCC i tak poprawił sezon, gate nigdy nie odpalał
+# mimo że korekta sama w sobie dowodzi, że pierwotne ustalenie było błędne.
+# Zasada ogólna: automatyczna korekta pola unieważnia pewność TEGO pola. Więc
+# cases.py po korekcie PCC wymusza subject["season_confidence"] = "low" i
+# re-bramkuje decision_matrix na już SKORYGOWANEJ treści, ale z NISKĄ
+# pewnością — patrz [SEASON_CORRECTION] w app/routes/cases.py.
+# ---------------------------------------------------------------------------
+
+# Kryterium D ("Materiał / technologia / krój") jest z natury przypisane do
+# konkretnej generacji/sezonu produktu (nazwy technologii materiału zmieniają
+# się między sezonami — patrz sekcja 8d promptu) — to jedyny wiersz macierzy,
+# którego uzasadnienie regularnie i wprost odwołuje się do konkretnego sezonu.
+_SEASON_DEPENDENT_ROW = "D"
+
+_SEASON_UNCERTAINTY_CAVEAT_TEXT = (
+    "⚠ Sezon koszulki ustalony z niską pewnością — poniższe wnioski zależne "
+    "od konkretnego sezonu (technologia materiału) są warunkowe, do "
+    "potwierdzenia."
+)
+
+
+def gate_season_dependent_evidence(
+    decision_matrix: List[Dict[str, Any]],
+    key_evidence: Optional[List[Any]],
+    season_confidence: Optional[str],
+) -> None:
+    """SPEC Część 2 (2026-09-05, case 1b96a6a4, Pedri/FC Barcelona): werdykt
+    "Podróbka 95%" opierał się głównie na "DRI-FIT ADV sprzeczne z Nike
+    Aero-FIT, bo wersja meczowa 26/27 powinna mieć Aero-FIT" — prawdziwe
+    TYLKO jeśli to faktycznie sezon 26/27, a Agent A sam ustalił sezon bez
+    twardego potwierdzenia (brak czytelnej metki z datą). Niepewne założenie
+    (sezon) użyte jako twarda podstawa mocnego wniosku (kryterium D, RED,
+    "silny wskaźnik nieautentyczności" w key_evidence) — ta sama klasa błędu
+    co case 15364d60, tylko na osi sezonu zamiast SKU.
+
+    Gdy season_confidence == "low" (celowo TYLKO "low", nie "medium" — SPEC
+    sekcja 4 rozróżnia to świadomie od Części 1, gdzie Agent A ma hedge'ować
+    swoje WŁASNE sformułowania już przy "medium"; ta deterministyczna warstwa
+    backendu degraduje widoczną PREZENTACJĘ w tabeli dopiero przy "low"):
+    degraduje wpływ wiersza D z mocnego (obniza/podnosi) na
+    "ogranicza_pewnosc" i dopisuje zastrzeżenie o warunkowości do jego
+    tekstu; wstawia jawne zastrzeżenie o niepewności sezonu na START
+    key_evidence (żeby kontekstualizowało "Najsilniejsze sygnały" — patrz
+    report_expert.html, to po prostu key_evidence[:3] — zamiast zawodnie
+    dopasowywać tekstowo, KTÓRY konkretnie istniejący bullet jest "tym
+    sezonowym"). NIE zmienia werdyktu/confidence — poza zakresem tego
+    SPEC-a (sekcja 6, otwarta decyzja wymagająca osobnej zgody).
+
+    season_confidence normalizowane (.strip().lower()) przed porównaniem —
+    tak samo jak inne pola enum-podobne z Agenta A w tym pipeline (label,
+    verdict_category, meczowa_detail.status w agent_a_gemini.py) — bo LLM
+    nie gwarantuje literalnej małej litery mimo szablonu w promptcie."""
+    if not isinstance(season_confidence, str) or season_confidence.strip().lower() != "low":
+        return
+
+    row_d = next(
+        (r for r in decision_matrix if isinstance(r, dict) and r.get("code") == _SEASON_DEPENDENT_ROW),
+        None,
+    )
+    if row_d is not None and row_d.get("impact") in ("obniza", "podnosi"):
+        row_d["impact"] = "ogranicza_pewnosc"
+        observation = (row_d.get("observation") or "").rstrip(". ")
+        if observation:
+            row_d["observation"] = (
+                observation + " — sezon ustalony z niepewnością, przesłanka "
+                "warunkowa (o ile sezon się potwierdzi)."
+            )
+
+    if row_d is not None and isinstance(key_evidence, list):
+        already_present = any(
+            isinstance(e, dict) and e.get("text") == _SEASON_UNCERTAINTY_CAVEAT_TEXT
+            for e in key_evidence
+        )
+        if not already_present:
+            key_evidence.insert(0, {"type": "neutral", "text": _SEASON_UNCERTAINTY_CAVEAT_TEXT})
+
+
+def apply_season_correction(
+    subject: Dict[str, Any],
+    decision_matrix: List[Dict[str, Any]],
+    key_evidence: Optional[List[Any]],
+    corrected_season: str,
+) -> None:
+    """Uzupełnienie SPEC "pewność sezonu" (2026-09-05, code review, finding
+    H1): wywoływane, gdy PCC (player_club_consistency, temporal_mismatch)
+    koryguje subject.season NIEZALEŻNIE od tego, co Agent A sam o sobie
+    zgłosił jako season_confidence. Bez tego: Agent A mógł zgłosić "high"/
+    "medium", PCC i tak poprawia sezon — a gate_season_dependent_evidence
+    nigdy nie odpala, mimo że sama konieczność korekty dowodzi, że pierwotne
+    ustalenie sezonu było błędne. Dokładnie ta sama klasa błędu co case
+    1b96a6a4, tylko odkryta od strony PCC zamiast samego Agenta A.
+
+    Zasada ogólna: automatyczna korekta pola unieważnia pewność TEGO pola.
+    Więc: ustawiamy subject.season na wartość POPRAWIONĄ (treść ma być
+    aktualna), ale subject.season_confidence wymuszamy na "low" (pewność ma
+    być NISKA, bo korekta to dowód niepewności) i re-bramkujemy
+    decision_matrix/key_evidence na tej podstawie."""
+    subject["season"] = corrected_season
+    subject["season_confidence"] = "low"
+    gate_season_dependent_evidence(decision_matrix, key_evidence, "low")
+
+
+# Kryteria, których uzasadnienie jest z natury oparte na estetyce/staranności
+# wykonania (haft/logo, personalizacja) — dobre podróbki (mirror/player-
+# version) też mają dobrą jakość, więc sama jakość nigdy nie dowodzi
+# autentyczności. Kierunek "jakość zła → obniża" (RED/YELLOW) zostaje
+# nietknięty — jakość nadal może dyskwalifikować, po prostu nie może już
+# samodzielnie ratować.
+_QUALITY_ONLY_ROWS = ("C", "E")
+
+_QUALITY_NONDECISIVE_TEXT = (
+    "Jakość wykonania spójna zarówno z oryginałem, jak i z wysokiej klasy "
+    "repliką — nierozstrzygające."
+)
+
+
+def reclassify_quality_only_impact(decision_matrix: List[Dict[str, Any]]) -> None:
+    """SPEC Część 3 (2026-09-05, case 1b96a6a4): przesłanki typu "wysoka
+    jakość wykonania / termicznie aplikowane logo / staranna personalizacja"
+    (kryteria C i E) nie mogą mieć impact="podnosi" (za autentycznością) —
+    współczesne wysokiej klasy podróbki mają świetną jakość, a ocena jakości
+    ze zdjęć jest sama w sobie niepewna. Reklasyfikuje na "neutralne" z
+    kanonicznym tekstem ze SPEC-a. Status wiersza (GREEN/YELLOW/RED) zostaje
+    nietknięty — to wciąż prawdziwy opis tego, co zaobserwowano, zmienia się
+    tylko jego INTERPRETACYJNA waga jako dowodu."""
+    for code in _QUALITY_ONLY_ROWS:
+        row = next(
+            (r for r in decision_matrix if isinstance(r, dict) and r.get("code") == code),
+            None,
+        )
+        if not row or row.get("impact") != "podnosi":
+            continue
+        row["impact"] = "neutralne"
+        row["observation"] = _QUALITY_NONDECISIVE_TEXT
