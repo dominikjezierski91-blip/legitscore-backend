@@ -233,7 +233,7 @@
         <div class="ident-label">Klub / reprezentacja:</div>
         <div>{{ data.subject.club or "nieustalone" }}</div>
         <div class="ident-label">Sezon:</div>
-        <div>{{ data.subject.season or "nieustalone" }}</div>
+        <div>{{ data.subject.season_display or data.subject.season or "nieustalone" }}</div>
         <div class="ident-label">Model:</div>
         <div>{{ data.subject.model or "nieustalone" }}</div>
         <div class="ident-label">Producent:</div>

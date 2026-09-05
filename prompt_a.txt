@@ -94,10 +94,16 @@ Jeśli jedyny widoczny kod pochodzi z hang tagu bez kodu QR/kreskowego i nie pas
 Jeśli nie da się ustalić pola subject, wpisz "nieustalone".
 
 Dla pola `subject.season_confidence` — oceń UCZCIWIE, jak pewne jest Twoje ustalenie `subject.season`:
-- "high": sezon wynika wprost z czytelnej metki/daty produkcji, LUB z jednoznacznego, unikalnego dla jednego sezonu wzoru/kolorystyki kitu, który potrafisz precyzyjnie rozpoznać.
+- "high": sezon wynika wprost z czytelnej metki/daty produkcji, LUB z elementu jednoznacznego i UNIKALNEGO DLA JEDNEGO KONKRETNEGO SEZONU (np. sponsor obecny tylko w tym sezonie, wzór/kolorystyka niepowtarzalna w żadnym sąsiednim sezonie, konkretna, rozpoznawalna generacja technologii producenta). Samo "wzór/kolorystyka wygląda spójnie z sezonem X" NIE wystarcza na "high", jeśli ten sam wzór mógł występować też w sezonach sąsiednich — to co najwyżej "medium".
 - "medium": sezon to Twój najlepszy szacunek na podstawie ogólnego stylu/kolorystyki, ale kity bywają wizualnie podobne między sezonami i nie masz twardego potwierdzenia (metka/data).
 - "low": sezon to w zasadzie zgadywanie — brak metki z datą, wzór kitu niejednoznaczny lub nowy/nieznany Ci wariant, albo opierasz się głównie na personalizacji/squad check, który sam w sobie nie potwierdza sezonu produkcji koszulki.
-Nie zawyżaj tej oceny — season_confidence jest wejściem do dalszego, deterministycznego bramkowania siły wniosków zależnych od sezonu (patrz sekcja 8e). Zaniżenie kosztuje niewiele (wniosek staje się warunkowy); zawyżenie może utrzymać mocny, ale fałszywy wniosek.
+
+Dyscyplina USTALANIA sezonu (nie tylko oceny jego pewności):
+- Personalizacja zawodnika (imię/numer) NIGDY nie jest samodzielną podstawą do przypisania KONKRETNEGO sezonu — ten sam numer bywa noszony przez tego samego zawodnika przez wiele sezonów pod rząd. Jeśli to Twoja jedyna przesłanka, sezon jest z natury "low", niezależnie jak "pewnie" brzmi sama personalizacja.
+- Gdy nie potrafisz jednoznacznie wskazać sezonu na podstawie KONKRETNEJ, nazwanej przesłanki wizualnej (metka/data, sponsor unikalny dla sezonu, unikalny wzór/kolorystyka, rozpoznawalna generacja technologii) — NIE zgaduj konkretnego roku i NIE defaultuj do sezonu "aktualnego"/najnowszego, jaki znasz. Wpisz swoje najlepsze przypuszczenie w `subject.season`, ale ustaw `season_confidence="low"` — przy takiej pewności system i tak nie pokaże tego roku użytkownikowi jako faktu, więc nie ma powodu go zawyżać ani naciągać uzasadnienie.
+- W `season_basis` zapisz KONKRETNĄ przesłankę (np. "sponsor X widoczny tylko w sezonie Y", "metka z datą produkcji", "numer i nazwisko zawodnika — to NIE potwierdza konkretnego sezonu"), nie ogólnikowe "wzór spójny z sezonem" (to nie przesłanka, tylko powtórzenie założenia).
+
+Nie zawyżaj tej oceny — season_confidence jest wejściem do dalszego, deterministycznego bramkowania siły wniosków zależnych od sezonu (patrz sekcja 8e) ORAZ do tego, czy sezon w ogóle jest pokazywany użytkownikowi jako fakt, czy jako "sezon nieokreślony". Zaniżenie kosztuje niewiele (wniosek staje się warunkowy, sezon pokazuje się jako nieokreślony); zawyżenie może utrzymać mocny, ale fałszywy wniosek I pokazać nieprawdziwy rok jako pewnik.
 
 KROK 2 — SANITY CHECK TYPU BAZY
 Przed analizą szczegółową wykonaj wewnętrznie obowiązkowy sanity check:

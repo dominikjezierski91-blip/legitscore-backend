@@ -41,7 +41,7 @@ def render_report_text(report_data: Dict[str, Any], mode: str = "basic") -> str:
         subject = {}
     out.append(_section("PRZEDMIOT ANALIZY", [
         f"Klub: {_str(subject.get('club'))}",
-        f"Sezon: {_str(subject.get('season'))}",
+        f"Sezon: {_str(subject.get('season_display') or subject.get('season'))}",
         f"Model: {_str(subject.get('model'))}",
         f"Marka: {_str(subject.get('brand'))}",
         f"Zawodnik: {_str(subject.get('player_name'))}",

@@ -12,6 +12,7 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 from app.services.consistency_check import (
+    PLAYER_CLUB_CONSISTENCY_PROMPT,
     _real_value,
     _uncertain_insufficient,
     run_player_club_consistency_check,
@@ -64,15 +65,21 @@ class TestConsistencyCheckSkipsPlaceholderValues:
         assert result["status"] == "uncertain"
         mock_call.assert_not_called()
 
-    def test_placeholder_season_returns_uncertain_not_gemini_call(self):
+    def test_placeholder_season_still_calls_gemini_on_club_and_number_alone(self):
+        """SPEC "uczciwe wyświetlanie sezonu" (2026-09-06, case 1e8b405c):
+        sezon przestał być wymagany — squad-check orzeka o zakresie sezonów
+        na podstawie klubu+numeru, sezon to tylko opcjonalny cross-check.
+        Wcześniej brak sezonu blokował cały check, mimo że klub+zawodnik
+        wystarczają do sensownej odpowiedzi o zakresie."""
         report_data = {
             "subject": {"player_name": "Lewandowski", "club": "FC Barcelona", "season": "brak"},
             "personalization_assessment": {"status": "zweryfikowana"},
         }
-        with patch(self._CALL_GEMINI_TARGET, new=AsyncMock()) as mock_call:
+        fake_result = {"status": "consistent", "confidence": "high", "reason": "", "notes": []}
+        with patch(self._CALL_GEMINI_TARGET, new=AsyncMock(return_value=fake_result)) as mock_call:
             result = run(run_player_club_consistency_check(report_data))
-        assert result["status"] == "uncertain"
-        mock_call.assert_not_called()
+        mock_call.assert_called_once_with("Lewandowski", "FC Barcelona", None, None)
+        assert result == fake_result
 
     def test_real_values_call_gemini_with_normalized_arguments(self):
         report_data = {
@@ -131,16 +138,75 @@ class TestUncertainInsufficientReasonText:
         assert result["reason"] == "Niewystarczające dane do sprawdzenia zgodności — brak sezonu."
 
     def test_end_to_end_real_case_shape_known_club_missing_season(self):
-        """Replay dokładnego kształtu case 15364d60: club='FC Barcelona' znany,
-        season='nieustalone' (znormalizowane do pustego stringa przez _real_value)."""
+        """Replay case 15364d60: club='FC Barcelona' znany, season='nieustalone'
+        (znormalizowane do pustego stringa przez _real_value).
+
+        UWAGA (2026-09-06, SPEC "uczciwe wyświetlanie sezonu"): to zachowanie
+        celowo się ZMIENIŁO. Wcześniej brak sezonu przy znanym klubie kończył
+        się "uncertain" bez wywołania Gemini ("brak sezonu (klub: ...)").
+        Teraz squad-check i tak orzeka o zakresie sezonów na podstawie
+        klubu+numeru — sezon nie jest już blokerem. Test
+        TestUncertainInsufficientReasonText pokrywa dalej samą funkcję
+        _uncertain_insufficient (wciąż poprawną, tylko już nieużywaną z tą
+        kombinacją argumentów przez _run)."""
         report_data = {
             "subject": {"player_name": "LEWANDOWSKI", "club": "FC Barcelona", "season": "nieustalone"},
             "personalization_assessment": {"status": "zweryfikowana"},
         }
-        with patch("app.services.consistency_check._call_gemini", new=AsyncMock()) as mock_call:
+        fake_result = {"status": "consistent", "confidence": "medium", "reason": "Zawodnik nosi numer 9 w FC Barcelona od sezonu 2022/23.", "notes": []}
+        with patch("app.services.consistency_check._call_gemini", new=AsyncMock(return_value=fake_result)) as mock_call:
             result = run(run_player_club_consistency_check(report_data))
-        assert result["status"] == "uncertain"
-        assert "FC Barcelona" in result["reason"]
-        assert "brak sezonu" in result["reason"]
-        assert "brak klubu" not in result["reason"]
-        mock_call.assert_not_called()
+        mock_call.assert_called_once_with("LEWANDOWSKI", "FC Barcelona", None, None)
+        assert result == fake_result
+
+
+class TestPlayerClubConsistencyPromptRangeBased:
+    """SPEC "uczciwe wyświetlanie sezonu + squad-check na zakres" (2026-09-06,
+    case 1e8b405c). Regresja: prompt pytał o zgodność z JEDNYM, założonym
+    sezonem ("Season: {season}"), więc odpowiedź Gemini ("Pedri gra w FC
+    Barcelona z numerem 8 w sezonie 2026/27") była kołowa — potwierdzała
+    dokładnie ten sezon, który sam był niepewnym ZAŁOŻENIEM. Nie da się
+    odpalić prawdziwego Gemini w testach jednostkowych — testujemy więc
+    treść promptu (ten sam wzorzec co test_prompt_a_season_confidence.py),
+    nie zachowanie modelu."""
+
+    def test_instructs_range_not_single_season(self):
+        assert "RANGE" in PLAYER_CLUB_CONSISTENCY_PROMPT
+
+    def test_forbids_circular_confirmation_of_input_season(self):
+        prompt = PLAYER_CLUB_CONSISTENCY_PROMPT.lower()
+        assert "circular" in prompt
+
+    def test_never_restate_input_season_instruction_present(self):
+        assert "NEVER just restate that season back" in PLAYER_CLUB_CONSISTENCY_PROMPT
+
+    def test_no_season_given_still_evaluates_club_and_number(self):
+        prompt = PLAYER_CLUB_CONSISTENCY_PROMPT.lower()
+        assert "if no season was given" in prompt or "without inventing or assuming a season" in prompt
+
+    def test_bad_example_matches_the_real_regression_text_shape(self):
+        """Dokładny kształt złej odpowiedzi z case'a 1e8b405c — sprawdzamy, że
+        prompt wprost pokazuje go jako zakazany przykład, nie tylko ogólnikowo
+        zakazuje "kołowości"."""
+        assert "Zawodnik gra w klubie X z numerem 8 w sezonie 2026/27" in PLAYER_CLUB_CONSISTENCY_PROMPT
+
+    def test_good_examples_are_range_phrased(self):
+        assert "od sezonu 2021/22" in PLAYER_CLUB_CONSISTENCY_PROMPT
+
+    def test_consistent_definition_does_not_require_a_season(self):
+        prompt = PLAYER_CLUB_CONSISTENCY_PROMPT
+        idx = prompt.find('"consistent" means')
+        assert idx != -1
+        rule_text = prompt[idx:idx + 400]
+        assert "do not invent a season" in rule_text
+
+    def test_boundary_choice_covers_both_directions_of_a_closed_range(self):
+        """Code review MEDIUM (2026-09-06): oryginalny worked example pokrywał
+        tylko przypadek "podany sezon PRZED zakresem" (start range → correction).
+        Brak przykładu dla "podany sezon PO zamkniętym zakresie" (zawodnik
+        odszedł) zostawiał niejednoznaczność, która sama karmi
+        apply_season_correction — zły wybór granicy odtworzyłby zły sezon,
+        tylko inną ścieżką (korekta PCC) niż ta naprawiona w tym SPEC-u."""
+        prompt = PLAYER_CLUB_CONSISTENCY_PROMPT
+        assert "CLOSED range" in prompt
+        assert "closest to the given" in prompt.lower()

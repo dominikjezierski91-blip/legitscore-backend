@@ -17,6 +17,7 @@ from app.services.decision_matrix_merge import (
     apply_global_invariant,
     apply_season_correction,
     build_sku_contributions,
+    compute_season_display,
     gate_season_dependent_evidence,
     is_contribution_allowed,
     merge_row,
@@ -660,3 +661,60 @@ class TestApplySeasonCorrection:
         apply_season_correction(subject, [self._row_d_strong_season_argument()], [], "2025-2026")
         assert subject["verdict_category"] == "podrobka"
         assert subject["confidence_percent"] == 95
+
+
+class TestComputeSeasonDisplay:
+    """SPEC "uczciwe wyświetlanie sezonu" (2026-09-06, case 1e8b405c): pole
+    identyfikacyjne o niepewnym statusie nie może być prezentowane jako
+    pewnik. Replay realnych danych case'a 1e8b405c: subject.season =
+    "2026-2027", season_confidence = "high" (mimo że właściciel koszulki sam
+    był niepewny — "chyba 2022/23") — ten konkretny case ilustruje, dlaczego
+    Część 3 (dyscyplina promptu) jest potrzebna OBOK Części 1 (bramkowanie
+    wyświetlania): backend ufa "high" zgłoszonemu przez Agenta A, więc samo
+    bramkowanie displayu nie wystarczy, jeśli "high" jest nieuzasadnione —
+    stąd też zaostrzenie kryteriów "high" w promptcie."""
+
+    def test_high_confidence_shows_season_as_is(self):
+        assert compute_season_display("2026-2027", "high") == "2026-2027"
+
+    def test_medium_confidence_hedges_with_explicit_caveat(self):
+        result = compute_season_display("2022-2023", "medium")
+        assert result == "prawdopodobnie 2022-2023 (niepewne)"
+
+    def test_low_confidence_hides_the_year_entirely(self):
+        assert compute_season_display("2026-2027", "low") == "sezon nieokreślony"
+
+    def test_none_confidence_hides_the_year(self):
+        assert compute_season_display("2026-2027", None) == "sezon nieokreślony"
+
+    def test_missing_confidence_string_type_hides_the_year(self):
+        assert compute_season_display("2026-2027", True) == "sezon nieokreślony"
+
+    def test_unrecognized_confidence_value_hides_the_year(self):
+        assert compute_season_display("2026-2027", "bardzo pewne") == "sezon nieokreślony"
+
+    def test_case_insensitive_high(self):
+        assert compute_season_display("2026-2027", "HIGH") == "2026-2027"
+        assert compute_season_display("2026-2027", " High ") == "2026-2027"
+
+    def test_blank_season_shows_undetermined_regardless_of_confidence(self):
+        assert compute_season_display("nieustalone", "high") == "sezon nieokreślony"
+        assert compute_season_display(None, "high") == "sezon nieokreślony"
+        assert compute_season_display("", "high") == "sezon nieokreślony"
+
+    def test_forced_low_after_pcc_correction_hides_the_corrected_year_too(self):
+        """H1 (poprzedni SPEC): apply_season_correction wymusza
+        season_confidence="low" po korekcie PCC — ta sama wartość zasila
+        compute_season_display, więc skorygowany rok TEŻ nie jest pokazywany
+        jako pewnik. Zamierzone: zasada "korekta unieważnia pewność" ma
+        zastosowanie tak samo do prezentacji, jak do siły wniosków."""
+        subject = {"season": "2026-2027", "season_confidence": "high"}
+        apply_season_correction(subject, [], [], "2022-2023")
+        assert compute_season_display(subject["season"], subject["season_confidence"]) == "sezon nieokreślony"
+
+    def test_replay_case_1e8b405c_high_confidence_but_weak_basis_still_shows_as_is(self):
+        """Backend nie może wiedzieć, że "high" było nieuzasadnione — ufa
+        zgłoszonej wartości. To właśnie dlatego Część 3 (dyscyplina promptu,
+        patrz test_prompt_a_season_confidence.py) jest konieczna OBOK tej
+        funkcji, nie zamiast niej."""
+        assert compute_season_display("2026-2027", "high") == "2026-2027"

@@ -78,3 +78,34 @@ class TestConditionalReasoningSection8e:
         section_end = _PROMPT_A_TEXT.find("9. REGUŁY DECYZYJNE")
         section = _PROMPT_A_TEXT[section_start:section_end].lower() if section_start != -1 else ""
         assert "jedyny" in section and "summary" in section
+
+
+class TestSeasonDeterminationDiscipline:
+    """SPEC "uczciwe wyświetlanie sezonu + squad-check na zakres" (2026-09-06,
+    case 1e8b405c). Regresja: Agent A zgłosił season_confidence="high" dla
+    sezonu ustalonego na podstawie "wzoru kitu spójnego z sezonem" (kołowe —
+    to ten sam sezon, który był wcześniej ZAŁOŻONY) i personalizacji gracza
+    (numer bywa noszony wiele sezonów) — właściciel koszulki sam był
+    niepewny ("chyba 2022/23"). Część 3 speca zaostrza kryteria "high" i
+    zakazuje zgadywania/domyślania się do aktualnego sezonu."""
+
+    def test_personalization_alone_is_never_sufficient_for_a_season(self):
+        prompt = _PROMPT_A_TEXT.lower()
+        assert "nigdy nie jest samodzielną podstawą" in prompt
+
+    def test_forbids_guessing_or_defaulting_to_current_season(self):
+        prompt = _PROMPT_A_TEXT.lower()
+        assert "nie zgaduj konkretnego roku" in prompt
+        assert "nie defaultuj" in prompt
+
+    def test_high_requires_season_unique_element_not_just_consistent_pattern(self):
+        """Sedno regresji: "wzór spójny z sezonem X" nie może już kwalifikować
+        się jako "high", jeśli ten sam wzór mógł wystąpić też w innym
+        sezonie."""
+        prompt = _PROMPT_A_TEXT.lower()
+        assert "unikalnego dla jednego konkretnego sezonu" in prompt
+        assert "nie wystarcza na" in prompt
+
+    def test_season_basis_must_name_concrete_evidence_not_restate_assumption(self):
+        prompt = _PROMPT_A_TEXT.lower()
+        assert "to nie przesłanka, tylko powtórzenie założenia" in prompt

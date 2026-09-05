@@ -18,6 +18,7 @@ from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, com
 from app.services.consistency_check import run_player_club_consistency_check
 from app.services.decision_matrix_merge import (
     apply_season_correction,
+    compute_season_display,
     gate_season_dependent_evidence,
     merge_sku_rows_into_decision_matrix,
     reclassify_quality_only_impact,
@@ -1198,6 +1199,19 @@ async def run_decision(
                         else:
                             report_data["pcc_summary_note"] = _pcc_post_reason
 
+                    # SPEC "uczciwe wyświetlanie sezonu" (2026-09-06, case 1e8b405c) —
+                    # liczone na SAMYM KOŃCU (po ewentualnej korekcie PCC, która mogła
+                    # wymusić season_confidence="low" — apply_season_correction, H1),
+                    # żeby odzwierciedlało stan finalny. Nie nadpisuje subject.season
+                    # (nadal używane wewnętrznie), tylko dokłada subject.season_display
+                    # — pole bezpieczne do pokazania w PDF/karcie case'a.
+                    _subject_final = report_data.get("subject") or {}
+                    _subject_final["season_display"] = compute_season_display(
+                        _subject_final.get("season"),
+                        _subject_final.get("season_confidence"),
+                    )
+                    report_data["subject"] = _subject_final
+
                     # Nadpisz artefakt report_data.json z już znormalizowanym REPORT_DATA.
                     try:
                         report_data_path.write_text(
@@ -1686,7 +1700,10 @@ async def get_random_instagram_case(request: Request):
         confidence = f"Pewnosc: {conf_rounded}%"
 
         club = subject.get("club", "Nieznany klub")
-        season = subject.get("season", "")
+        # SPEC "uczciwe wyświetlanie sezonu" (2026-09-06): preferuj wersję
+        # bramkowaną season_confidence; fallback dla starszych raportów
+        # sprzed tego pola.
+        season = subject.get("season_display") or subject.get("season", "")
         model_name = subject.get("model", "")
         club_season = f"{club} {season}"
         if model_name and len(f"{club} {season} • {model_name}") <= 50:
@@ -1787,7 +1804,9 @@ async def get_random_instagram_fake_case(request: Request):
         conf_rounded = max(0, min(100, round(conf / 5) * 5))
 
         club = subject.get("club", "Nieznany klub") or "Nieznany klub"
-        season = subject.get("season", "") or ""
+        # SPEC "uczciwe wyświetlanie sezonu" (2026-09-06): jw. — season_display
+        # z fallbackiem na raw season dla starszych raportów.
+        season = subject.get("season_display") or subject.get("season", "") or ""
         model_name = subject.get("model", "") or ""
         club_season = f"{club} {season}".strip()
         if model_name and len(f"{club} {season} • {model_name}") <= 50:

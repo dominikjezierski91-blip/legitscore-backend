@@ -475,3 +475,45 @@ def reclassify_quality_only_impact(decision_matrix: List[Dict[str, Any]]) -> Non
             continue
         row["impact"] = "neutralne"
         row["observation"] = _QUALITY_NONDECISIVE_TEXT
+
+
+# ---------------------------------------------------------------------------
+# SPEC: uczciwe wyświetlanie sezonu + squad-check na zakres (2026-09-06,
+# case 1e8b405c, koszulka Pedri). Poprzedni SPEC (season_confidence +
+# bramkowanie) naprawił SIŁĘ wniosków zależnych od sezonu — werdykt case'a
+# 1e8b405c jest już poprawny i season-independent ("Podróbka 80%" z jakości
+# wykonania). Ale samo pole subject.season nadal było POKAZYWANE jako fakt
+# (np. "2026/2027" w Identyfikacji produktu) mimo season_confidence="high"
+# opartego na słabej podstawie ("wzór kitu spójny z sezonem" — okrężne, bo to
+# ten sam sezon, który był wcześniej ZAŁOŻONY) — właściciel koszulki sam był
+# niepewny ("chyba 2022/23"). Zasada: pole identyfikacyjne o niepewnym
+# statusie nie może być prezentowane jako pewnik — uogólnienie zasady z
+# poprzedniego SPEC-a (H1: "niepewny sygnał ≠ fakt").
+# ---------------------------------------------------------------------------
+
+_SEASON_UNDETERMINED_DISPLAY = "sezon nieokreślony"
+
+
+def compute_season_display(season: Optional[str], season_confidence: Optional[str]) -> str:
+    """SPEC Część 1 (2026-09-06, case 1e8b405c): zwraca tekst BEZPIECZNY DO
+    WYŚWIETLENIA (PDF, karta case'a) — nigdy samą wartość subject.season,
+    gdy season_confidence nie uzasadnia pokazania konkretnego roku jako
+    faktu. Nie zmienia subject.season samego w sobie (nadal potrzebne
+    wewnętrznie — wyszukiwarki SKU/kontekstu, market value, itd. — to
+    osobna wartość do PREZENTACJI, zapisywana jako subject.season_display).
+
+    - "high": pokaż sezon jak jest.
+    - "medium": pokaż z jawnym zastrzeżeniem ("prawdopodobnie X (niepewne)").
+    - "low", brak, lub nierozpoznana wartość: "sezon nieokreślony" — w tym
+      przypadek, gdy poprzedni SPEC (apply_season_correction, H1) wymusił
+      "low" po korekcie PCC — korekta pola unieważnia pewność tego pola,
+      więc traktujemy to tak samo jak "low" zgłoszone przez Agenta A.
+    """
+    if _is_blank_subject_value(season):
+        return _SEASON_UNDETERMINED_DISPLAY
+    normalized = season_confidence.strip().lower() if isinstance(season_confidence, str) else None
+    if normalized == "high":
+        return season
+    if normalized == "medium":
+        return f"prawdopodobnie {season} (niepewne)"
+    return _SEASON_UNDETERMINED_DISPLAY
