@@ -14,6 +14,7 @@ type CaseRecord = {
   case_id: string;
   created_at: string | null;
   email: string | null;
+  is_guest: boolean;
   verdict_category: string | null;
   confidence_percent: string | null;
   feedback: string | null;
@@ -686,7 +687,15 @@ function TabReports() {
               <tr key={c.case_id} className="hover:bg-slate-800/30">
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{fmt(c.created_at)}</td>
                 <td className="px-3 py-2 font-mono text-xs text-slate-500">{c.case_id.slice(0, 8)}…</td>
-                <td className="px-3 py-2 text-xs text-slate-200">{c.email || <span className="text-slate-600">gość</span>}</td>
+                <td className="px-3 py-2 text-xs text-slate-200">
+                  {c.email ? (
+                    c.email
+                  ) : c.is_guest ? (
+                    <span className="text-slate-600">gość</span>
+                  ) : (
+                    <span className="text-amber-500/70" title="Ma konto, ale email nie jest znany (rzadkie)">zalogowany</span>
+                  )}
+                </td>
                 <td className="px-3 py-2 font-mono text-xs text-emerald-300">{c.sku || <span className="text-slate-600">—</span>}</td>
                 <td className="px-3 py-2 text-xs text-slate-400">{c.model?.replace("models/", "") || "—"}</td>
                 <td className="px-3 py-2"><VerdictBadge c={c.verdict_category} /></td>

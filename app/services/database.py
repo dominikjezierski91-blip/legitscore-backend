@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean, Float, UniqueConstraint, func as _sqla_func
+from sqlalchemy import create_engine, Column, String, DateTime, Text, JSON, Integer, Boolean, Float, UniqueConstraint, func as _sqla_func, or_ as _sqla_or
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
@@ -1079,10 +1079,16 @@ def get_all_cases_from_db(
     page: int = 1,
     limit: int = 25,
 ) -> dict:
-    """Pobiera case'y z bazy z opcjonalnym filtrowaniem i paginacją."""
+    """Pobiera case'y z bazy z opcjonalnym filtrowaniem i paginacją.
+
+    Właściciel case'a liczy się po `user_id` (ustawiany autorytatywnie w run-decision,
+    patrz cases.py), nie po `CaseRecord.email` — to pole wypełnia się tylko gdy user był
+    już zalogowany PRZED wysłaniem formularza; normalny flow (upload anonimowo -> login
+    dopiero przed analizą) go nigdy nie uzupełnia, mimo że case ma realnego właściciela.
+    """
     db = SessionLocal()
     try:
-        q = db.query(CaseRecord)
+        q = db.query(CaseRecord, User.email).outerjoin(User, CaseRecord.user_id == User.id)
         if date_from:
             try:
                 q = q.filter(CaseRecord.created_at >= datetime.fromisoformat(date_from))
@@ -1094,22 +1100,28 @@ def get_all_cases_from_db(
             except ValueError:
                 pass
         if auth_state_filter == "logged_in":
-            q = q.filter(CaseRecord.email.isnot(None))
+            q = q.filter(CaseRecord.user_id.isnot(None))
         elif auth_state_filter == "guest":
-            q = q.filter(CaseRecord.email.is_(None))
+            q = q.filter(CaseRecord.user_id.is_(None))
         if verdict_filter:
             q = q.filter(CaseRecord.verdict_category == verdict_filter)
         if email_filter:
-            q = q.filter(CaseRecord.email.ilike(f"%{email_filter}%"))
+            q = q.filter(
+                _sqla_or(
+                    CaseRecord.email.ilike(f"%{email_filter}%"),
+                    User.email.ilike(f"%{email_filter}%"),
+                )
+            )
 
         total = q.count()
         offset = (page - 1) * limit
-        records = q.order_by(CaseRecord.created_at.desc()).offset(offset).limit(limit).all()
+        rows = q.order_by(CaseRecord.created_at.desc()).offset(offset).limit(limit).all()
         cases = [
             {
                 "case_id": r.case_id,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
-                "email": r.email,
+                "email": owner_email or r.email,
+                "is_guest": r.user_id is None,
                 "verdict_category": r.verdict_category,
                 "confidence_percent": r.confidence_percent,
                 "feedback": r.feedback,
@@ -1119,7 +1131,7 @@ def get_all_cases_from_db(
                 "model": r.model,
                 "prompt_version": r.prompt_version,
             }
-            for r in records
+            for r, owner_email in rows
         ]
         return {"cases": cases, "total": total, "page": page, "limit": limit}
     finally:
@@ -1136,7 +1148,7 @@ def get_activation_detail() -> dict:
 
         for u in users:
             first_case = db.query(CaseRecord.created_at).filter(
-                CaseRecord.email == u.email
+                CaseRecord.user_id == u.id
             ).order_by(CaseRecord.created_at.asc()).first()
 
             if first_case and first_case[0] and u.created_at:
@@ -1174,38 +1186,38 @@ def get_retention_metrics() -> dict:
         total_users = db.query(User).count()
 
         # Aktywni w ostatnich 7 dniach (via analiza)
-        active_emails = {
+        active_user_ids = {
             row[0] for row in
-            db.query(CaseRecord.email)
-            .filter(CaseRecord.created_at >= week_ago, CaseRecord.email.isnot(None))
+            db.query(CaseRecord.user_id)
+            .filter(CaseRecord.created_at >= week_ago, CaseRecord.user_id.isnot(None))
             .distinct().all()
         }
-        active_7d = db.query(User).filter(User.email.in_(active_emails)).count() if active_emails else 0
+        active_7d = len(active_user_ids)
         retention_7d_pct = round(active_7d / total_users * 100, 1) if total_users > 0 else 0
 
         # Engaged: ≥3 analiz
-        engaged_emails = {
+        engaged_user_ids = {
             row[0] for row in
-            db.query(CaseRecord.email, func.count(CaseRecord.case_id).label("cnt"))
-            .filter(CaseRecord.email.isnot(None))
-            .group_by(CaseRecord.email)
+            db.query(CaseRecord.user_id, func.count(CaseRecord.case_id).label("cnt"))
+            .filter(CaseRecord.user_id.isnot(None))
+            .group_by(CaseRecord.user_id)
             .having(func.count(CaseRecord.case_id) >= 3)
             .all()
         }
-        engaged_count = db.query(User).filter(User.email.in_(engaged_emails)).count() if engaged_emails else 0
+        engaged_count = len(engaged_user_ids)
         engaged_pct = round(engaged_count / total_users * 100, 1) if total_users > 0 else 0
 
         # Churned: miał ≥1 analizę, ale ostatnia >14 dni temu
         users_with_cases = db.query(User).filter(
-            User.email.in_(
-                db.query(CaseRecord.email).filter(CaseRecord.email.isnot(None)).distinct()
+            User.id.in_(
+                db.query(CaseRecord.user_id).filter(CaseRecord.user_id.isnot(None)).distinct()
             )
         ).all()
 
         churned = []
         for u in users_with_cases:
             last = db.query(CaseRecord.created_at).filter(
-                CaseRecord.email == u.email
+                CaseRecord.user_id == u.id
             ).order_by(CaseRecord.created_at.desc()).first()
             if last and last[0]:
                 last_dt = last[0].replace(tzinfo=None) if hasattr(last[0], 'replace') else last[0]
@@ -1258,7 +1270,7 @@ def get_user_detail(user_id: str) -> Optional[dict]:
         if not u:
             return None
         cases = db.query(CaseRecord).filter(
-            CaseRecord.email == u.email
+            CaseRecord.user_id == u.id
         ).order_by(CaseRecord.created_at.desc()).all()
         collection_count = db.query(CollectionItem).filter(CollectionItem.user_id == u.id).count()
         purchases = (
@@ -1361,9 +1373,9 @@ def get_user_stats() -> dict:
         # Aktywni = unikalni użytkownicy (user.id) z aktywnością w ostatnich 7 dniach
         active_via_analysis = {
             row[0]
-            for row in db.query(User.id)
-            .join(CaseRecord, CaseRecord.email == User.email)
-            .filter(CaseRecord.created_at >= week_ago)
+            for row in db.query(CaseRecord.user_id)
+            .filter(CaseRecord.user_id.isnot(None), CaseRecord.created_at >= week_ago)
+            .distinct()
             .all()
         }
         active_via_collection = {
@@ -1410,13 +1422,13 @@ def get_user_list() -> list:
 
         result = []
         for u in users:
-            analysis_count = db.query(CaseRecord).filter(CaseRecord.email == u.email).count()
+            analysis_count = db.query(CaseRecord).filter(CaseRecord.user_id == u.id).count()
             collection_count = db.query(CollectionItem).filter(CollectionItem.user_id == u.id).count()
 
             case_dates = db.query(
                 _sqla_func.max(CaseRecord.created_at),
                 _sqla_func.min(CaseRecord.created_at),
-            ).filter(CaseRecord.email == u.email).first()
+            ).filter(CaseRecord.user_id == u.id).first()
             last_case = (case_dates[0],) if case_dates and case_dates[0] else None
             first_case = (case_dates[1],) if case_dates and case_dates[1] else None
             last_col = db.query(CollectionItem.added_at).filter(
@@ -1476,18 +1488,20 @@ def get_dashboard_metrics() -> dict:
         total_users = db.query(User).count()
         cases_today = db.query(CaseRecord).filter(CaseRecord.created_at >= day_ago).count()
         cases_7d = db.query(CaseRecord).filter(CaseRecord.created_at >= week_ago).count()
-        logged_in_cases = db.query(CaseRecord).filter(CaseRecord.email.isnot(None)).count()
-        guest_cases = db.query(CaseRecord).filter(CaseRecord.email.is_(None)).count()
+        logged_in_cases = db.query(CaseRecord).filter(CaseRecord.user_id.isnot(None)).count()
+        guest_cases = db.query(CaseRecord).filter(CaseRecord.user_id.is_(None)).count()
 
         users_with_collection = db.query(CollectionItem.user_id).distinct().count()
         collection_adoption = round(users_with_collection / total_users * 100, 1) if total_users > 0 else 0
 
-        # Aktywacja = zarejestrowani użytkownicy z ≥1 analizą (nie distinct emaile z case'ów)
+        # Aktywacja = zarejestrowani użytkownicy z ≥1 analizą (po user_id, nie po
+        # dopasowaniu emaila — CaseRecord.email nie zawsze jest wypełniony, patrz
+        # get_all_cases_from_db)
         users_with_analysis = (
             db.query(User)
             .filter(
-                User.email.in_(
-                    db.query(CaseRecord.email).filter(CaseRecord.email.isnot(None)).distinct()
+                User.id.in_(
+                    db.query(CaseRecord.user_id).filter(CaseRecord.user_id.isnot(None)).distinct()
                 )
             )
             .count()
