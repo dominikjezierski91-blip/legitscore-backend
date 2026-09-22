@@ -6,6 +6,7 @@ Wynik NIE wpływa na verdict, probabilities, confidence_percent ani confidence_l
 Check jest strictly non-fatal — błąd zwraca bezpieczny fallback.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -14,6 +15,10 @@ from typing import Any, Dict, Optional
 from app.services.constants import UNVERIFIED_SUBJECT_VALUES
 
 logger = logging.getLogger(__name__)
+
+# Patrz kit_context_search.py — brak timeoutu na wywołaniu Gemini zamieniał
+# przejściowe zawieszenie API w trwałe zawieszenie całego run-decision.
+_GEMINI_TIMEOUT_S = 60
 
 PLAYER_CLUB_CONSISTENCY_PROMPT = """You are a factual consistency checker for football jersey personalization.
 
@@ -200,14 +205,17 @@ async def _call_gemini(
 
     try:
         client = genai.Client(api_key=api_key)
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=[types.Content(role="user", parts=[types.Part(text="\n".join(input_lines))])],
-            config=types.GenerateContentConfig(
-                system_instruction=PLAYER_CLUB_CONSISTENCY_PROMPT,
-                temperature=0.1,
-                tools=[types.Tool(google_search=types.GoogleSearch())],
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=[types.Part(text="\n".join(input_lines))])],
+                config=types.GenerateContentConfig(
+                    system_instruction=PLAYER_CLUB_CONSISTENCY_PROMPT,
+                    temperature=0.1,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
     except Exception as e:
         logger.warning("player_club_consistency_check błąd API Gemini: %s", e)

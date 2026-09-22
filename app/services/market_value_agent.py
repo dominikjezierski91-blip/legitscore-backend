@@ -23,6 +23,11 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+# Patrz agent_a_gemini.py — brak timeoutu na wywołaniu Gemini zamieniał
+# przejściowe zawieszenie API w trwałe zawieszenie requestu (ta ścieżka jest
+# wywoływana synchronicznie z POST /api/collection/{id}/market-value).
+_GEMINI_TIMEOUT_S = 60
+
 # Przybliżone kursy walut → PLN
 _FX_TO_PLN: Dict[str, float] = {
     "PLN": 1.0,
@@ -316,13 +321,16 @@ async def estimate_via_gemini(report_data: Dict[str, Any]) -> Dict[str, Any]:
     ]
     for attempt, prompt in enumerate(prompts_to_try):
         try:
-            search_resp = await client.aio.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
-                    temperature=0.1,
+            search_resp = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
+                        temperature=0.1,
+                    ),
                 ),
+                timeout=_GEMINI_TIMEOUT_S,
             )
             search_text = search_resp.text or ""
         except Exception:
@@ -371,17 +379,20 @@ async def estimate_via_gemini(report_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     try:
-        extract_resp = await loop.run_in_executor(
-            None,
-            lambda: client.models.generate_content(
-                model=model,
-                contents=extract_prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=json_schema,
-                    temperature=0.0,
+        extract_resp = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: client.models.generate_content(
+                    model=model,
+                    contents=extract_prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=json_schema,
+                        temperature=0.0,
+                    ),
                 ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
         text = extract_resp.text or ""
         result = _extract_json(text)

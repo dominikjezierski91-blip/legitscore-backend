@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONTEXT_BLOCK_CHARS = 1500
 
+# Żadne z wywołań Gemini w tym module nie miało wcześniej ograniczenia czasu —
+# `google-genai` samo z siebie nie ustawia deadline'u, więc pojedyncze zawieszone
+# wywołanie (np. przy przejściowym problemie API Google) blokowało cały
+# run-decision bez końca: brak wyjątku → brak refundu kredytu → case wisi jako
+# IN_PROGRESS na zawsze, a pasek postępu na froncie zamraża się w miejscu.
+# Wszystkie wywołania w tym pliku są już non-fatal (try/except zwraca ""), więc
+# timeout tylko zamienia "zawieszone na zawsze" na "szybko nieudane" — reszta
+# analizy leci dalej normalnie.
+_GEMINI_TIMEOUT_S = 60
+
 
 def _current_season_start_years(count: int = 4) -> List[int]:
     """Rok startowy N ostatnich sezonów piłkarskich, licząc od dzisiejszej daty
@@ -187,13 +197,16 @@ async def run_kit_context_search(asset_paths: List[str]) -> str:
     parts.insert(0, types.Part(text="Identify this jersey:"))
 
     try:
-        id_resp = await client.aio.models.generate_content(
-            model=fast_model,
-            contents=[types.Content(role="user", parts=parts)],
-            config=types.GenerateContentConfig(
-                system_instruction=_IDENTIFICATION_PROMPT,
-                temperature=0.1,
+        id_resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=fast_model,
+                contents=[types.Content(role="user", parts=parts)],
+                config=types.GenerateContentConfig(
+                    system_instruction=_IDENTIFICATION_PROMPT,
+                    temperature=0.1,
+                ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
         identification = (id_resp.text or "").strip()
     except Exception as e:
@@ -281,14 +294,17 @@ async def run_kit_context_search(asset_paths: List[str]) -> str:
 
 async def _fetch_recent_trophies(client, model: str, types, club: str) -> str:
     try:
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=[types.Content(role="user", parts=[types.Part(text=f"Club: {club}")])],
-            config=types.GenerateContentConfig(
-                system_instruction=_TROPHY_SEARCH_PROMPT,
-                temperature=0.1,
-                tools=[types.Tool(google_search=types.GoogleSearch())],
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=[types.Part(text=f"Club: {club}")])],
+                config=types.GenerateContentConfig(
+                    system_instruction=_TROPHY_SEARCH_PROMPT,
+                    temperature=0.1,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
         text = (resp.text or "").strip()
         if "RECENT CONFIRMED TITLES:" in text:
@@ -304,14 +320,17 @@ async def _fetch_current_technology_names(client, model: str, types, manufacture
     if not manufacturer or manufacturer.lower() in ("unknown", "other"):
         return ""
     try:
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=[types.Content(role="user", parts=[types.Part(text=f"Manufacturer: {manufacturer}\nClub: {club}")])],
-            config=types.GenerateContentConfig(
-                system_instruction=_build_tech_name_search_prompt(),
-                temperature=0.1,
-                tools=[types.Tool(google_search=types.GoogleSearch())],
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=[types.Part(text=f"Manufacturer: {manufacturer}\nClub: {club}")])],
+                config=types.GenerateContentConfig(
+                    system_instruction=_build_tech_name_search_prompt(),
+                    temperature=0.1,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
         text = (resp.text or "").strip()
         if "CONFIRMED CURRENT TECHNOLOGY NAMES:" in text:
@@ -329,14 +348,17 @@ async def _fetch_via_url_context(client, model: str, types, url: str, identifica
         f"focusing on the 4 most recent seasons."
     )
     try:
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-            config=types.GenerateContentConfig(
-                system_instruction=_SCRAPE_PROMPT,
-                temperature=0.1,
-                tools=[types.Tool(url_context=types.UrlContext())],
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+                config=types.GenerateContentConfig(
+                    system_instruction=_SCRAPE_PROMPT,
+                    temperature=0.1,
+                    tools=[types.Tool(url_context=types.UrlContext())],
+                ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
         text = (resp.text or "").strip()
         if "OFFICIAL KIT CONTEXT:" in text and len(text) > 200:
@@ -355,14 +377,17 @@ async def _fetch_via_google_search(client, model: str, types, identification: st
         f"Search for ALL recent seasons ({', '.join(labels)})."
     )
     try:
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=[types.Content(role="user", parts=[types.Part(text=search_input)])],
-            config=types.GenerateContentConfig(
-                system_instruction=_build_search_fallback_prompt(),
-                temperature=0.1,
-                tools=[types.Tool(google_search=types.GoogleSearch())],
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=[types.Part(text=search_input)])],
+                config=types.GenerateContentConfig(
+                    system_instruction=_build_search_fallback_prompt(),
+                    temperature=0.1,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
         text = (resp.text or "").strip()
         if "OFFICIAL KIT CONTEXT:" in text:

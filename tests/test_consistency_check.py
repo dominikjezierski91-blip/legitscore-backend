@@ -9,8 +9,11 @@ kod (`if not player_name`) traktował placeholder jak realną wartość — bo s
 zawodnikiem jako wejściem, zamiast poprawnie zwrócić not_applicable/uncertain.
 """
 import asyncio
-from unittest.mock import AsyncMock, patch
+import os
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.services import consistency_check
 from app.services.consistency_check import (
     PLAYER_CLUB_CONSISTENCY_PROMPT,
     _real_value,
@@ -210,3 +213,35 @@ class TestPlayerClubConsistencyPromptRangeBased:
         prompt = PLAYER_CLUB_CONSISTENCY_PROMPT
         assert "CLOSED range" in prompt
         assert "closest to the given" in prompt.lower()
+
+
+class TestGeminiCallTimeout:
+    """Regresja na fix z 2026-09-22: żadne wywołanie Gemini w tym module nie
+    miało timeoutu — zawieszone wywołanie (przejściowy problem po stronie
+    Google, nie realny wyjątek) blokowało cały run-decision bez końca: brak
+    wyjątku -> brak refundu kredytu -> case wisi jako IN_PROGRESS na zawsze.
+    Test dowodzi, że `asyncio.wait_for` w `_call_gemini` faktycznie przerywa
+    zawieszone wywołanie i zwraca fallback w rozsądnym czasie, zamiast wisieć."""
+
+    def test_hanging_gemini_call_times_out_and_returns_fallback(self):
+        async def hang(*args, **kwargs):
+            await asyncio.sleep(5)
+            raise AssertionError("timeout miał przerwać to wywołanie dużo wcześniej")
+
+        fake_client = MagicMock()
+        fake_client.aio.models.generate_content = AsyncMock(side_effect=hang)
+
+        with patch("google.genai.Client", return_value=fake_client), \
+             patch.object(consistency_check, "_GEMINI_TIMEOUT_S", 0.05), \
+             patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}):
+            start = time.monotonic()
+            result = asyncio.run(
+                consistency_check._call_gemini("Lewandowski", "FC Barcelona", "2023/24", "9")
+            )
+            elapsed = time.monotonic() - start
+
+        assert result["status"] == "uncertain"
+        assert result["confidence"] == "low"
+        # Zawieszone wywołanie usypia 5s — jeśli wait_for faktycznie działa,
+        # wracamy dużo szybciej; hojny margines na wolniejsze CI.
+        assert elapsed < 2.0

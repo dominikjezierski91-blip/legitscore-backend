@@ -17,20 +17,47 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs?: number
+): Promise<T> {
   if (!API_BASE_URL) {
     throw new Error("Brak konfiguracji backendu (NEXT_PUBLIC_API_BASE_URL).");
   }
 
   const url = `${API_BASE_URL.replace(/\/$/, "")}${path}`;
   const token = getToken();
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      ...(init && init.headers),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+
+  // Bez timeoutu duży upload zdjęć na słabym połączeniu mobilnym potrafi
+  // wisieć bez końca — fetch() sam z siebie nie ma żadnego limitu czasu.
+  // Podpięte tylko tam, gdzie timeoutMs jest jawnie podany (patrz uploadAssets).
+  const controller = timeoutMs ? new AbortController() : undefined;
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : undefined;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      signal: controller?.signal ?? init?.signal,
+      headers: {
+        ...(init && init.headers),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      throw new ApiError(
+        "Przesyłanie trwa zbyt długo — sprawdź połączenie internetowe i spróbuj ponownie.",
+        408
+      );
+    }
+    throw e;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     let detail: string | undefined;
@@ -107,10 +134,14 @@ export async function uploadAssets(
     form.append("files", file);
   }
 
-  return request<{ assets: unknown[] }>(`/api/cases/${caseId}/assets`, {
-    method: "POST",
-    body: form,
-  });
+  return request<{ assets: unknown[] }>(
+    `/api/cases/${caseId}/assets`,
+    {
+      method: "POST",
+      body: form,
+    },
+    90_000
+  );
 }
 
 export async function runDecision(
@@ -123,8 +154,8 @@ export async function runDecision(
   });
 }
 
-export async function getCase(caseId: string): Promise<unknown> {
-  return request(`/api/cases/${caseId}`);
+export async function getCase(caseId: string, timeoutMs?: number): Promise<unknown> {
+  return request(`/api/cases/${caseId}`, undefined, timeoutMs);
 }
 
 export async function submitFeedback(
@@ -173,7 +204,8 @@ export async function importFromUrl(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
-    }
+    },
+    45_000
   );
 }
 

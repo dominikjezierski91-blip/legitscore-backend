@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import time
@@ -20,6 +21,22 @@ DEFAULT_MODEL = "models/gemini-2.5-pro"
 DEFAULT_PROMPT_VERSION = "a-2.0"
 
 _client: Optional[genai.Client] = None
+
+# `google-genai` nie stawia własnego deadline'u na wywołaniach — bez tego
+# limitu pojedyncze zawieszone wywołanie Gemini (np. przejściowy problem po
+# stronie Google) blokowało cały run-decision bez końca: brak wyjątku → brak
+# refundu kredytu → case wisi jako IN_PROGRESS na zawsze, a pasek postępu na
+# froncie zamraża się w miejscu (patrz analiza produkcyjna 2026-09-22).
+#
+# 120s (nie 60s) — wszystkie 3 wywołania w tym pliku wysyłają PEŁEN zestaw
+# zdjęć (do 12). Realne p95/p99 zmierzone z 52 produkcyjnych `decision.json`
+# (pole trace.latency_ms) dla najcięższego z nich (GeminiAgentA.analyze(),
+# pełny 53KB prompt forensyczny): min 31.0s, p50 40.4s, p90 46.6s, p95 52.0s,
+# max zaobserwowany 54.9s. Przy 60s margines nad realnym maximum wynosił ~5s —
+# za mało, żeby nie ścinać wolniejszych, ale zdrowych analiz (co tylko
+# pogłębiłoby problem "kredyt zjedzony za nieudaną analizę", zamiast go
+# rozwiązać). 120s daje >2x zapas nad zaobserwowanym maksimum.
+_GEMINI_TIMEOUT_S = 120
 
 # ============================================================
 # PRECHECK PROMPTS
@@ -302,14 +319,17 @@ async def combined_coverage_quality_check(asset_paths: List[str]) -> Dict[str, A
     logger.info("Combined coverage+quality check: sending %d images to model %s", valid_images, model)
 
     try:
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=[types.Content(role="user", parts=parts)],
-            config=types.GenerateContentConfig(
-                system_instruction=COVERAGE_QUALITY_CHECK_PROMPT,
-                temperature=0.1,
-                response_mime_type="application/json",
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=parts)],
+                config=types.GenerateContentConfig(
+                    system_instruction=COVERAGE_QUALITY_CHECK_PROMPT,
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
     except Exception as e:
         logger.exception("Combined coverage+quality check API error: %s", e)
@@ -1424,14 +1444,17 @@ async def _run_mfg_check(
         return _MFG_CHECK_FALLBACK.copy()
 
     try:
-        resp = await client.aio.models.generate_content(
-            model=model,
-            contents=[types.Content(role="user", parts=parts)],
-            config=types.GenerateContentConfig(
-                system_instruction=_MFG_CHECK_PROMPT,
-                temperature=0.0,
-                response_mime_type="application/json",
+        resp = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=parts)],
+                config=types.GenerateContentConfig(
+                    system_instruction=_MFG_CHECK_PROMPT,
+                    temperature=0.0,
+                    response_mime_type="application/json",
+                ),
             ),
+            timeout=_GEMINI_TIMEOUT_S,
         )
     except Exception as e:
         logger.warning("[MFG_CHECK] Błąd API Gemini: %s", e)
@@ -2924,14 +2947,17 @@ class GeminiAgentA:
         t0 = time.perf_counter()
 
         try:
-            resp = await client.aio.models.generate_content(
-                model=model,
-                contents=[types.Content(role="user", parts=parts)],
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.2,
-                    response_mime_type="application/json",
+            resp = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=model,
+                    contents=[types.Content(role="user", parts=parts)],
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=0.2,
+                        response_mime_type="application/json",
+                    ),
                 ),
+                timeout=_GEMINI_TIMEOUT_S,
             )
         except Exception as e:
             msg = str(e)

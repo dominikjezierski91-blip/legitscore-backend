@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { PhotoRequirementsCard } from "./photo-requirements-card";
 import { MultiImageUploader } from "./multi-image-uploader";
 import { ReportType, ReportTypeSelector } from "./report-type-selector";
 import { SubmitSummaryCard } from "./submit-summary-card";
-import { createCase, getCredits, authMe } from "@/lib/api";
+import { createCase, getCase, getCredits, authMe } from "@/lib/api";
 import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 import { setPendingSubmission } from "@/lib/submission-store";
 import { useRouter } from "next/navigation";
@@ -41,6 +41,16 @@ export function AnalyzeForm() {
   // true (wymagany), dopóki nie potwierdzimy inaczej z /auth/me.
   const [regulaminCheckboxNeeded, setRegulaminCheckboxNeeded] = useState(true);
   const router = useRouter();
+  // Case_id z poprzedniej nieudanej próby (np. upload zdjęć się urwał) — przy
+  // ponowieniu wznawiamy TEN SAM case zamiast tworzyć nowy przy każdym kliknięciu
+  // "Analizuj". Bez tego seria nieudanych prób zostawia stertę osieroconych
+  // case'ów ze statusem CREATED i zero zdjęć (patrz analiza produkcyjna 2026-09-22).
+  const retryCaseIdRef = useRef<string | null>(null);
+  // Za co dokładnie odpowiadał retryCaseIdRef (jakie zdjęcia/tryb) — jeśli user
+  // między próbami podmienił zdjęcia albo przełączył photos↔url, wznowienie
+  // starego case'a wysłałoby analizę na nieaktualnych danych po cichu (code
+  // review + QA, 2026-09-22). Mismatch = wymuś nowy case.
+  const retryInputSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (user?.email) setEmail(user.email);
@@ -100,34 +110,97 @@ export function AnalyzeForm() {
       return;
     }
 
+    // Sygnatura tego, co user faktycznie chce teraz wysłać — jeśli różni się od
+    // tego, dla czego założono retryCaseIdRef (podmienił zdjęcia, przełączył
+    // photos↔url, poprawił literówkę w emailu / kontekście — email/context są
+    // wysyłane TYLKO przy tworzeniu case'a, więc zmiana bez nowego case'a
+    // zostałaby po cichu zignorowana, code review 2026-09-22), stary case jest
+    // nieaktualny i nie wolno go wznawiać.
+    const inputSignature =
+      (inputMode === "url"
+        ? `url:${auctionUrl}`
+        : `photos:${files.map((f) => `${f.name}:${f.size}`).join(",")}`) +
+      `|email:${email}|context:${context}`;
+    if (retryInputSignatureRef.current !== inputSignature) {
+      retryCaseIdRef.current = null;
+    }
+
     try {
       setSubmitting(true);
-      setSubmitPhase("creating");
-      const { case_id } = await createCase(email, undefined, context, {
-        regulaminAccepted: acceptedDisclaimer,
-        regulaminVersion: REGULAMIN_VERSION,
-        privacyVersion: PRIVACY_VERSION,
-      });
+
+      // Ponowienie po wcześniejszym błędzie (ten sam input co poprzednio): wznów
+      // TEN SAM case zamiast zakładać nowy. Jeśli poprzednia próba faktycznie
+      // dotarła do serwera (zdjęcia się zapisały, tylko odpowiedź nie doszła do
+      // przeglądarki), pomiń re-upload całkowicie — inaczej te same zdjęcia
+      // zostałyby dopisane drugi raz (backend .extend() na liście assets, nie
+      // nadpisuje).
+      let case_id: string;
+      let assetsAlreadySaved = false;
+      if (retryCaseIdRef.current) {
+        case_id = retryCaseIdRef.current;
+        setSubmitPhase("uploading");
+        try {
+          const existing = (await getCase(case_id, 20_000)) as { assets?: unknown[] };
+          assetsAlreadySaved = Array.isArray(existing?.assets) && existing.assets.length > 0;
+        } catch {
+          // Nie udało się zweryfikować stanu starego case'a — NIE zgadujemy i
+          // NIE ponawiamy ślepo na tym samym case_id: dla trybu URL backend
+          // twardo odrzuca powtórny import gdy case ma już zdjęcia (400 "Case
+          // ma już dodane zdjęcia"), a to zapętliłoby usera bez wyjścia z UI
+          // (case_id zostałby, sygnatura inputu ta sama → kolejne kliknięcia
+          // trafiałyby w ten sam błąd); dla trybu photos backend .extend()-uje
+          // bez limitu, więc powtarzane błędy weryfikacji mogłyby narastająco
+          // zdublować zdjęcia ponad liczbę, na jaką skalibrowany jest timeout
+          // Agent A (do 12 zdjęć, patrz agent_a_gemini.py). Bezpieczniejszy
+          // kompromis: załóż nowy case — rzadki osierocony CREATED case (tylko
+          // gdy akurat TA weryfikacja też akurat padnie) jest dużo tańszy niż
+          // pętla bez wyjścia albo narastające duplikaty (code review, drugi
+          // przegląd, 2026-09-22).
+          const created = await createCase(email, undefined, context, {
+            regulaminAccepted: acceptedDisclaimer,
+            regulaminVersion: REGULAMIN_VERSION,
+            privacyVersion: PRIVACY_VERSION,
+          });
+          case_id = created.case_id;
+          retryCaseIdRef.current = case_id;
+          retryInputSignatureRef.current = inputSignature;
+          assetsAlreadySaved = false;
+        }
+      } else {
+        setSubmitPhase("creating");
+        const created = await createCase(email, undefined, context, {
+          regulaminAccepted: acceptedDisclaimer,
+          regulaminVersion: REGULAMIN_VERSION,
+          privacyVersion: PRIVACY_VERSION,
+        });
+        case_id = created.case_id;
+        retryCaseIdRef.current = case_id;
+        retryInputSignatureRef.current = inputSignature;
+      }
 
       setSubmitPhase("uploading");
-      if (inputMode === "url" && auctionUrl) {
-        const { importFromUrl } = await import("@/lib/api");
-        await importFromUrl(case_id, auctionUrl);
-      } else if (inputMode === "photos" && files.length > 0) {
-        const { uploadAssets } = await import("@/lib/api");
-        const fileData = await Promise.all(
-          files.map((f) => new Promise<{ name: string; type: string; buffer: ArrayBuffer }>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve({ name: f.name, type: f.type || "image/jpeg", buffer: e.target!.result as ArrayBuffer });
-            reader.onerror = reject;
-            reader.readAsArrayBuffer(f);
-          }))
-        );
-        const uploadFiles = fileData.map(({ name, type, buffer }) => new File([buffer], name, { type }));
-        await uploadAssets(case_id, uploadFiles);
+      if (!assetsAlreadySaved) {
+        if (inputMode === "url" && auctionUrl) {
+          const { importFromUrl } = await import("@/lib/api");
+          await importFromUrl(case_id, auctionUrl);
+        } else if (inputMode === "photos" && files.length > 0) {
+          const { uploadAssets } = await import("@/lib/api");
+          const fileData = await Promise.all(
+            files.map((f) => new Promise<{ name: string; type: string; buffer: ArrayBuffer }>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = (e) => resolve({ name: f.name, type: f.type || "image/jpeg", buffer: e.target!.result as ArrayBuffer });
+              reader.onerror = reject;
+              reader.readAsArrayBuffer(f);
+            }))
+          );
+          const uploadFiles = fileData.map(({ name, type, buffer }) => new File([buffer], name, { type }));
+          await uploadAssets(case_id, uploadFiles);
+        }
       }
 
       setSubmitPhase("navigating");
+      retryCaseIdRef.current = null;
+      retryInputSignatureRef.current = null;
       setPendingSubmission({
         caseId: case_id,
         mode: reportType,
