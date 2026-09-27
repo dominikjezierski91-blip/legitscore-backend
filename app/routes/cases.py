@@ -13,6 +13,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Request, 
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
+from app.config import PAYMENTS_ENABLED
 from app.models.decision import Decision
 from app.services.agent_a_gemini import GeminiAgentA, normalize_report_data, combined_coverage_quality_check, red_flag_check, run_rule_engine, run_manufacturing_quality_check
 from app.services.consistency_check import run_player_club_consistency_check
@@ -711,8 +712,14 @@ async def run_decision(
     # które dostaje od userów, nie może za każdym razem sam sobie dokupować
     # kredytów). `credit_consumed` pilnuje, żeby refund_credit() niżej nigdy nie
     # doliczył kredytu adminowi, który nic nie "wydał".
+    #
+    # SPEC "Darmowe analizy w becie" (2026-09-27): gdy PAYMENTS_ENABLED=False,
+    # WSZYSCY userzy (nie tylko admini) pomijają bramkę kredytową — analiza
+    # rusza bez pobierania/blokowania na kredytach, saldo w DB pozostaje
+    # nietknięte. Odwracalne: przełączenie flagi na True przywraca dokładnie
+    # poprzednie zachowanie, bez zmian w reszcie tej funkcji.
     credit_consumed = False
-    if not current_user.is_admin:
+    if PAYMENTS_ENABLED and not current_user.is_admin:
         if not consume_credit(current_user.id):
             lock_path.unlink(missing_ok=True)
             lock_created = False

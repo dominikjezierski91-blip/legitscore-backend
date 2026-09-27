@@ -349,6 +349,10 @@ class TestBillingSummary:
 
 class TestRunDecisionCreditGate:
     def test_run_decision_returns_402_when_no_credits(self):
+        """SPEC "Darmowe analizy w becie" (2026-09-27): PAYMENTS_ENABLED domyślnie
+        False, więc ten test musi jawnie włączyć płatności — testuje kontrakt
+        "gdy PAYMENTS_ENABLED=true, zachowanie jest dokładnie takie jak przed
+        wprowadzeniem flagi" (SPEC §6)."""
         user = _make_user(credits=0)
         token = create_access_token(user.id, is_admin=False)
         headers = {"Authorization": f"Bearer {token}"}
@@ -356,9 +360,30 @@ class TestRunDecisionCreditGate:
             case_response = client.post("/api/cases", json={"regulamin_accepted": True})
             case_id = case_response.json()["case_id"]
 
-            response = client.post(f"/api/cases/{case_id}/run-decision", headers=headers)
+            with patch("app.routes.cases.PAYMENTS_ENABLED", True):
+                response = client.post(f"/api/cases/{case_id}/run-decision", headers=headers)
             assert response.status_code == 402
             # Bez kredytu nie mogliśmy w ogóle dotrzeć do sprawdzenia assetów/Gemini.
+            assert get_user_credits(user.id) == 0
+        finally:
+            _cleanup(user.id)
+
+    def test_run_decision_skips_credit_gate_when_payments_disabled(self):
+        """SPEC "Darmowe analizy w becie" §3/§6: gdy PAYMENTS_ENABLED=False
+        (domyślne w becie), user z zerowym saldem NIE dostaje 402 — bramka
+        kredytowa jest pomijana całkowicie, saldo pozostaje nietknięte (nic nie
+        jest konsumowane ani refundowane)."""
+        user = _make_user(credits=0)
+        token = create_access_token(user.id, is_admin=False)
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            case_response = client.post("/api/cases", json={"regulamin_accepted": True})
+            case_id = case_response.json()["case_id"]
+
+            with patch("app.routes.cases.PAYMENTS_ENABLED", False):
+                response = client.post(f"/api/cases/{case_id}/run-decision", headers=headers)
+            # Bez assetów i tak polegnie (400) — kluczowe jest, że NIE 402.
+            assert response.status_code != 402
             assert get_user_credits(user.id) == 0
         finally:
             _cleanup(user.id)
@@ -401,6 +426,12 @@ class TestRunDecisionCreditGate:
             ), patch(
                 "app.routes.cases.GeminiAgentA.analyze",
                 side_effect=HTTPException(status_code=502, detail="Chwilowy problem z usługą analizy AI."),
+            ), patch(
+                # SPEC "Darmowe analizy w becie" (2026-09-27): bez tego kredyt
+                # nigdy nie zostałby skonsumowany w pierwszej kolejności (domyślne
+                # PAYMENTS_ENABLED=False), więc asercja "kredyt wrócił" poniżej
+                # przechodziłaby niczego realnie nie sprawdzając.
+                "app.routes.cases.PAYMENTS_ENABLED", True,
             ):
                 response = client.post(f"/api/cases/{case_id}/run-decision", headers=headers)
 

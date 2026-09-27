@@ -23,6 +23,7 @@ from app.routes import monitoring as monitoring_router
 from app.routes import billing as billing_router
 from app.services.database import init_db
 from app.services.security import limiter, ALLOWED_ORIGINS, SECURITY_HEADERS
+from app.config import PAYMENTS_ENABLED
 
 # Konfiguracja logowania
 logging.basicConfig(level=logging.INFO)
@@ -138,6 +139,15 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.get("/api/health")
 async def health():
     return {"ok": True, "production": PRODUCTION}
+
+
+# Efektywna konfiguracja feature-flag dla frontendu — bez auth, cache'owalna.
+# Frontend czyta payments_enabled stąd zamiast ufać własnemu build-time env
+# var (SPEC "Darmowe analizy w becie", §3) — jedno przełączenie na serwerze
+# wystarcza, bez redeployu frontendu.
+@app.get("/api/config")
+async def public_config():
+    return {"payments_enabled": PAYMENTS_ENABLED}
 
 # Podłącz routery pod prefixem /api
 app.include_router(cases.router, prefix="/api")

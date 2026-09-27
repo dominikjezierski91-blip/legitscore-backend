@@ -4,6 +4,7 @@ import { ReactNode } from "react";
 import { Shell } from "@/components/layout/shell";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { CookieConsentProvider } from "@/components/layout/cookie-consent-provider";
+import { PaymentsConfigProvider } from "@/components/layout/payments-config-provider";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://app.legitscore.app"),
@@ -16,11 +17,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="pl" suppressHydrationWarning className="h-full">
       <body className="min-h-screen overflow-x-hidden bg-background text-foreground antialiased">
-        <AuthProvider>
-          <CookieConsentProvider>
-            <Shell>{children}</Shell>
-          </CookieConsentProvider>
-        </AuthProvider>
+        <PaymentsConfigProvider>
+          <AuthProvider>
+            <CookieConsentProvider>
+              <Shell>{children}</Shell>
+            </CookieConsentProvider>
+          </AuthProvider>
+        </PaymentsConfigProvider>
       </body>
     </html>
   );

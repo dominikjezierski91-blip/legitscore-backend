@@ -15,6 +15,7 @@ import {
 import { ReportType } from "./report-type-selector";
 import { SubmissionDisclaimer } from "./submission-disclaimer";
 import { cn } from "@/lib/utils";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
 
 type Props = {
   reportType: ReportType;
@@ -53,6 +54,7 @@ export function SubmitSummaryCard({
   onDisclaimerChange,
   showDisclaimerCheckbox,
 }: Props) {
+  const paymentsEnabled = usePaymentsEnabled();
   const submitLabel =
     submitPhase === "creating" ? "Tworzę sprawę..." :
     submitPhase === "uploading" ? (inputMode === "url" ? "Pobieranie zdjęć..." : "Przesyłanie zdjęć...") :
@@ -114,7 +116,14 @@ export function SubmitSummaryCard({
               status={disclaimerAccepted ? "ok" : "warn"}
             />
           )}
-          {!isLoggedIn ? (
+          {!paymentsEnabled ? (
+            <SummaryRow
+              icon={<Sparkles className="h-3 w-3" />}
+              label="Dostępne analizy"
+              value="Darmowe w becie"
+              status="ok"
+            />
+          ) : !isLoggedIn ? (
             <SummaryRow
               icon={<Sparkles className="h-3 w-3" />}
               label="Dostępne analizy"
@@ -168,7 +177,7 @@ export function SubmitSummaryCard({
             <ArrowRight className="h-3 w-3" />
           </button>
         </div>
-        {isLoggedIn && credits === 0 && (
+        {paymentsEnabled && isLoggedIn && credits === 0 && (
           <Link
             href="/billing"
             className="inline-flex w-full items-center justify-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-500/20"

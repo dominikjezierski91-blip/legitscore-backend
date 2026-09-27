@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import Link from "next/link";
 import { getCollection, changePassword, deleteAccount, exportUserData, authMe, updateUserProfile, resendVerification, getCredits, type AuthMeResponse } from "@/lib/api";
 import { Loader2, User, LogOut, Download, ChevronDown, ChevronUp, Shield, Trash2, MailWarning, Settings } from "lucide-react";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
 
 const USER_TYPE_OPTIONS = [
   { value: "kolekcjoner", label: "Kolekcjoner" },
@@ -34,6 +35,7 @@ function SectionHeader({ title }: { title: string }) {
 
 export default function AccountPage() {
   const { user, loading: authLoading, logout } = useAuth();
+  const paymentsEnabled = usePaymentsEnabled();
   const router = useRouter();
   const [itemCount, setItemCount] = useState<number | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
@@ -245,12 +247,16 @@ export default function AccountPage() {
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-500">Dostępne analizy</span>
-              <span className="flex items-center gap-2">
-                <span className="text-slate-200">{credits === null ? "…" : credits}</span>
-                <Link href="/billing" className="text-emerald-400 underline underline-offset-2 hover:text-emerald-300">
-                  Kup więcej
-                </Link>
-              </span>
+              {paymentsEnabled ? (
+                <span className="flex items-center gap-2">
+                  <span className="text-slate-200">{credits === null ? "…" : credits}</span>
+                  <Link href="/billing" className="text-emerald-400 underline underline-offset-2 hover:text-emerald-300">
+                    Kup więcej
+                  </Link>
+                </span>
+              ) : (
+                <span className="text-emerald-300">Darmowe w becie</span>
+              )}
             </div>
             {profileSaved && <p className="text-xs text-emerald-400">Zapisano.</p>}
           </div>

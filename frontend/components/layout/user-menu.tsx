@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Sparkles, Settings, Mail, LogOut, LayoutDashboard } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
+import { BETA_FREE_LOGGED_IN_SENTENCE } from "@/components/billing/beta-free-badge";
 
 type UserMenuProps = {
   email: string;
@@ -19,6 +21,7 @@ type UserMenuProps = {
  * dashboard, wylogowanie) — zdejmuje to z głównego rzędu nawigacji. */
 export function UserMenu({ email, credits, isAdmin, criticalCount }: UserMenuProps) {
   const { logout } = useAuth();
+  const paymentsEnabled = usePaymentsEnabled();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -58,15 +61,26 @@ export function UserMenu({ email, credits, isAdmin, criticalCount }: UserMenuPro
         <div className="absolute right-0 top-full z-20 mt-2 w-56 space-y-1 rounded-2xl border border-border/60 bg-slate-900/95 p-2 text-sm shadow-xl shadow-black/40 backdrop-blur">
           <p className="truncate px-3 py-1.5 text-xs text-slate-500">{email}</p>
 
-          {credits !== null && (
+          {!paymentsEnabled ? (
             <Link
               href="/billing"
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 rounded-xl px-3 py-2 text-emerald-300 transition hover:bg-emerald-500/10"
             >
               <Sparkles className="h-4 w-4 shrink-0" />
-              Dostępne analizy: {credits}
+              {BETA_FREE_LOGGED_IN_SENTENCE}
             </Link>
+          ) : (
+            credits !== null && (
+              <Link
+                href="/billing"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-emerald-300 transition hover:bg-emerald-500/10"
+              >
+                <Sparkles className="h-4 w-4 shrink-0" />
+                Dostępne analizy: {credits}
+              </Link>
+            )
           )}
 
           <Link

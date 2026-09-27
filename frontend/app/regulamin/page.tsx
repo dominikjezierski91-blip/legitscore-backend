@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 const CONTENT = `
 <h1>Regulamin serwisu LegitScore</h1>
-<p class="meta">legitscore.app · Wersja 2.1 · obowiązuje od 2 września 2026</p>
+<p class="meta">legitscore.app · Wersja 2.2 · obowiązuje od 27 września 2026</p>
 
 <div class="note">
   <strong>Najważniejsze:</strong> LegitScore dostarcza <strong>ocenę ryzyka autentyczności</strong> koszulki na podstawie zdjęć, wykonywaną przez systemy sztucznej inteligencji. <strong>Nie jest to certyfikat autentyczności, gwarancja ani ekspertyza rzeczoznawcza — i może zawierać błędy.</strong> Wynik ma charakter informacyjny i pomocniczy — ostateczną decyzję (w tym zakupową lub sprzedażową) podejmujesz wyłącznie samodzielnie, na własne ryzyko. Skorzystanie z Usługi wymaga założenia Konta i zalogowania się.
@@ -39,6 +39,7 @@ const CONTENT = `
   <li>W przypadku niewystarczającej jakości lub kompletności zdjęć system może wskazać ograniczenia analizy lub odmówić wydania jednoznacznej oceny.</li>
   <li>Uruchomienie Analizy wymaga zalogowania na Konto (zob. §4). Przesłanie zdjęć może nastąpić przed zalogowaniem, natomiast sama Analiza rozpoczyna się dopiero po zalogowaniu.</li>
   <li>Obecnie pierwsza i kolejne Analizy są <strong>nieodpłatne</strong> (wersja beta). Usługodawca zamierza docelowo wprowadzić model, w którym pierwsza Analiza pozostanie darmowa dla zalogowanego Użytkownika, a kolejne mogą być odpłatne zgodnie z cennikiem publikowanym w Serwisie. Wprowadzenie odpłatności nastąpi wyłącznie po uprzedniej aktualizacji Regulaminu i publikacji cennika, z odpowiednim wyprzedzeniem, i nie będzie dotyczyć Usług już wykonanych ani rozpoczętych przed tą zmianą.</li>
+  <li>Usługa jest obecnie udostępniana w wersji beta. W okresie bety analiza autentyczności jest świadczona bezpłatnie. <strong>W zamian Użytkownik wyraża zgodę na przetwarzanie i wykorzystanie treści przesłanych do Usługi</strong> (w szczególności zdjęć, metadanych zdjęć, linków do ogłoszeń oraz deklarowanych informacji o egzemplarzu) w celu rozwoju Usługi, w tym budowy referencyjnej bazy danych koszulek oraz trenowania, walidacji i ulepszania modeli uczenia maszynowego. Usługodawca może przechowywać i wykorzystywać te dane również po zakończeniu korzystania z Usługi w zakresie niezbędnym do powyższych celów. Szczegóły, w tym podstawę prawną i prawo do wycofania zgody, opisuje <a href="/polityka-prywatnosci">Polityka prywatności</a>. Wersja beta może zawierać ograniczenia i nie gwarantuje ciągłości ani bezbłędności działania.</li>
 </ol>
 
 <h2>§4. Konto Użytkownika i logowanie</h2>

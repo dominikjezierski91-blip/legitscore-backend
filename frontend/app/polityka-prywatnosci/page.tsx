@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 const CONTENT = `
 <h1>Polityka prywatności</h1>
-<p class="meta">Serwis LegitScore (legitscore.app) · Wersja 2.1 · obowiązuje od 2 września 2026</p>
+<p class="meta">Serwis LegitScore (legitscore.app) · Wersja 2.2 · obowiązuje od 27 września 2026</p>
 
 <div class="note">
   <strong>W skrócie:</strong> LegitScore wymaga założenia Konta (e-mail i hasło, albo logowanie przez Google/Facebook) i zalogowania się przed uruchomieniem analizy przesłanych zdjęć koszulek. Analiza jest wykonywana z użyciem zewnętrznych usług sztucznej inteligencji. Poniżej wyjaśniamy, jakie dane zbieramy, po co, komu je powierzamy i jakie masz prawa.
@@ -34,6 +34,7 @@ const CONTENT = `
   <tr><th>Cel</th><th>Podstawa prawna (RODO)</th></tr>
   <tr><td>Założenie i obsługa Konta, w tym logowanie przez Google/Facebook, uwierzytelnianie i zabezpieczenie dostępu</td><td>art. 6 ust. 1 lit. b (niezbędność do wykonania umowy o świadczenie usług drogą elektroniczną)</td></tr>
   <tr><td>Wykonanie usługi analizy i udostępnienie Raportu</td><td>art. 6 ust. 1 lit. b oraz lit. a (zgoda) — w zakresie przetwarzania przesłanych zdjęć</td></tr>
+  <tr><td><strong>Rozwój Usługi w okresie bety</strong> — budowa referencyjnej bazy danych koszulek oraz trenowanie, walidacja i ulepszanie modeli uczenia maszynowego z wykorzystaniem przesłanych zdjęć, ich metadanych, linków do ogłoszeń oraz deklarowanych cech egzemplarza. To "wynagrodzenie" za bezpłatny dostęp do Usługi w okresie bety — zob. <a href="/regulamin">Regulamin</a> §3.</td><td>art. 6 ust. 1 lit. a (zgoda wyrażona przy uruchomieniu Analizy w becie)</td></tr>
   <tr><td>Wysyłka wiadomości e-mail związanych z Kontem (powitalna, potwierdzenie adresu e-mail, reset hasła)</td><td>art. 6 ust. 1 lit. b oraz lit. f (prawnie uzasadniony interes — bezpieczeństwo Konta)</td></tr>
   <tr><td>Wysyłka materiałów promocyjnych i marketingowych LegitScore (np. kody promocyjne, informacje o nowych funkcjach) na adres e-mail Konta</td><td>art. 6 ust. 1 lit. a (zgoda wyrażona przy zakładaniu Konta — zob. <a href="/regulamin">Regulamin</a>); zgodę można wycofać w każdej chwili bez wpływu na możliwość korzystania z Konta</td></tr>
   <tr><td>Analityka i statystyki (cookies)</td><td>art. 6 ust. 1 lit. a (zgoda wyrażona w banerze cookies)</td></tr>
@@ -67,6 +68,7 @@ const CONTENT = `
 <ul>
   <li><strong>Dane Konta</strong> (e-mail, hasło, dane logowania OAuth): do czasu usunięcia Konta. Konto możesz usunąć samodzielnie w każdej chwili w ustawieniach Konta w Serwisie — usunięcie jest natychmiastowe i obejmuje dane Konta oraz powiązaną Kolekcję.</li>
   <li><strong>Zdjęcia i Raporty:</strong> przez czas niezbędny do wykonania usługi i obsługi ewentualnych reklamacji, nie dłużej niż 24 miesiące lub do momentu usunięcia Konta / cofnięcia zgody / żądania usunięcia.</li>
+  <li><strong>Dane wykorzystane do rozwoju Usługi w okresie bety</strong> (referencyjna baza koszulek, trenowanie modeli): mogą być przechowywane i wykorzystywane dłużej niż powyższe okresy, przez czas potrzebny do rozwoju Usługi, także po usunięciu Konta lub zaprzestaniu korzystania z Usługi — w zakresie, w jakim dane te zostały już włączone do referencyjnej bazy danych lub użyte do wytrenowania modeli (zob. pkt 8 poniżej w zakresie skutków wycofania zgody).</li>
   <li><strong>Dane techniczne / logi:</strong> przez okres niezbędny dla bezpieczeństwa, zwykle do 12 miesięcy.</li>
   <li><strong>Dane analityczne (cookies):</strong> zgodnie z okresami ważności poszczególnych plików cookies i do czasu cofnięcia zgody.</li>
 </ul>
@@ -74,6 +76,7 @@ const CONTENT = `
 
 <h2>8. Twoje prawa</h2>
 <p>Masz prawo do: dostępu do danych, ich sprostowania, usunięcia, ograniczenia przetwarzania, wniesienia sprzeciwu, przenoszenia danych oraz cofnięcia zgody w dowolnym momencie (bez wpływu na zgodność z prawem przetwarzania przed jej cofnięciem). Usunięcie Konta i danych możesz zrealizować samodzielnie w ustawieniach Konta, a dostęp do swoich danych (eksport) pobrać bezpośrednio z Serwisu. Aby skorzystać z pozostałych praw, napisz na <a href="mailto:info@legitscore.app">info@legitscore.app</a>.</p>
+<p><strong>Wycofanie zgody na wykorzystanie danych do rozwoju Usługi (pkt 3 powyżej):</strong> możesz to zrobić w każdej chwili, pisząc na <a href="mailto:info@legitscore.app">info@legitscore.app</a>. Wycofanie zgody zatrzymuje dalsze wykorzystywanie Twoich danych do tego celu na przyszłość, ale nie wpływa na zgodność z prawem przetwarzania dokonanego przed wycofaniem — w szczególności nie oznacza automatycznego "wycofania" danych, które zostały już włączone do wytrenowanego modelu uczenia maszynowego, ponieważ techniczne wyodrębnienie wpływu pojedynczego zdjęcia z już wytrenowanego modelu zwykle nie jest możliwe. Zdjęcia, których to dotyczy, usuniemy z referencyjnej bazy danych na Twoje żądanie w zakresie, w jakim jest to technicznie możliwe.</p>
 <p>Masz również prawo wnieść skargę do organu nadzorczego: <strong>Prezes Urzędu Ochrony Danych Osobowych (PUODO)</strong>, ul. Stawki 2, 00-193 Warszawa.</p>
 
 <h2>9. Pliki cookies</h2>

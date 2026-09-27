@@ -85,6 +85,12 @@ async function request<T>(
   return JSON.parse(text) as T;
 }
 
+// SPEC "Darmowe analizy w becie" §3: efektywna wartość feature-flagi płatności
+// pochodzi z backendu (jedno źródło prawdy), nie z build-time env var frontu.
+export async function getConfig(): Promise<{ payments_enabled: boolean }> {
+  return request("/api/config", undefined, 8_000);
+}
+
 export type HistoriaItem = {
   case_id: string;
   created_at: string | null;

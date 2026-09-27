@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
+import { BETA_FREE_DATA_NOTICE } from "@/components/billing/beta-free-badge";
 
 type Props = {
   accepted: boolean;
@@ -13,6 +15,7 @@ type Props = {
 // osobny "krok" bez żadnej akcji. Dla już zaakceptowanych userów wystarcza
 // istniejące zdanie "narzędzie pomocnicze, nie gwarancja" w tym samym miejscu.
 export function SubmissionDisclaimer({ accepted, onChange }: Props) {
+  const paymentsEnabled = usePaymentsEnabled();
   return (
     <div className="space-y-2 text-xs text-muted-foreground">
       <label className="flex items-start gap-2">
@@ -33,10 +36,21 @@ export function SubmissionDisclaimer({ accepted, onChange }: Props) {
           >
             Regulamin
           </Link>{" "}
-          oraz przyjmuję do wiadomości, że analiza LegitScore to ocena ryzyka,
-          a nie certyfikat autentyczności.
+          oraz{" "}
+          <Link
+            href="/polityka-prywatnosci"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-emerald-300 underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Politykę prywatności
+          </Link>
+          , w tym przyjmuję do wiadomości, że analiza LegitScore to ocena
+          ryzyka, a nie certyfikat autentyczności.
         </span>
       </label>
+      {!paymentsEnabled && <p>{BETA_FREE_DATA_NOTICE}</p>}
       <p>
         Dokładność raportu zależy od jakości i kompletności przesłanych zdjęć
         lub dostępności zdjęć w podanym ogłoszeniu.

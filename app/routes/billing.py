@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.config import PAYMENTS_ENABLED
 from app.routes.auth import get_current_user
 from app.services.database import (
     User,
@@ -78,6 +79,16 @@ def create_checkout(
     current_user: User = Depends(get_current_user),
 ):
     """Tworzy Stripe Checkout Session dla wybranego pakietu i zwraca URL do przekierowania."""
+    # SPEC "Darmowe analizy w becie" §3: w becie nie inicjujemy żadnych
+    # wywołań do operatora płatności — spójny, nieszkodliwy stan zamiast
+    # realnej sesji Stripe. Kod checkoutu poniżej zostaje nietknięty (tylko
+    # owinięty), żeby przełączenie flagi z powrotem na True przywróciło
+    # dokładnie poprzednie zachowanie.
+    if not PAYMENTS_ENABLED:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "payments_disabled_beta", "message": "Analizy są obecnie darmowe w wersji beta."},
+        )
     if data.package not in PACKAGES:
         raise HTTPException(status_code=400, detail="Nieznany pakiet.")
     try:

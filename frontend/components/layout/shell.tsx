@@ -12,6 +12,7 @@ import { useCookieConsent } from "@/components/layout/cookie-consent-provider";
 import { authHeaders } from "@/lib/auth";
 import { getCredits } from "@/lib/api";
 import { UserMenu } from "@/components/layout/user-menu";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
 
 const MAIN_TABS = [
   { href: "/analyze/form", label: "Analiza", icon: Shirt },
@@ -27,6 +28,7 @@ type ShellProps = {
 
 export function Shell({ children, className, subtitle }: ShellProps) {
   const { user } = useAuth();
+  const paymentsEnabled = usePaymentsEnabled();
   const pathname = usePathname();
   // Strona /przyklad jest publiczną wizytówką linkowaną z landing page'a (Lovable) —
   // dopóki oba serwisy nie są ze sobą spięte, odwiedzający nie powinien mieć stąd
@@ -143,7 +145,7 @@ export function Shell({ children, className, subtitle }: ShellProps) {
                       </Link>
                     );
                   })}
-                  {credits !== null && (
+                  {paymentsEnabled && credits !== null && (
                     <Link
                       href="/billing"
                       aria-label={`Sklep — ${credits} dostępnych analiz`}

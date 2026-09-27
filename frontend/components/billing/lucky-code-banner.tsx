@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "@/components/auth/auth-provider";
 import { getLuckyCodeStatus, redeemPromoCode } from "@/lib/api";
 import { Gift, Loader2, PartyPopper, X } from "lucide-react";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
 
 type Props = {
   onRedeemed?: (credits: number) => void;
@@ -12,6 +13,10 @@ type Props = {
 
 export function LuckyCodeBanner({ onRedeemed }: Props) {
   const { user } = useAuth();
+  // SPEC "Darmowe analizy w becie" §4: kredyty są bez znaczenia gdy wszystko
+  // jest darmowe — gate tutaj, w jednym miejscu, zamiast w każdym call site
+  // (billing page + strona raportu).
+  const paymentsEnabled = usePaymentsEnabled();
   const [status, setStatus] = useState<{ code: string; credits: number; available: boolean } | null>(null);
   const [redeeming, setRedeeming] = useState(false);
   const [redeemed, setRedeemed] = useState(false);
@@ -19,11 +24,11 @@ export function LuckyCodeBanner({ onRedeemed }: Props) {
   const [successCredits, setSuccessCredits] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !paymentsEnabled) return;
     getLuckyCodeStatus()
       .then(setStatus)
       .catch(() => {});
-  }, [user]);
+  }, [user, paymentsEnabled]);
 
   async function handleRedeem() {
     if (!status) return;
@@ -41,7 +46,7 @@ export function LuckyCodeBanner({ onRedeemed }: Props) {
     }
   }
 
-  const showBanner = user && status?.available && !redeemed;
+  const showBanner = paymentsEnabled && user && status?.available && !redeemed;
 
   return (
     <>

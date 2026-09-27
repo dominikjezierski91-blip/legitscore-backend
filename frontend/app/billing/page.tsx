@@ -14,7 +14,14 @@ import {
 } from "@/lib/api";
 import { Loader2, Sparkles, Ticket, Zap, ShieldCheck, Receipt } from "lucide-react";
 import { LuckyCodeBanner } from "@/components/billing/lucky-code-banner";
+import {
+  BetaFreeBadge,
+  BETA_FREE_SENTENCE,
+  BETA_FREE_DATA_NOTICE,
+} from "@/components/billing/beta-free-badge";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
 import { declineAnaliza } from "@/lib/utils";
+import Link from "next/link";
 
 function formatPrice(grosz: number): string {
   return `${(grosz / 100).toFixed(2).replace(".00", "")} zł`;
@@ -63,6 +70,7 @@ const PACKAGE_STYLE: Record<BillingPackageKey, {
 
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuth();
+  const paymentsEnabled = usePaymentsEnabled();
   const router = useRouter();
 
   const [packages, setPackages] = useState<Record<BillingPackageKey, BillingPackage> | null>(null);
@@ -141,45 +149,68 @@ export default function BillingPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">Twoje analizy</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {credits === null
+          {!paymentsEnabled
+            ? BETA_FREE_SENTENCE
+            : credits === null
             ? "Pierwsza analiza jest zawsze darmowa — kolejne kupujesz pojedynczo albo w pakiecie."
             : "Przegląd salda, historii analiz i zakupów."}
         </p>
       </div>
 
+      {!paymentsEnabled && (
+        <div className="glass-card flex flex-col items-center gap-2 p-5 text-center">
+          <BetaFreeBadge />
+          <p className="text-xs text-muted-foreground">
+            {BETA_FREE_DATA_NOTICE}{" "}
+            <Link href="/regulamin" className="text-emerald-300 hover:underline">
+              Regulamin
+            </Link>{" "}
+            i{" "}
+            <Link href="/polityka-prywatnosci" className="text-emerald-300 hover:underline">
+              Polityka prywatności
+            </Link>
+            .
+          </p>
+        </div>
+      )}
+
       {summary && (
-        <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
-          <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
-            <Zap className="h-4 w-4 text-emerald-400" />
-            <p className="text-2xl font-bold tracking-tight text-emerald-300">{summary.credits}</p>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Dostępne analizy</p>
-          </div>
+        <div className={`grid gap-2.5 sm:gap-3 ${paymentsEnabled ? "grid-cols-3" : "grid-cols-1"}`}>
+          {paymentsEnabled && (
+            <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
+              <Zap className="h-4 w-4 text-emerald-400" />
+              <p className="text-2xl font-bold tracking-tight text-emerald-300">{summary.credits}</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Dostępne analizy</p>
+            </div>
+          )}
           <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
             <ShieldCheck className="h-4 w-4 text-slate-300" />
             <p className="text-2xl font-bold tracking-tight text-slate-100">{summary.analyses_completed}</p>
             <p className="text-[10px] uppercase tracking-wide text-slate-500">Wykonane analizy</p>
           </div>
-          <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
-            <Receipt className="h-4 w-4 text-slate-300" />
-            <p className="text-2xl font-bold tracking-tight text-slate-100">{totalPurchasedCredits}</p>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">Łącznie kupione analizy</p>
-          </div>
+          {paymentsEnabled && (
+            <div className="glass-card flex flex-col items-center gap-1 p-4 text-center">
+              <Receipt className="h-4 w-4 text-slate-300" />
+              <p className="text-2xl font-bold tracking-tight text-slate-100">{totalPurchasedCredits}</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Łącznie kupione analizy</p>
+            </div>
+          )}
         </div>
       )}
 
-      <LuckyCodeBanner onRedeemed={refreshSummary} />
+      {paymentsEnabled && <LuckyCodeBanner onRedeemed={refreshSummary} />}
 
       {error && (
         <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>
       )}
 
-      {packages === null && !error && (
+      {paymentsEnabled && packages === null && !error && (
         <div className="flex flex-1 items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
         </div>
       )}
 
-      {packages !== null && (
+      {paymentsEnabled && packages !== null && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {PACKAGE_ORDER.map((key) => {
             const pkg = packages[key];
@@ -228,6 +259,7 @@ export default function BillingPage() {
         </div>
       )}
 
+      {paymentsEnabled && (
       <div className="glass-card flex flex-col gap-3 p-5">
         <div className="flex items-center gap-2">
           <Ticket className="h-4 w-4 text-emerald-400" />
@@ -252,6 +284,7 @@ export default function BillingPage() {
         {promoMessage && <p className="text-xs text-emerald-300">{promoMessage}</p>}
         {promoError && <p className="text-xs text-red-300">{promoError}</p>}
       </div>
+      )}
 
       {summary && summary.purchases.length > 0 && (
         <div className="glass-card flex flex-col gap-3 p-5">
