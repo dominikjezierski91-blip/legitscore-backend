@@ -9,6 +9,7 @@ import {
   getPendingSubmission,
 } from "@/lib/submission-store";
 import { useAuth } from "@/components/auth/auth-provider";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
 import { Loader2, ShieldAlert, AlertTriangle, ArrowLeft, Camera } from "lucide-react";
 
 const DEBUG = typeof process !== "undefined" && process.env.NODE_ENV === "development";
@@ -30,6 +31,7 @@ type Props = {
 export function AnalyzeStatus({ caseId, mode }: Props) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const paymentsEnabled = usePaymentsEnabled();
   const [error, setError] = useState<string | null>(null);
   const [noCredits, setNoCredits] = useState(false);
   const [precheckError, setPrecheckError] = useState<PrecheckError | null>(null);
@@ -215,7 +217,9 @@ export function AnalyzeStatus({ caseId, mode }: Props) {
             Zdjęcia gotowe do analizy
           </h1>
           <p className="text-sm text-muted-foreground">
-            Pierwsza analiza jest darmowa dla zalogowanych użytkowników.
+            {paymentsEnabled
+              ? "Pierwsza analiza jest darmowa dla zalogowanych użytkowników."
+              : "Wszystkie analizy są darmowe w wersji beta dla zalogowanych użytkowników."}{" "}
             Zaloguj się albo załóż darmowe konto, żeby ją uruchomić i zobaczyć wynik.
           </p>
         </div>

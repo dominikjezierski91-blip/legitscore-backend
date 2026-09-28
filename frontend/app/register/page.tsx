@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { ProfileSurveyModal } from "@/components/onboarding/profile-survey-modal";
 import { LegitScoreLogo } from "@/components/ui/legitscore-logo";
 import { SocialLoginButtons } from "@/components/auth/social-login-buttons";
+import { usePaymentsEnabled } from "@/components/layout/payments-config-provider";
 
 const OAUTH_AVAILABLE = Boolean(
   process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_FACEBOOK_APP_ID
@@ -15,6 +16,7 @@ import { REGULAMIN_VERSION, PRIVACY_VERSION } from "@/lib/legal-versions";
 
 function RegisterForm() {
   const { register, user } = useAuth();
+  const paymentsEnabled = usePaymentsEnabled();
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/collection";
@@ -94,7 +96,7 @@ function RegisterForm() {
               </li>
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
-                Pierwsza analiza gratis
+                {paymentsEnabled ? "Pierwsza analiza gratis" : "Wszystkie analizy gratis w becie"}
               </li>
               <li className="flex items-center gap-2">
                 <span className="text-emerald-400 font-semibold">✓</span>
